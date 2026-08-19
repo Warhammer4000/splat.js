@@ -75,8 +75,10 @@ function boot() {
     rb.hidden = false;
     rb.addEventListener('click', async () => {
       try {
-        const file = await recordCaptureVideo();
-        if (file) useOwnVideo(file);
+        const got = await recordCaptureVideo();
+        if (!got) return;
+        if (got.kind === 'video') useOwnVideo(got.file);
+        else useOwnPhotos(got.files);   // stills: straight in, no extraction
       } catch (e) {
         console.error(e);
         flash(`Camera unavailable: ${e.message}`, 6000);

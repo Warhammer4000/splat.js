@@ -52,8 +52,14 @@ async function lockExposure(track) {
 }
 
 /**
- * Full-screen recorder. Resolves to a video File (or null on cancel).
- * onDone(file) is invoked after teardown so the caller can run extraction.
+ * Full-screen capture UI with two modes:
+ *   video   record a walk, resolve { kind: 'video', file }
+ *   photos  tap the shutter per shot (stills grabbed from the live stream —
+ *           no codec loss, no walking blur), resolve { kind: 'photos', files }
+ * Resolves null on cancel. Exposure locking is identical in both modes: it is
+ * a property of the camera TRACK, so a photo series does not gain a lock on
+ * platforms (iOS) that refuse the constraint — it gains clean, deliberate
+ * frames instead.
  */
 export async function recordCaptureVideo() {
   const mime = pickMime();
@@ -71,19 +77,34 @@ export async function recordCaptureVideo() {
   ui.className = 'camrec';
   ui.innerHTML = `
     <video id="cam-view" autoplay muted playsinline></video>
-    <div class="camrec-top"><span class="chip" id="cam-status">settling …</span></div>
-    <div class="camrec-hint">Move <b>sideways</b>, slowly. Keep the subject in frame — a wide arc beats a spin.</div>
+    <div class="camrec-top">
+      <span class="chip" id="cam-status">settling …</span>
+      <div class="seg camrec-mode" id="cam-mode">
+        <button data-m="video" aria-pressed="true">Video</button>
+        <button data-m="photos" aria-pressed="false">Photos</button>
+      </div>
+    </div>
+    <div class="camrec-hint" id="cam-hint">Move <b>sideways</b>, slowly. Keep the subject in frame — a wide arc beats a spin.</div>
     <div class="camrec-row">
       <button class="btn btn-quiet" id="cam-cancel">Cancel</button>
-      <button class="camrec-btn" id="cam-rec" aria-label="Record"></button>
+      <button class="camrec-btn" id="cam-rec" aria-label="Capture"></button>
       <span class="camrec-time" id="cam-time">0:00</span>
-    </div>`;
+    </div>
+    <button class="btn btn-accent camrec-done" id="cam-done" hidden>Use 0 photos</button>`;
   document.body.appendChild(ui);
   const view = ui.querySelector('#cam-view');
   view.srcObject = stream;
+  const el = (id) => ui.querySelector('#' + id);
+
+  const HINTS = {
+    video: 'Move <b>sideways</b>, slowly. Keep the subject in frame — a wide arc beats a spin.',
+    photos: 'A <b>step sideways</b> between shots. 30–80 overlapping photos of one place.',
+  };
 
   return new Promise((resolve) => {
+    let mode = 'video';
     let rec = null, chunks = [], t0 = 0, timer = 0;
+    const photos = [];
     const teardown = () => {
       clearInterval(timer);
       track.stop();
@@ -94,17 +115,50 @@ export async function recordCaptureVideo() {
     // let auto-exposure settle on the scene for a moment, then freeze it
     setTimeout(async () => {
       const what = await lockExposure(track);
-      const st = ui.querySelector('#cam-status');
+      const st = el('cam-status');
       if (st) st.textContent = what;
     }, 1200);
 
-    ui.querySelector('#cam-cancel').addEventListener('click', () => {
+    el('cam-mode').addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b || (rec && rec.state !== 'inactive')) return;   // not mid-recording
+      mode = b.dataset.m;
+      [...el('cam-mode').children].forEach((x) =>
+        x.setAttribute('aria-pressed', String(x === b)));
+      el('cam-hint').innerHTML = HINTS[mode];
+      el('cam-rec').dataset.mode = mode;
+      el('cam-time').textContent = mode === 'photos' ? `${photos.length} shots` : '0:00';
+      el('cam-done').hidden = !(mode === 'photos' && photos.length >= 2);
+    });
+
+    el('cam-cancel').addEventListener('click', () => {
       if (rec && rec.state !== 'inactive') rec.stop();
       teardown();
       resolve(null);
     });
 
-    ui.querySelector('#cam-rec').addEventListener('click', function () {
+    el('cam-done').addEventListener('click', () => {
+      teardown();
+      resolve({ kind: 'photos', files: photos.slice() });
+    });
+
+    const snap = async () => {
+      const w = view.videoWidth, h = view.videoHeight;
+      const cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      cv.getContext('2d').drawImage(view, 0, 0, w, h);
+      const blob = await new Promise((res, rej) => cv.toBlob(
+        (b) => (b ? res(b) : rej(new Error('jpeg encode failed'))), 'image/jpeg', 0.95));
+      photos.push(new File([blob], `shot_${String(photos.length + 1).padStart(4, '0')}.jpg`, { type: 'image/jpeg' }));
+      el('cam-time').textContent = `${photos.length} shots`;
+      el('cam-done').hidden = photos.length < 2;
+      el('cam-done').textContent = `Use ${photos.length} photos`;
+      ui.classList.add('camrec-flash');
+      setTimeout(() => ui.classList.remove('camrec-flash'), 120);
+    };
+
+    el('cam-rec').addEventListener('click', function () {
+      if (mode === 'photos') { snap(); return; }
       if (!rec) {
         rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 16e6 });
         chunks = [];
@@ -113,15 +167,15 @@ export async function recordCaptureVideo() {
           const type = mime.split(';')[0];
           const ext = type.includes('mp4') ? 'mp4' : 'webm';
           teardown();
-          resolve(new File([new Blob(chunks, { type })], `capture.${ext}`, { type }));
+          resolve({ kind: 'video', file: new File([new Blob(chunks, { type })], `capture.${ext}`, { type }) });
         };
         rec.start(1000);
         t0 = performance.now();
         this.dataset.on = '1';
         timer = setInterval(() => {
           const s = Math.floor((performance.now() - t0) / 1000);
-          const el = ui.querySelector('#cam-time');
-          if (el) el.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+          const t = el('cam-time');
+          if (t) t.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
         }, 500);
       } else if (rec.state !== 'inactive') {
         rec.stop();

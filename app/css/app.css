@@ -378,3 +378,13 @@ body {
 .camrec-btn[data-on="1"]::after { width: 26px; height: 26px; border-radius: 6px; }
 
 .upload-btns { display: flex; gap: 8px; align-items: center; }
+
+/* capture-mode toggle + photo-mode shutter */
+.camrec-top { display: flex; gap: 10px; align-items: center; }
+.camrec-mode button { min-width: 64px; }
+.camrec-btn[data-mode="photos"] { border-color: var(--accent); }
+.camrec-btn[data-mode="photos"]::after { background: var(--paper); }
+.camrec-done {
+  position: absolute; right: 22px; bottom: 108px;
+}
+.camrec-flash video { filter: brightness(1.7); }
