@@ -147,10 +147,15 @@ export async function recordCaptureVideo() {
     });
 
     const snap = async () => {
-      const w = view.videoWidth, h = view.videoHeight;
+      // capped at 640 wide for now — keeps phone solves/training light
+      const sc = Math.min(1, 640 / view.videoWidth);
+      const w = Math.round(view.videoWidth * sc), h = Math.round(view.videoHeight * sc);
       const cv = document.createElement('canvas');
       cv.width = w; cv.height = h;
-      cv.getContext('2d').drawImage(view, 0, 0, w, h);
+      const c2 = cv.getContext('2d');
+      c2.imageSmoothingEnabled = true;
+      c2.imageSmoothingQuality = 'high';
+      c2.drawImage(view, 0, 0, w, h);
       const blob = await new Promise((res, rej) => cv.toBlob(
         (b) => (b ? res(b) : rej(new Error('jpeg encode failed'))), 'image/jpeg', 0.95));
       photos.push(new File([blob], `shot_${String(photos.length + 1).padStart(4, '0')}.jpg`, { type: 'image/jpeg' }));
