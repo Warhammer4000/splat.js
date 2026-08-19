@@ -13,3 +13,4 @@ scratch/
 node_modules/
 prototype_backup_isotropic/
 tmp/
+dist/
