@@ -80,6 +80,26 @@ try {
       result.psnrHold = m.psnrHold;
       const hist = session.lossHistory;
       result.psnrTrain = hist.length ? hist[hist.length - 1][1] : null;
+      // interactive view render at a LARGER-than-training canvas (the black-
+      // render class of bug: view buffers sized only for the training res)
+      const cv = document.createElement('canvas');
+      cv.width = 1200; cv.height = 800;
+      session.view.attach(cv);
+      const meta = session.trainer.camMeta[0];
+      const s = Math.min(1200 / meta.w, 800 / meta.h);
+      session.view.setCamera({
+        R: meta.R, t: meta.t, f: meta.f * s,
+        cx: 600, cy: 400, w: 1200, h: 800,
+      });
+      session.view.renderNow();
+      const c2 = document.createElement('canvas');
+      c2.width = 64; c2.height = 64;
+      const x2 = c2.getContext('2d');
+      x2.drawImage(cv, 0, 0, 64, 64);
+      const px = x2.getImageData(0, 0, 64, 64).data;
+      let sum = 0;
+      for (let i = 0; i < px.length; i += 4) sum += px[i] + px[i + 1] + px[i + 2];
+      result.viewPixelSum = sum;
     }
     await post(result);
   } else if (scene === 'truck-ate' || scene === 'camping-ate') {

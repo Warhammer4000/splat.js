@@ -328,7 +328,10 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
         wk.onmessage = (e) => {
           results[e.data.id] = e.data;
           doneF++;
-          ev({ stage: 'features', done: doneF, total: n });
+          // detail carries the REAL keypoints (references, feature scale) so a
+          // UI can draw them as they arrive
+          ev({ stage: 'features', done: doneF, total: n,
+               detail: { image: e.data.id, n: e.data.n, x: e.data.x, y: e.data.y } });
           if (doneF % 16 === 0) log(`  features: ${doneF}/${n}`);
           if (doneF === n) resolve();
           else feed(wk);
@@ -435,7 +438,12 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
         failedRich.push({ i, j, matches });
       }
     }
-    ev({ stage: 'matching', done, total: pairs.length, detail: { usable: pairInfo.length } });
+    const lastPair = pairInfo[pairInfo.length - 1];
+    ev({ stage: 'matching', done, total: pairs.length, detail: {
+      usable: pairInfo.length,
+      // a drawable sample of the latest surviving pair (feature indices)
+      pair: lastPair ? { i: lastPair.i, j: lastPair.j, sample: lastPair.matches.slice(0, 70) } : null,
+    } });
     if (done % 40 === 0) { log(`  pairs: ${done}/${pairs.length} (${pairInfo.length} usable)`); await tick(); checkAbort(); }
   }
   checkAbort();
@@ -1001,7 +1009,11 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
           if (triangulateTrack(tracks[tid])) newPts++;
         }
         vlog(`registered image ${bestImg} (${reg.inliers}/${bestCount} inliers, +${newPts} points)`);
-        if (withBA) ev({ stage: 'register', done: registered.size, total: n, detail: { image: bestImg } });
+        if (withBA) {
+          ev({ stage: 'register', done: registered.size, total: n, detail: {
+            image: bestImg, R: Array.from(reg.R), t: Array.from(reg.t), f: K[bestImg].f,
+          } });
+        }
 
         if (++sinceRefine >= 3) { globalRefine(1); sinceRefine = 0; }
         // periodic joint BA so the growing chain never drifts into a bent

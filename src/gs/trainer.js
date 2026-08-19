@@ -375,6 +375,7 @@ export class GSTrainer {
       ci = (ci + 1) % this.camMeta.length;
     }
     const meta = this.camMeta[ci];
+    this.lastCam = ci; // which camera this step trains on (UI pulse)
     if (this.shK) {
       // INRIA-style band ramp: one SH degree per 1000 iters
       this.camUniforms[ci][32] = Math.min(this.shDeg, Math.floor(this.iter / 1000));

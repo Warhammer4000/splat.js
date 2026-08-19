@@ -191,8 +191,10 @@ export class Session {
       const s = im.tw / im.fw;
       return { ...c, f: c.f * s, cx: im.tw / 2, cy: im.th / 2, w: im.tw, h: im.th };
     });
-    const maxW = Math.max(...cams.map((c) => c.w));
-    const maxH = Math.max(...cams.map((c) => c.h));
+    // output buffers must fit the largest view the host will ever render —
+    // interactive canvases are usually LARGER than the training resolution
+    const maxW = Math.max(this.opts.maxViewW ?? 2560, ...cams.map((c) => c.w));
+    const maxH = Math.max(this.opts.maxViewH ?? 1440, ...cams.map((c) => c.h));
     this.trainer.setup(this.model, cams, this.frames, maxW, maxH, this.model.radius);
 
     // blur-aware training: the blurriest frames stay registered (their poses
@@ -373,6 +375,15 @@ export class Session {
       return out;
     });
   }
+
+  /** PSNR of one training camera against its own photograph (serialized with
+   *  the other metric readbacks; safe to call while training). */
+  evalFramePsnr(ci) {
+    return this._locked(() => this.trainer.evalCamPsnr(ci));
+  }
+
+  /** Index of the camera the trainer most recently stepped on (UI pulse). */
+  get activeCam() { return this.trainer ? this.trainer.lastCam : -1; }
 
   /** Standard 3DGS .ply with Mip opacity compensation baked (what external
    *  sorted viewers expect). */

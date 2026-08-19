@@ -130,6 +130,7 @@ try {
     if (th.rmsMax != null) ok = check('BA rms px', result.rmsBA, th.rmsMax) && ok;
     if (th.psnrTrainMin != null) ok = check('train PSNR dB', result.psnrTrain, th.psnrTrainMin, '>=') && ok;
     if (th.psnrHoldMin != null) ok = check('holdout PSNR dB', result.psnrHold, th.psnrHoldMin, '>=') && ok;
+    if (result.viewPixelSum != null) ok = check('view render pixel sum', result.viewPixelSum, 1000, '>=') && ok;
     if (th.atePctMax != null) {
       const a = ateFromPoses(scene, result);
       if (a.skip) console.log(`  skip ATE: ${a.skip}`);
