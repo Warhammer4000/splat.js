@@ -24,9 +24,11 @@ ready  →  prep  →  train  →  done        (+ Details, on demand, once done)
   from with links to the paper and the image set, the fact that everything runs
   in this tab, and *Start training*. No description of the scene — the button
   already says there is no 3D yet. Once a run starts, the top left keeps the set
-  name and a **← Train another set** button: that reopens this same card over the
-  running job, with a Cancel. Nothing is thrown away until a different set is
-  actually picked — clicking the set you are already on just closes the card.
+  name and a **← Train another set** button, which reopens this same card over the
+  running job with an × in its corner. There it is a chooser, not a switch:
+  clicking a tile only chooses (the card repaints for that set), the run behind it
+  carries on untouched, and nothing loads until **Start training** commits. × or
+  Esc goes back to the run.
 - **prep** — the solve runs itself. Four beats, about eight seconds, each one
   visible on the big stage: landmarks appearing on a photo → two frames with the
   matches that survived → cameras dropping into place around the cloud → points
@@ -35,10 +37,11 @@ ready  →  prep  →  train  →  done        (+ Details, on demand, once done)
 - **train** — the main event. The stage is the model, sharpening. Play/pause,
   1×/4×/16×, cycle count, splat count, the score curve, both scores. Frames pulse
   in the strip as they get sampled.
-- **done** — chrome recedes, the model gets the whole screen. The dock carries
-  the honest number, and: compare with the hidden photo · replay · export .ply ·
-  **Export to Arrival.Space** (the primary action — the demo's reason to exist is
-  putting the result somewhere).
+- **done** — the bottom bar disappears entirely and the model gets everything
+  down to the filmstrip, with the camera frustums left on faintly so it still
+  reads as a reconstruction. Every number moves into **Details**; the only two
+  controls are Details and **Export**, which opens a menu — send to
+  Arrival.Space, or download the .ply.
 
 **Details** is a separate view, and it only exists after the run: landmarks,
 matching and the camera solve, each with its own picture, plus the score curve
@@ -60,6 +63,26 @@ looking for it.
 Kept from v1 because they carry the demo: the loupe, the filmstrip, the two-line
 score curve, and the full-bleed result.
 
+## The model, and how it gets better
+
+`viewport.js` is the only renderer: project, bucket-sort by depth, composite soft
+sprites back to front. The scene is seeded the way the trainer seeds it — one
+splat per landmark plus jittered clones, ~80–90k — and **quality is a function of
+training progress**, so the thing you watch improve is the model itself:
+
+| | early | late |
+|---|---|---|
+| capacity | ~28% of the set drawn | all of it |
+| position | displaced along a per-splat random direction | settled on the landmark |
+| size | fat | tight |
+| colour | washed toward grey | resolved |
+| opacity | thin | firm |
+| floaters | present | recycled away past 45% |
+
+It re-rasterises only when the camera or the training state moves, at reduced
+capacity while the camera is actually moving and one full pass once it stops —
+the same progressive trick every splat viewer uses.
+
 ## One camera, no modes
 
 There is no "Model" / "Frame N" switch. There is a camera, and a frame is a place
@@ -71,10 +94,10 @@ it can be:
   model keeps rendering outside the photo's frame, which is what makes it read as
   one scene rather than two pictures.
 - **The photograph is the top layer, and every reveal takes some of it away.**
-  *Swipe* wipes it off from the divider (photograph left, render right),
-  *Loupe* punches a hole in it, *Render* removes it entirely, *Error* replaces
-  both with the difference. That is the same mechanic the real thing will have:
-  a 2D image lying over a live render, removed to show what is underneath.
+  *Swipe* wipes it off from the divider (photograph left, render right), *Loupe*
+  punches a hole in it, *Error* replaces both with the difference. Swipe is where
+  a frame always opens; change it and the choice sticks as you move between
+  frames. There is no "off" — a mode that does nothing is not a mode.
 - **Drag** and the camera simply moves off. It starts from the frame's exact
   position, orientation and focal length, so nothing jumps; the photograph fades
   out because it no longer lines up. Click another frame to snap onto that one.
@@ -82,14 +105,11 @@ it can be:
 The reveal controls only exist while the camera is on a frame, so there is never a
 control that does nothing.
 
-*Mockup detail:* what the reveal uncovers should be — and in the wired-up version
-will be — the live render, because there is only ever one render. Here it is
-`develop.js`'s photo-derived field instead, because this mockup's "model" is a 26k
-sparse SfM cloud: revealing it next to a photograph reads as a broken
-reconstruction while the score bar claims 25 dB. Open **`?reveal=model`** to see
-the honest version — same code path, `base:false` passed to `Developer.render`,
-nothing underneath but the 3D view. That is the one line to delete when the real
-rasterizer is behind it.
+There is no second renderer and no preview image. `develop.js` never draws the
+model — it only lays the photograph over whatever `viewport.js` has put on the
+canvas and takes some of it away again, and the error map is a genuine read-back
+of those pixels diffed against the photograph. Wiring the trainer in means
+swapping what fills the canvas, and nothing else.
 
 ## Which way is up
 

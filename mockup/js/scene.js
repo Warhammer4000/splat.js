@@ -217,6 +217,37 @@ export async function loadScene(preset) {
     if (cx.length > 200) center = [med(cx), med(cy), med(cz)];
   }
 
+  // Seed the model the way the trainer does: one splat per landmark plus a few
+  // jittered clones, so surfaces have something to be built out of. Each splat
+  // also carries a random direction — the displacement it starts training with
+  // and walks off as the optimiser settles it.
+  const splats = (() => {
+    const n0 = xyz.length / 3;
+    const clones = Math.max(1, Math.min(5, Math.round(90000 / Math.max(1, n0))));
+    const n = n0 * clones;
+    const sxyz = new Float32Array(n * 3);
+    const srgb = new Uint8Array(n * 3);
+    const sjit = new Float32Array(n * 3);
+    const spread = radius * 0.011;
+    const R2 = rng(4177 + n0);
+    let o = 0;
+    for (let i = 0; i < n0; i++) {
+      const i3 = i * 3;
+      for (let c = 0; c < clones; c++) {
+        const d = c === 0 ? 0 : spread;              // the original sits put
+        sxyz[o] = xyz[i3] + (R2() - .5) * d;
+        sxyz[o + 1] = xyz[i3 + 1] + (R2() - .5) * d;
+        sxyz[o + 2] = xyz[i3 + 2] + (R2() - .5) * d;
+        srgb[o] = rgb[i3]; srgb[o + 1] = rgb[i3 + 1]; srgb[o + 2] = rgb[i3 + 2];
+        sjit[o] = (R2() - .5) * 2;
+        sjit[o + 1] = (R2() - .5) * 2;
+        sjit[o + 2] = (R2() - .5) * 2;
+        o += 3;
+      }
+    }
+    return { sxyz, srgb, sjit, sn: n };
+  })();
+
   // per-frame numbers the inspector browses
   const R1 = rng(9973 + preset.count);
   const placedCount = preset.stats.cams;
@@ -240,5 +271,5 @@ export async function loadScene(preset) {
   const holdout = cams.findIndex((c, i) => c.state === 'placed' && i > placedCount * .45);
   if (holdout >= 0) cams[holdout].state = 'holdout';
 
-  return { preset, frames: names, cams, xyz, rgb, center, radius, holdout };
+  return { preset, frames: names, cams, xyz, rgb, ...splats, center, radius, holdout };
 }

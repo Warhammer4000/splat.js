@@ -13,10 +13,6 @@ import { drawMarks, drawMatches } from '../../js/marks.js';
 import { bmp, readyBmp } from '../../js/img.js';
 
 const $ = (id) => document.getElementById(id);
-
-// ?reveal=model — the slider reveals the live 3D render instead of the stand-in.
-// This is what the wired-up version does; here it shows the sparse mock cloud.
-const TRUE_RENDER = new URLSearchParams(location.search).get('reveal') === 'model';
 const fmt = (n) => Math.round(n).toLocaleString('en-US');
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -34,10 +30,11 @@ const S = {
   preset: null, scene: null,
   sel: 0, active: 0,
   atFrame: -1, compare: 'swipe',      // atFrame = the camera is sitting on that pose
+  pending: null,                      // set chosen in the picker, not loaded yet
   fade: 0, fadeTo: 0,                 // how much of the photograph is laid over the model
   loupe: { x: 0, y: 0, r: 104 }, swipe: .5, rect: null,
   iter: 0, maxIter: 40000, speed: 1, splats: 0, training: false,
-  prepAt: 0, fired: null, flash: null, replayAt: null, own: false, picking: false,
+  prepAt: 0, fired: null, flash: null, own: false, picking: false,
   detailTab: 'marks',
 };
 
@@ -53,14 +50,13 @@ function boot() {
   vp.onLeave = leaveFrame;
   dev = new Developer();
 
-  $('btn-go').addEventListener('click', () => {
-    if (S.own) flash('In the real thing this is where your own photos go. The demo ships the ready sets.', 5000);
-    else if (S.picking) closePicker();
-    else startPrep();
+  $('btn-go').addEventListener('click', async () => {
+    if (S.own) { flash('In the real thing this is where your own photos go. The demo ships the ready sets.', 5000); return; }
+    if (S.picking) { const p = S.pending || S.preset; closePicker(); await open(p, true); return; }
+    startPrep();
   });
   $('btn-new').addEventListener('click', showPicker);
-  $('btn-cancel').addEventListener('click', closePicker);
-  $('btn-details').addEventListener('click', openDetails);
+  $('card-x').addEventListener('click', closePicker);
   $('d-close').addEventListener('click', () => { $('details').hidden = true; });
 
   addEventListener('resize', () => { vp.resize(); chart?.resize(); dchart?.resize(); dvp?.resize(); });
@@ -89,7 +85,8 @@ function buildSetPicker() {
     b.dataset.id = p.id;
     b.innerHTML = `<div class="ph"></div><span>${p.name}</span>`;
     b.addEventListener('click', () => {
-      if (p === S.preset && !S.own) return;        // already on it: nothing to do
+      if (S.picking) { S.pending = p; S.own = false; paintCard(p); return; }   // choose, do not load
+      if (p === S.preset && !S.own) return;                                   // already on it
       open(p);
     });
     host.appendChild(b);
@@ -109,36 +106,39 @@ function buildSetPicker() {
   host.appendChild(own);
 }
 
-/** open the chooser over a run in progress — nothing is thrown away until a
- *  different set is actually picked */
+function paintCard(preset) {
+  $('start-kind').textContent = preset.kind;
+  $('start-title').textContent = preset.name;
+  $('start-origin').textContent = preset.origin;
+  $('start-links').innerHTML = preset.links
+    .map((l) => `<a href="${l.url}" target="_blank" rel="noopener">${l.label}</a>`).join('');
+  $('card-runs').hidden = false;
+  $('btn-go').textContent = 'Start training';
+  [...$('setpick').children].forEach((b) =>
+    b.setAttribute('aria-pressed', String(b.dataset.id === preset.id)));
+}
+
+/** the chooser, over a run that keeps going behind it. Choosing a tile only
+ *  chooses — the current run is untouched until Start training commits. */
 function showPicker() {
   if (S.state === 'ready') return;
   S.picking = true; S.own = false;
-  $('start-kind').textContent = 'Choose a set';
-  $('start-title').textContent = 'Train another set';
-  $('start-origin').textContent =
-    `Picking a set starts over. Cancel to go back to ${S.preset.name}.`;
-  $('start-links').innerHTML = '';
-  $('card-runs').hidden = true;
-  $('btn-go').hidden = true;
-  $('btn-cancel').hidden = false;
-  [...$('setpick').children].forEach((b) =>
-    b.setAttribute('aria-pressed', String(b.dataset.id === S.preset.id)));
+  S.pending = S.preset;
+  paintCard(S.preset);
+  $('card-x').hidden = false;
   $('start').hidden = false;
 }
 
 function closePicker() {
-  S.picking = false; S.own = false;
+  S.picking = false; S.own = false; S.pending = null;
   $('start').hidden = true;
-  $('card-runs').hidden = false;
-  $('btn-go').hidden = false;
-  $('btn-cancel').hidden = true;
+  $('card-x').hidden = true;
   $('btn-go').textContent = 'Start training';
 }
 
 /** the [+] tile: same card, different set of words */
 function showOwn() {
-  S.own = true;
+  S.own = true; S.pending = null;
   $('start-kind').textContent = 'Your own photos';
   $('start-title').textContent = 'Bring your own';
   $('start-origin').textContent =
@@ -162,18 +162,16 @@ async function heroUrl(p) {
   } catch { return null; }
 }
 
-async function open(preset) {
+async function open(preset, autostart = false) {
   S.preset = preset;
   S.state = 'ready';
-  S.own = false; S.picking = false;
+  S.own = false; S.picking = false; S.pending = null;
   S.scene = null;
   $('btn-go').textContent = 'Start training';
-  $('btn-go').hidden = false;
-  $('btn-cancel').hidden = true;
+  $('card-x').hidden = true;
   $('card-runs').hidden = false;
   $('start').hidden = true;
   $('controls').hidden = true;
-  $('btn-details').disabled = true;
   $('btn-new').hidden = true;
   $('set-name').hidden = true;
   $('strip').innerHTML = '';
@@ -183,22 +181,17 @@ async function open(preset) {
   S.scene = await loadScene(preset);
   S.sel = 0; S.active = 0; S.iter = 0; S.training = false;
   S.atFrame = -1; S.fade = 0; S.fadeTo = 0;
-  S.prepAt = 0; S.fired = new Set(); S.replayAt = null;
+  S.prepAt = 0; S.fired = new Set();
   S.splats = Math.round(preset.stats.splats * .34);
   vp.lock = null; vp.enabled = true;
   vp.setScene(S.scene);
   buildStrip();
 
-  $('start-kind').textContent = preset.kind;
-  $('start-title').textContent = preset.name;
-  $('start-origin').textContent = preset.origin;
-  $('start-links').innerHTML = preset.links
-    .map((l) => `<a href="${l.url}" target="_blank" rel="noopener">${l.label}</a>`).join('');
+  paintCard(preset);
   $('set-name').textContent = `${preset.name} · ${preset.count} frames`;
-  [...$('setpick').children].forEach((b) =>
-    b.setAttribute('aria-pressed', String(b.dataset.id === preset.id)));
-  $('start').hidden = false;
   bmp(S.scene.cams[0].url);
+  if (autostart) startPrep();
+  else $('start').hidden = false;
 }
 
 // ── prep ────────────────────────────────────────────────────────────────────
@@ -245,9 +238,9 @@ function finish() {
   $('stage').dataset.cursor = 'grab';
   vp.frameScene();
   vp.dist = S.scene.radius * 2.2;
-  $('btn-details').disabled = false;
   renderControls();
-  dock('done');
+  dock('');
+  flash(`Done · ${S.preset.psnr.hold.toFixed(1)} dB on the photograph it never saw`, 6000);
 }
 
 /** score curve: a saturating approach from ~11.5 dB below where it lands */
@@ -286,17 +279,51 @@ const cursorFor = (m) => (m === 'loupe' ? 'loupe' : m === 'swipe' ? 'swipe' : 'g
 function renderControls() {
   const c = $('controls');
   c.innerHTML = '';
-  const on = (S.state === 'train' || S.state === 'done') && S.atFrame >= 0;
-  c.hidden = !on;
-  if (!on) return;
-  // nothing to switch between: the camera is on frame N, so these only choose
-  // how much of that frame's photograph is revealed over the render
-  c.appendChild(seg([['render', 'Render'], ['loupe', 'Loupe'], ['swipe', 'Swipe'], ['error', 'Error']],
-    S.compare, (v) => {
-      S.compare = v;
-      $('stage').dataset.cursor = cursorFor(v);
-      renderControls();
-    }));
+  const live = S.state === 'train' || S.state === 'done';
+  c.hidden = !live;
+  if (!live) return;
+
+  // on a frame: how much of that frame's photograph is revealed over the render
+  if (S.atFrame >= 0) {
+    c.appendChild(seg([['swipe', 'Swipe'], ['loupe', 'Loupe'], ['error', 'Error']],
+      S.compare, (v) => {
+        S.compare = v;
+        $('stage').dataset.cursor = cursorFor(v);
+        renderControls();
+      }));
+  }
+
+  if (S.state !== 'done') return;
+
+  const details = document.createElement('button');
+  details.className = 'cbtn';
+  details.textContent = 'Details';
+  details.addEventListener('click', openDetails);
+  c.appendChild(details);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'exportwrap';
+  wrap.innerHTML = `
+    <button class="cbtn accent" id="r-export">
+      <svg viewBox="0 0 24 24" aria-hidden="true" class="dl"><path d="M12 3v11m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>Export</button>
+    <div class="menu" id="ex-menu" hidden>
+      <button id="ex-arr"><b>Send to Arrival.Space</b><span>Straight into one of your rooms</span></button>
+      <button id="ex-ply"><b>Download .ply</b><span>Standard splat file · ${(S.preset.stats.splats * 44 / 1e6).toFixed(1)} MB</span></button>
+    </div>`;
+  c.appendChild(wrap);
+
+  const menu = wrap.querySelector('#ex-menu');
+  wrap.querySelector('#r-export').addEventListener('click', (e) => {
+    e.stopPropagation(); menu.hidden = !menu.hidden;
+  });
+  wrap.querySelector('#ex-ply').addEventListener('click', () => {
+    menu.hidden = true;
+    flash(`A .ply of ${fmt(S.preset.stats.splats)} splats would land in your downloads.`, 4000);
+  });
+  wrap.querySelector('#ex-arr').addEventListener('click', () => {
+    menu.hidden = true;
+    flash('Publishes the splat straight into one of your arrival.space rooms.', 4500);
+  });
 }
 
 /** put the camera exactly on a frame's pose and lay its photograph over the model */
@@ -449,28 +476,6 @@ function dock(kind) {
     return;
   }
 
-  const st = S.preset.stats;
-  d.innerHTML = `
-    <h2>Done</h2>
-    <p><b class="mono">${S.preset.psnr.hold.toFixed(1)} dB</b> on the photograph it never saw ·
-       ${fmt(st.splats)} splats · ${(st.splats * 44 / 1e6).toFixed(1)} MB</p>
-    <span class="grow"></span>
-    <div class="dock-actions">
-      <button class="btn btn-quiet" id="r-hold">Compare with the hidden photo</button>
-      <button class="btn btn-quiet" id="r-replay">Replay</button>
-      <button class="btn btn-quiet" id="r-export">Export .ply</button>
-      <button class="btn btn-accent" id="r-arrival">Export to Arrival.Space</button>
-    </div>`;
-  $('r-hold').addEventListener('click', () => {
-    const h = S.scene.holdout >= 0 ? S.scene.holdout : S.sel;
-    S.compare = 'swipe';
-    select(h); goToFrame(h);
-  });
-  $('r-replay').addEventListener('click', replay);
-  $('r-export').addEventListener('click', () =>
-    flash(`A .ply of ${fmt(st.splats)} splats would land in your downloads.`, 4000));
-  $('r-arrival').addEventListener('click', () =>
-    flash('Publishes the splat straight into one of your arrival.space rooms.', 4500));
 }
 
 function chartTip(h) {
@@ -483,20 +488,6 @@ function chartTip(h) {
   tip.innerHTML = `${fmt(h.iter)} · <b style="color:#2fd4c1">${h.train.toFixed(1)}</b>` +
     (h.hold != null ? ` / <b style="color:#f2a03f">${h.hold.toFixed(1)}</b> dB` : '') +
     (h.event ? `<br><span style="color:#93a1a0">${h.event}</span>` : '');
-}
-
-function replay() {
-  goToFrame(S.sel);
-  S.compare = 'render';
-  renderControls();
-  const t0 = performance.now();
-  const tick = () => {
-    const u = (performance.now() - t0) / 5000;
-    S.replayAt = Math.min(1, u);
-    if (u < 1) requestAnimationFrame(tick);
-    else setTimeout(() => { S.replayAt = null; }, 800);
-  };
-  tick();
 }
 
 // ── flash ───────────────────────────────────────────────────────────────────
@@ -606,8 +597,7 @@ function draw() {
   const r = cv.getBoundingClientRect();
   if (Math.abs(r.width * (vp.dpr || 1) - cv.width) > 2 || Math.abs(r.height * (vp.dpr || 1) - cv.height) > 2) vp.resize();
   const ctx = vp.ctx, w = vp.w, h = vp.h, dpr = vp.dpr || 1;
-  const prog = S.replayAt != null ? S.replayAt
-    : S.state === 'done' ? 1 : Math.pow(S.iter / S.maxIter, .62);
+  const prog = S.state === 'done' ? 1 : Math.pow(S.iter / S.maxIter, .62);
 
   if (S.state === 'ready') { photoStage(ctx, w, h, dpr, 0); return; }
 
@@ -617,7 +607,7 @@ function draw() {
     if (st.kind === 'marks') return photoStage(ctx, w, h, dpr, st.u);
     if (st.kind === 'matches') return pairStage(ctx, w, h, dpr, st.u);
     return vp.draw({
-      mode: st.kind === 'seed' ? 'blobs' : 'points',
+      mode: st.kind === 'seed' ? 'splats' : 'points',
       progress: st.kind === 'seed' ? st.u * .05 : 0,
       cams: S.scene.cams, showCams: true, showPath: true,
       reveal: st.kind === 'cameras' ? Math.round(st.u * S.preset.stats.cams) : undefined,
@@ -628,11 +618,14 @@ function draw() {
   const onFrame = S.atFrame >= 0;
 
   vp.draw({
-    mode: 'blobs', progress: prog,
+    mode: 'splats', progress: prog,
     cams: S.scene.cams,
-    showCams: S.state === 'train' || onFrame,
+    showCams: true,
     showPath: S.state === 'train' && !onFrame,
-    faint: onFrame, skip: S.atFrame,
+    // context, not subject: on a frame, and once the run is done and the model
+    // is the thing being looked at
+    faint: onFrame || S.state === 'done',
+    skip: S.atFrame,
     active: S.training ? S.active : -1, sel: S.sel,
     dimOthers: S.training,
   });
@@ -643,8 +636,8 @@ function draw() {
     ctx.scale(dpr, dpr);
     ctx.globalAlpha = S.fade;
     S.rect = dev.render(ctx, w / dpr, h / dpr, {
-      progress: prog, mode: S.compare, loupe: S.loupe, swipe: S.swipe,
-      clear: false, base: !TRUE_RENDER,
+      mode: S.compare, loupe: S.loupe, swipe: S.swipe, dpr,
+      key: `${S.atFrame}:${Math.round(prog * 90)}`,
     });
     ctx.restore();
   }
@@ -793,7 +786,16 @@ function renderDetails() {
              Math.abs(gap) < 1.5 ? 'accent' : 'red')}
       ${stat('Splats', fmt(st.splats))}
       ${stat('Exported file', `${(st.splats * 44 / 1e6).toFixed(1)} <small>MB</small>`)}
-    </div>`;
+      ${stat('Time in this tab', `${S.preset.minutes} <small>min</small>`)}
+    </div>
+    <button class="btn btn-quiet" id="d-hold" style="margin-top:14px">Look at the frame it never saw</button>`;
+
+  $('d-hold')?.addEventListener('click', () => {
+    const h = S.scene.holdout >= 0 ? S.scene.holdout : S.sel;
+    $('details').hidden = true;
+    S.compare = 'swipe';
+    select(h);
+  });
 
   if (S.detailTab === 'cams' && !dvp) {
     dvp = new Viewport($('d-cv'));

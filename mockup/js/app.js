@@ -856,21 +856,21 @@ function drawStage(now) {
 
   if (S.locked && (phase === 'train' || phase === 'result')) {
     if (!dev.ready) { ctx.fillStyle = '#070909'; ctx.fillRect(0, 0, w, h); return; }
+    const p = phase === 'result' && S.replayAt == null ? 1 : trainProg;
+    vp.draw({ mode: 'splats', progress: p, cams: S.scene.cams, showCams: S.showCams,
+              faint: true, skip: S.sel, active: -1, sel: S.sel });
     ctx.save();
     ctx.scale(dpr, dpr);
-    const r = dev.render(ctx, w / dpr, h / dpr, {
-      progress: phase === 'result' && S.replayAt == null ? 1 : trainProg,
-      mode: S.compare,
-      loupe: S.loupe,
-      swipe: S.swipe,
+    S.rect = dev.render(ctx, w / dpr, h / dpr, {
+      mode: S.compare, loupe: S.loupe, swipe: S.swipe, dpr,
+      key: `${S.sel}:${Math.round(p * 90)}`,
     });
     ctx.restore();
-    S.rect = r;
     return;
   }
 
   // 3D stage
-  const mode = phase === 'cameras' ? 'points' : 'blobs';
+  const mode = phase === 'cameras' ? 'points' : 'splats';
   const prog = phase === 'seed' ? (S.seedMix ?? 0) * .06
     : phase === 'result' ? 1 : trainProg;
   vp.draw({

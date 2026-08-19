@@ -140,8 +140,8 @@ and the app's diagnosis use the same words.
 |---|---|
 | `data.js` presets with measured numbers | `../data/index.json` + live stats |
 | `scene.js` loads staged poses/cloud, or invents a plausible one | `runSfM()` output (`cams`, `points`) |
-| `develop.js` renders the photo as a coarse blob field that sharpens | `trainer.renderTrainCam(cam, ctx)` |
-| `viewport.js` — 2D-canvas painter's renderer | `trainer.renderView(pose, ctx)` |
+| `viewport.js` fakes convergence by scaling capacity/size/colour with progress | the trainer's actual splat state |
+| `viewport.js` — 2D-canvas painter's splat renderer | `trainer.renderView(pose, ctx)` |
 | `psnrAt()` saturating curve | `trainer.readLoss()` / `evalCamPsnrRefined()` |
 | staged `run()` timers | the real stage promises |
 

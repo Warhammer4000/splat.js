@@ -25,7 +25,7 @@ import {
 import { bundleAdjust } from './ba.js';
 import { rotationAveraging, globalPositionsJoint } from './global.js';
 
-const MAXF = 4096; // feature-id stride per image (must exceed per-image feature count)
+const MAXF = 8192; // feature-id stride per image (must exceed per-image feature count; SIFT emits up to 2 orientations/keypoint)
 const FOCAL_SCALES = [1.0, 0.8, 0.65, 1.3]; // relative to the 1.2*maxDim guess
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -334,7 +334,7 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
         // to 8.5% ATE; firstOctave 0 + 1800 feats = 0.04% on truck AND train
         wk.postMessage({
           id, gray: images[id].gray, w: images[id].fw, h: images[id].fh,
-          maxFeats: opts.siftFeats || 2000, firstOctave: opts.siftFirstOctave ?? 0,
+          maxFeats: opts.siftFeats || 3900, firstOctave: opts.siftFirstOctave ?? 0,
         });
       };
       workers.forEach(feed);
@@ -356,7 +356,7 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
       // features:'sift' = real scale-space SIFT (COLMAP-grade, validated at
       // 82.5% keypoint recall vs COLMAP's own extraction; slower).
       const f = useSift
-        ? detectSift(images[i].gray, images[i].fw, images[i].fh, opts.siftFeats || 2000, opts.siftFirstOctave ?? 0)
+        ? detectSift(images[i].gray, images[i].fw, images[i].fh, opts.siftFeats || 3900, opts.siftFirstOctave ?? 0)
         : opts.msFeatures
           ? detectAndDescribeMS(images[i].gray, images[i].fw, images[i].fh, 1500)
           : detectAndDescribe(images[i].gray, images[i].fw, images[i].fh, 1500);
