@@ -440,3 +440,9 @@ body {
 /* the upload box is controls-only now */
 .upload { justify-content: center; }
 .upload-btns { align-items: center; }
+
+/* the record dot */
+.recdot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: #e5484d; margin-right: 7px; vertical-align: 0;
+}

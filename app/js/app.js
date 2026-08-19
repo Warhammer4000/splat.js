@@ -168,16 +168,17 @@ function showIntro() {
   $('start').hidden = false;
 }
 
-/** the previous own capture, restored from this device's storage — offered
- *  compactly inside the own-photos box, where it belongs */
+/** the previous own capture, restored from this device's storage — first
+ *  tile in the Presets row */
 async function offerLastCapture() {
   const rec = await loadLastCapture();
   if (!rec || !rec.files || rec.files.length < 2) return;
   const b = document.createElement('button');
-  b.className = 'lastcap';
+  b.dataset.id = '__last';
   b.title = `${rec.files.length} frames, saved on this device`;
-  b.innerHTML = `<img alt=""><span>Last capture</span>`;
-  b.querySelector('img').src = URL.createObjectURL(rec.files[0].blob);
+  b.innerHTML = `<div class="ph"></div><span>Last capture</span>`;
+  const img = Object.assign(new Image(), { src: URL.createObjectURL(rec.files[0].blob), alt: '' });
+  img.onload = () => b.querySelector('.ph')?.replaceWith(img);
   const makeSet = () => {
     const files = rec.files.map((e) => new File([e.blob], e.name, { type: e.blob.type || 'image/jpeg' }));
     if (S.ownUrls) S.ownUrls.forEach(URL.revokeObjectURL);
@@ -194,7 +195,8 @@ async function offerLastCapture() {
     if (S.preset && S.preset.id === '__last') return;
     open(makeSet());
   });
-  document.querySelector('#upload .upload-btns').appendChild(b);
+  const host = $('setpick');
+  host.insertBefore(b, host.firstChild);
 }
 
 function buildSetPicker() {
