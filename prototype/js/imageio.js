@@ -2,7 +2,11 @@
 // Produces per image:
 //   feature-scale grayscale (for SfM) and training-scale RGB (for 3DGS loss).
 
-export const FEAT_MAX_DIM = 640;
+// 960 (was 640): SfM feature localization is the pose-precision ceiling, and
+// poses feed training at native (~960-980px) resolution. Measured on camping
+// vs the server-COLMAP reference: 0.44% -> 0.27% ATE with the tail drift
+// halved. Costs ~2x SIFT extraction (worker pool absorbs most of it).
+export const FEAT_MAX_DIM = 960;
 export const TRAIN_MAX_DIM = 1600; // hard ceiling; actual res = native, memory permitting
 // GPU budget for the training-target buffer (all images, RGB float32).
 // The trainer requests a 1GB storage-binding limit; leave headroom for
@@ -75,7 +79,8 @@ function drawScaledFast(src, w, h) {
  *  format. trainCap: per-dataset training resolution from adaptiveTrainCap()
  *  (falls back to the global cap when omitted). */
 export function processSource(src, srcW, srcH, name, trainCap) {
-  const [fw, fh] = fitDims(srcW, srcH, FEAT_MAX_DIM);
+  const featCap = (typeof window !== 'undefined' && window.__featMaxDim) || FEAT_MAX_DIM;
+  const [fw, fh] = fitDims(srcW, srcH, featCap);
   const [tw, th] = fitDims(srcW, srcH, trainCap || trainMaxDim());
 
   const fctx = drawScaledFast(src, fw, fh);

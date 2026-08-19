@@ -75,9 +75,9 @@ export class Chart {
     const stepdB = (hi - lo) > 24 ? 10 : (hi - lo) > 12 ? 5 : 2;
     for (let v = Math.ceil(lo / stepdB) * stepdB; v <= hi; v += stepdB) {
       const y = Y(v);
-      ctx.strokeStyle = 'rgba(74,64,56,.5)'; ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(59,69,71,.5)'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(l, y); ctx.lineTo(l + pw, y); ctx.stroke();
-      ctx.fillStyle = '#7a6e64'; ctx.textAlign = 'left';
+      ctx.fillStyle = '#6b7877'; ctx.textAlign = 'left';
       ctx.fillText(`${v} dB`, l + pw + 6 * dpr, y);
     }
 
@@ -85,11 +85,11 @@ export class Chart {
     for (const e of this.events) {
       const x = X(e.at * this.maxIter);
       if (x > l + pw) continue;
-      ctx.strokeStyle = e.kind === 'grow' ? 'rgba(99,207,192,.28)' : 'rgba(163,149,138,.24)';
+      ctx.strokeStyle = e.kind === 'grow' ? 'rgba(242,160,63,.28)' : 'rgba(147,161,160,.24)';
       ctx.setLineDash([2 * dpr, 3 * dpr]); ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(x, t); ctx.lineTo(x, t + ph); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = e.kind === 'grow' ? 'rgba(99,207,192,.75)' : 'rgba(163,149,138,.6)';
+      ctx.fillStyle = e.kind === 'grow' ? 'rgba(242,160,63,.75)' : 'rgba(147,161,160,.6)';
       ctx.beginPath(); ctx.arc(x, t - 4 * dpr, 2 * dpr, 0, 7); ctx.fill();
     }
 
@@ -105,20 +105,20 @@ export class Chart {
     };
 
     if (this.ghost) {
-      line(this.ghost.train, 'rgba(163,149,138,.35)', [4, 3], 1.2);
-      line(this.ghost.hold, 'rgba(163,149,138,.22)', [2, 3], 1.2);
+      line(this.ghost.train, 'rgba(147,161,160,.35)', [4, 3], 1.2);
+      line(this.ghost.hold, 'rgba(147,161,160,.22)', [2, 3], 1.2);
     }
-    line(this.hold, '#63cfc0', [5, 3], 1.5);
-    line(this.train, '#f2a03f', null, 1.8);
+    line(this.hold, '#f2a03f', [5, 3], 1.5);
+    line(this.train, '#2fd4c1', null, 1.8);
 
     // playhead
     const last = this.train[this.train.length - 1];
     if (last) {
       const x = X(this.mark != null ? this.mark : last[0]);
-      ctx.strokeStyle = 'rgba(239,231,218,.25)'; ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(230,236,235,.25)'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(x, t); ctx.lineTo(x, t + ph); ctx.stroke();
       if (this.mark == null) {
-        ctx.fillStyle = '#f2a03f';
+        ctx.fillStyle = '#2fd4c1';
         ctx.beginPath(); ctx.arc(X(last[0]), Y(last[1]), 3 * dpr, 0, 7); ctx.fill();
       }
     }
@@ -131,7 +131,7 @@ export class Chart {
       const ev = this.events.find((e) => Math.abs(e.at * this.maxIter - it) < this.maxIter * .012);
       if (a) {
         const x = X(a[0]);
-        ctx.strokeStyle = 'rgba(239,231,218,.4)'; ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(230,236,235,.4)'; ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(x, t); ctx.lineTo(x, t + ph); ctx.stroke();
         this.onHover?.({
           xPct: (x / W) * 100,

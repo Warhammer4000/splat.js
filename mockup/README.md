@@ -1,4 +1,4 @@
-# Splatlab — UX mockup
+# Splat.js — UX mockup
 
 A clickable mockup of a public-facing front end for the trainer in
 [`../prototype/`](../prototype/). Nothing here computes anything: the pipeline is
@@ -17,7 +17,13 @@ run itself, watch it train, look at the result — with the explanations moved i
 a Details view that only appears once there is something to explain. Read
 [v2/README.md](v2/README.md) for that cut.
 
-Vanilla ES modules, no build step, same as the prototype.
+Vanilla ES modules, no build step, same as the prototype. Source link in the
+header points at `REPO` in `js/data.js` — set that before publishing.
+
+**Colour carries meaning, so it is worth knowing:** turquoise is the signature —
+live, selected, primary. Amber marks the one frame held back from training and
+its score, so the two curves and the two dB numbers can never be confused. Red is
+trouble (unplaced frames, rejected matches).
 
 ---
 
@@ -52,8 +58,8 @@ render, and the photograph is revealed inside it four ways:
 | Mode | What it is for |
 |---|---|
 | **Render** | just the model, from this exact camera |
-| **Loupe** | drag a magnifier; inside it is the photograph. The signature interaction |
-| **Swipe** | a divider across the frame for a full-height comparison |
+| **Loupe** | drag a magnifier over the photograph; inside the ring is the render |
+| **Swipe** | wipe the photograph off the render, full height |
 | **Error** | per-pixel disagreement as a heat map — where the model is still wrong |
 | **Photo** | the plain photograph |
 
@@ -63,8 +69,9 @@ geometry, which is itself the point.
 
 **Cameras are browsable, everywhere.** The filmstrip along the bottom is always
 there. Selecting a frame highlights its frustum in the 3D view, fills the
-inspector with that frame's numbers, and — one click further — locks the stage to
-its viewpoint. While training runs, the frame currently being trained on pulses
+inspector with that frame's numbers, and — one click further — puts the stage at
+its viewpoint. (v2 goes further and drops the mode switch entirely: clicking a
+frame *is* moving the camera there.) While training runs, the frame currently being trained on pulses
 in the strip: you can *see* that training samples one random photograph at a
 time. Frames carry their state as a badge: `holdout`, `blur`, `unplaced`.
 
@@ -77,7 +84,8 @@ room" as an export destination.)
 **The result gets the whole screen.** On the last beat the rail and inspector
 disappear, the stage goes full bleed, and the bottom bar carries the honest
 number (score on the photograph that was hidden from training), the file size,
-and three actions: compare with the hidden photo, replay the training, export.
+and four actions: compare with the hidden photo, replay the training, export a
+.ply, and **Export to Arrival.Space** — the primary one.
 
 ## Depth without overwhelm
 
@@ -89,7 +97,7 @@ and three actions: compare with the hidden photo, replay the training, export.
   not of the algorithm.
 - **Feature extraction** is shown, not described: marks appear on the photograph
   as they are found, then two frames side by side with the surviving matches in
-  teal and the rejects in red. Counts and ratios live in the inspector for anyone
+  turquoise and the rejects in red. Counts and ratios live in the inspector for anyone
   who wants them.
 - **The curve** during training plots both scores — trained-on and held-out —
   with markers at the moments the optimiser changes its own setup. The gap
@@ -102,7 +110,7 @@ Play / pause / +1000 cycles / 1× 4× 16×, plus:
 - **Camera positions keep moving** — toggling pose refinement, with a line saying
   what that costs when it is off.
 - **Compare with** — a pre-baked ghost run drawn behind the live curve: half the
-  photos, fixed cameras, a quarter of the blobs. Turns "why does capture matter"
+  photos, fixed cameras, a quarter of the splats. Turns "why does capture matter"
   from a claim into a comparison.
 - Free orbit at any time; the current training camera flashes in the 3D view.
 - `Space` play/pause, `←/→` step through frames.
@@ -162,7 +170,7 @@ css/app.css       tokens + components
 js/data.js        presets, copy, glossary, events, ghost runs, guide
 js/app.js         state machine, phases, rail, strip, inspector, transport
 js/scene.js       frame list, poses, sparse cloud, per-frame numbers
-js/viewport.js    3D stage: cloud, blobs, frustums, orbit, lock-to-camera
+js/viewport.js    3D stage: cloud, splats, frustums, orbit, lock-to-camera
 js/develop.js     the comparison surface: blob-field render, loupe, swipe, error
 js/chart.js       the score curve with event markers and a ghost run
 js/marks.js       landmark + match overlays (shared)

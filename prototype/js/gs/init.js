@@ -10,7 +10,7 @@ const logit = (p) => Math.log(p / (1 - p));
  * clones: extra jittered copies per point (increases capacity without densification)
  * Returns { data, n, center, radius }
  */
-export function initGaussians(points, clones = 2, maxGaussians = 250000) {
+export function initGaussians(points, clones = 2, maxGaussians = 600000) {
   const rng = makeRng(777);
   const np = points.length;
 

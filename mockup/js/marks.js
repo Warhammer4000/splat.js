@@ -35,7 +35,7 @@ export function keypoints(img, key, n = 320) {
 export function drawMarks(ctx, img, r, key, reveal = 1) {
   const kp = keypoints(img, key);
   ctx.lineWidth = 1;
-  ctx.strokeStyle = 'rgba(242,160,63,.75)';
+  ctx.strokeStyle = 'rgba(47,212,193,.75)';
   kp.forEach((p, i) => {
     if (i / kp.length > reveal) return;
     const x = r.x + p.x * r.w, y = r.y + p.y * r.h;
@@ -61,9 +61,9 @@ export function drawMatches(ctx, img, r1, r2, key, reveal = 1) {
     const dx = bad ? (((n * 61) % 100) / 100 - .5) * .7 : .035 + Math.sin(p.y * 3) * .012;
     const dy = bad ? (((n * 37) % 100) / 100 - .5) * .5 : Math.sin(p.x * 4) * .008;
     const x2 = r2.x + clamp(p.x - dx) * r2.w, y2 = r2.y + clamp(p.y + dy) * r2.h;
-    ctx.strokeStyle = bad ? 'rgba(226,102,79,.85)' : 'rgba(99,207,192,.55)';
+    ctx.strokeStyle = bad ? 'rgba(226,102,79,.85)' : 'rgba(242,160,63,.55)';
     ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
-    ctx.fillStyle = bad ? 'rgba(226,102,79,.9)' : 'rgba(99,207,192,.9)';
+    ctx.fillStyle = bad ? 'rgba(226,102,79,.9)' : 'rgba(242,160,63,.9)';
     ctx.beginPath(); ctx.arc(x1, y1, 2, 0, 7); ctx.fill();
     ctx.beginPath(); ctx.arc(x2, y2, 2, 0, 7); ctx.fill();
   });

@@ -1,4 +1,4 @@
-/* Splatlab v2 — the tech-demo cut. Same palette and type as v1
+/* Splat.js v2 — the tech-demo cut. Same palette and type as v1
    (imported), a much smaller frame around one stage. */
 
 @import url('../../css/app.css');
@@ -16,14 +16,16 @@ body {
 /* ── bar ─────────────────────────────────────────────────────────────────── */
 
 .bar {
-  display: flex; align-items: center; gap: 16px; padding: 0 16px;
+  display: flex; align-items: center; gap: 14px; padding: 0 16px;
   border-bottom: 1px solid var(--line);
   background: linear-gradient(var(--ink-2), var(--ink));
 }
 .bar .grow { flex: 1; }
-.tag { font: 400 12.5px var(--mono); color: var(--dim); }
-.set-name { font: 500 12.5px var(--mono); color: var(--muted); }
-.set-name::before { content: '● '; color: var(--amber); font-size: 9px; vertical-align: 2px; }
+.bar .brand { margin-right: 4px; }
+.set-name { font: 500 12.5px var(--mono); color: var(--muted); white-space: nowrap; }
+.set-name::before { content: '● '; color: var(--accent); font-size: 9px; vertical-align: 2px; }
+#btn-new { color: var(--paper); border-color: var(--line-2); }
+#btn-new:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ── stage ───────────────────────────────────────────────────────────────── */
 
@@ -38,20 +40,21 @@ body {
 .stage[data-cursor="loupe"] { cursor: none; }
 .stage[data-cursor="grab"] { cursor: grab; }
 .stage[data-cursor="grab"]:active { cursor: grabbing; }
+.stage[data-cursor="swipe"] { cursor: ew-resize; }
 
 .controls {
   position: absolute; z-index: 3; right: 14px; top: 12px;
   display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end;
 }
-.controls .seg { background: rgba(10, 8, 7, .82); backdrop-filter: blur(4px); }
+.controls .seg { background: rgba(7, 9, 9, .82); backdrop-filter: blur(4px); }
 
 /* start card, centred on the frames it is about to chew through */
 .card-start {
   position: absolute; z-index: 4; inset: 0; margin: auto;
   width: min(600px, calc(100% - 48px)); height: max-content;
-  padding: 16px 30px 24px; text-align: center;
-  background: rgba(20, 16, 14, .9); backdrop-filter: blur(12px);
-  border: 1px solid var(--line-2); border-radius: var(--r);
+  padding: 18px 30px 26px; text-align: center;
+  background: rgba(14, 17, 18, .9); backdrop-filter: blur(12px);
+  border: 1px solid var(--line-2); border-radius: 16px;
   box-shadow: var(--shadow);
 }
 .card-start .eyebrow { margin: 0 0 6px; }
@@ -60,16 +63,17 @@ body {
 .card-start .origin { max-width: 46ch; margin: 0 auto; }
 .card-start .runs { margin: 16px auto 20px; max-width: 44ch; color: var(--dim); font-size: 13px; }
 .card-start .fine { margin: 14px 0 0; font-size: 12.5px; color: var(--dim); }
+.card-actions { display: flex; gap: 10px; justify-content: center; align-items: center; }
 .btn.big { padding: 12px 24px; font-size: 15px; }
-.linkish { color: var(--amber); text-decoration: underline; text-underline-offset: 2px; padding: 0; font: inherit; }
+.linkish { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; padding: 0; font: inherit; }
 
 .srclinks { margin-top: 9px !important; display: flex; gap: 14px; justify-content: center; }
 .srclinks:empty { display: none; }
 .srclinks a {
-  font: 400 12px var(--mono); color: var(--amber);
+  font: 400 12px var(--mono); color: var(--accent);
   text-decoration: underline; text-underline-offset: 3px;
 }
-.srclinks a:hover { color: #ffb257; }
+.srclinks a:hover { color: #5ee7d6; }
 .srclinks a::after { content: ' ↗'; text-decoration: none; opacity: .6; }
 
 /* the set chooser: five sets, one click each, no menu */
@@ -78,13 +82,13 @@ body {
   padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--line);
 }
 .setpick button {
-  padding: 0 0 5px; border: 1px solid transparent; border-radius: var(--r);
+  padding: 4px 4px 5px; border: 1px solid transparent; border-radius: 12px;
   overflow: hidden; text-align: center; transition: border-color .14s, background .14s;
 }
 .setpick img, .setpick .ph {
   display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover;
   background: var(--panel-2); opacity: .6; transition: opacity .14s;
-  border-radius: 2px 2px 0 0;
+  border-radius: 8px;
 }
 .setpick span {
   display: block; margin-top: 5px;
@@ -92,9 +96,22 @@ body {
 }
 .setpick button:hover { background: var(--panel-2); }
 .setpick button:hover img { opacity: .85; }
-.setpick button[aria-pressed="true"] { border-color: var(--amber); background: var(--amber-14); }
+.setpick button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-14); }
 .setpick button[aria-pressed="true"] img { opacity: 1; }
 .setpick button[aria-pressed="true"] span { color: var(--paper); }
+
+/* last tile in the row: your own photos, same shape as a set */
+.setpick .plus {
+  display: grid; place-content: center;
+  width: 100%; aspect-ratio: 16 / 10;
+  border: 1px dashed var(--line-2); border-radius: 8px;
+  color: var(--dim); font: 300 22px/1 var(--ui);
+  transition: color .14s, border-color .14s, background .14s;
+}
+.own-tile:hover .plus { color: var(--accent); border-color: var(--accent); }
+.own-tile[aria-pressed="true"] .plus {
+  color: var(--accent); border-color: var(--accent); background: var(--accent-14);
+}
 
 /* ── filmstrip ───────────────────────────────────────────────────────────── */
 
@@ -125,12 +142,12 @@ body {
 
 .prep-label { font: 500 15px var(--ui); margin-bottom: 3px; }
 .prep-sub { font: 400 12px var(--mono); color: var(--dim); }
-.prep-meter { height: 4px; background: var(--panel-2); border-radius: 2px; overflow: hidden; margin-top: 9px; }
-.prep-meter i { display: block; height: 100%; background: var(--amber); transition: width .12s linear; }
+.prep-meter { height: 5px; background: var(--panel-2); border-radius: var(--pill); overflow: hidden; margin-top: 9px; }
+.prep-meter i { display: block; height: 100%; background: var(--accent); transition: width .12s linear; }
 .prep-steps { display: flex; gap: 14px; font: 400 11px var(--mono); color: var(--dim); }
 .prep-steps b { font-weight: 500; }
-.prep-steps [data-on="1"] { color: var(--amber); }
-.prep-steps [data-on="done"] { color: var(--teal); }
+.prep-steps [data-on="1"] { color: var(--accent); }
+.prep-steps [data-on="done"] { color: var(--alt); }
 
 /* ── details sheet ───────────────────────────────────────────────────────── */
 

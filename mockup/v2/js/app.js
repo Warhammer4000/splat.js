@@ -4,7 +4,7 @@
 // → look at the result. Everything explanatory moved out of the way into a
 // Details sheet that only exists once there is something to explain.
 
-import { PRESETS, EVENTS, HELP } from '../../js/data.js';
+import { PRESETS, EVENTS, HELP, REPO } from '../../js/data.js';
 import { loadScene, DATA } from '../../js/scene.js';
 import { Viewport } from '../../js/viewport.js';
 import { Developer, fitRect } from '../../js/develop.js';
@@ -22,17 +22,18 @@ const PREP = [
   { kind: 'marks',   dur: 2400, label: 'Finding landmarks' },
   { kind: 'matches', dur: 1900, label: 'Matching photos' },
   { kind: 'cameras', dur: 2800, label: 'Placing cameras' },
-  { kind: 'seed',    dur: 1300, label: 'Seeding blobs' },
+  { kind: 'seed',    dur: 1300, label: 'Seeding splats' },
 ];
 
 const S = {
   state: 'ready',              // ready | prep | train | done
   preset: null, scene: null,
   sel: 0, active: 0,
-  locked: false, compare: 'loupe',
+  atFrame: -1, compare: 'swipe',      // atFrame = the camera is sitting on that pose
+  fade: 0, fadeTo: 0,                 // how much of the photograph is laid over the model
   loupe: { x: 0, y: 0, r: 104 }, swipe: .5, rect: null,
   iter: 0, maxIter: 40000, speed: 1, splats: 0, training: false,
-  prepAt: 0, fired: null, flash: null, replayAt: null,
+  prepAt: 0, fired: null, flash: null, replayAt: null, own: false, picking: false,
   detailTab: 'marks',
 };
 
@@ -45,25 +46,32 @@ function boot() {
   buildSetPicker();
 
   vp = new Viewport($('cv'));
+  vp.onLeave = leaveFrame;
   dev = new Developer();
 
-  $('btn-go').addEventListener('click', startPrep);
-  $('btn-new').addEventListener('click', () => open(S.preset));
-  $('btn-own').addEventListener('click', () =>
-    flash('In the real thing this is where your own photos go. The demo ships the ready sets.', 5000));
+  $('btn-go').addEventListener('click', () => {
+    if (S.own) flash('In the real thing this is where your own photos go. The demo ships the ready sets.', 5000);
+    else if (S.picking) closePicker();
+    else startPrep();
+  });
+  $('btn-new').addEventListener('click', showPicker);
+  $('btn-cancel').addEventListener('click', closePicker);
   $('btn-details').addEventListener('click', openDetails);
   $('d-close').addEventListener('click', () => { $('details').hidden = true; });
 
   addEventListener('resize', () => { vp.resize(); chart?.resize(); dchart?.resize(); dvp?.resize(); });
   addEventListener('keydown', (e) => {
     if (!$('details').hidden) { if (e.key === 'Escape') $('details').hidden = true; return; }
+    if (S.picking && e.key === 'Escape') { closePicker(); return; }
     if (e.key === ' ' && S.state === 'train') { e.preventDefault(); toggleTrain(); }
     if (e.key === 'ArrowRight') select(S.sel + 1);
     if (e.key === 'ArrowLeft') select(S.sel - 1);
   });
   wireStage();
 
+  $('gh').href = REPO;
   window.__v2 = S;            // console access, same as v1
+  window.__vp = vp;
   open(PRESETS[0]);
   requestAnimationFrame(loop);
 }
@@ -76,7 +84,10 @@ function buildSetPicker() {
     const b = document.createElement('button');
     b.dataset.id = p.id;
     b.innerHTML = `<div class="ph"></div><span>${p.name}</span>`;
-    b.addEventListener('click', () => { if (p !== S.preset) open(p); });
+    b.addEventListener('click', () => {
+      if (p === S.preset && !S.own) return;        // already on it: nothing to do
+      open(p);
+    });
     host.appendChild(b);
     heroUrl(p).then((url) => {
       if (!url) return;
@@ -84,6 +95,55 @@ function buildSetPicker() {
       b.querySelector('.ph')?.replaceWith(img);
     });
   }
+
+  const own = document.createElement('button');
+  own.className = 'own-tile';
+  own.id = 'pick-own';
+  own.setAttribute('aria-pressed', 'false');
+  own.innerHTML = '<div class="plus">+</div><span>Your photos</span>';
+  own.addEventListener('click', showOwn);
+  host.appendChild(own);
+}
+
+/** open the chooser over a run in progress — nothing is thrown away until a
+ *  different set is actually picked */
+function showPicker() {
+  if (S.state === 'ready') return;
+  S.picking = true; S.own = false;
+  $('start-kind').textContent = 'Choose a set';
+  $('start-title').textContent = 'Train another set';
+  $('start-origin').textContent =
+    `Picking a set starts over. Cancel to go back to ${S.preset.name}.`;
+  $('start-links').innerHTML = '';
+  $('card-runs').hidden = true;
+  $('btn-go').hidden = true;
+  $('btn-cancel').hidden = false;
+  [...$('setpick').children].forEach((b) =>
+    b.setAttribute('aria-pressed', String(b.dataset.id === S.preset.id)));
+  $('start').hidden = false;
+}
+
+function closePicker() {
+  S.picking = false; S.own = false;
+  $('start').hidden = true;
+  $('card-runs').hidden = false;
+  $('btn-go').hidden = false;
+  $('btn-cancel').hidden = true;
+  $('btn-go').textContent = 'Start training';
+}
+
+/** the [+] tile: same card, different set of words */
+function showOwn() {
+  S.own = true;
+  $('start-kind').textContent = 'Your own photos';
+  $('start-title').textContent = 'Bring your own';
+  $('start-origin').textContent =
+    '20 to 200 overlapping photos of one place. Walk around your subject rather than ' +
+    'turning on the spot — sideways movement is what makes depth solvable.';
+  $('start-links').innerHTML = '';
+  $('btn-go').textContent = 'Choose photos';
+  [...$('setpick').children].forEach((b) =>
+    b.setAttribute('aria-pressed', String(b.id === 'pick-own')));
 }
 
 /** first frame of a set, without loading the whole thing */
@@ -101,7 +161,12 @@ async function heroUrl(p) {
 async function open(preset) {
   S.preset = preset;
   S.state = 'ready';
+  S.own = false; S.picking = false;
   S.scene = null;
+  $('btn-go').textContent = 'Start training';
+  $('btn-go').hidden = false;
+  $('btn-cancel').hidden = true;
+  $('card-runs').hidden = false;
   $('start').hidden = true;
   $('controls').hidden = true;
   $('btn-details').disabled = true;
@@ -112,7 +177,8 @@ async function open(preset) {
 
   vp.resize();
   S.scene = await loadScene(preset);
-  S.sel = 0; S.active = 0; S.iter = 0; S.training = false; S.locked = false;
+  S.sel = 0; S.active = 0; S.iter = 0; S.training = false;
+  S.atFrame = -1; S.fade = 0; S.fadeTo = 0;
   S.prepAt = 0; S.fired = new Set(); S.replayAt = null;
   S.splats = Math.round(preset.stats.splats * .34);
   vp.lock = null; vp.enabled = true;
@@ -153,7 +219,7 @@ function prepStep() {
 function startTraining() {
   S.state = 'train';
   S.training = true;
-  lockTo(S.sel);
+  goToFrame(S.sel);
   $('controls').hidden = false;
   renderControls();
   dock('train');
@@ -170,8 +236,8 @@ function finish() {
   S.state = 'done';
   S.training = false;
   S.iter = S.maxIter;
-  S.locked = false;
-  vp.lock = null; vp.enabled = true;
+  S.atFrame = -1; S.fadeTo = 0;
+  vp.lock = null; vp.freeF = null;
   $('stage').dataset.cursor = 'grab';
   vp.frameScene();
   vp.dist = S.scene.radius * 2.2;
@@ -211,39 +277,49 @@ function seg(items, active, onPick) {
   return d;
 }
 
+const cursorFor = (m) => (m === 'loupe' ? 'loupe' : m === 'swipe' ? 'swipe' : 'grab');
+
 function renderControls() {
   const c = $('controls');
   c.innerHTML = '';
-  if (S.state !== 'train' && S.state !== 'done') { c.hidden = true; return; }
-  c.hidden = false;
-  c.appendChild(seg([[false, 'Model'], [true, `Frame ${S.sel + 1}`]], S.locked,
-    (v) => (v ? lockTo(S.sel) : unlock())));
-  if (S.locked) {
-    c.appendChild(seg([['render', 'Render'], ['loupe', 'Loupe'], ['swipe', 'Swipe'], ['error', 'Error']],
-      S.compare, (v) => {
-        S.compare = v;
-        $('stage').dataset.cursor = v === 'loupe' ? 'loupe' : 'default';
-        renderControls();
-      }));
-  }
+  const on = (S.state === 'train' || S.state === 'done') && S.atFrame >= 0;
+  c.hidden = !on;
+  if (!on) return;
+  // nothing to switch between: the camera is on frame N, so these only choose
+  // how much of that frame's photograph is revealed over the render
+  c.appendChild(seg([['render', 'Render'], ['loupe', 'Loupe'], ['swipe', 'Swipe'], ['error', 'Error']],
+    S.compare, (v) => {
+      S.compare = v;
+      $('stage').dataset.cursor = cursorFor(v);
+      renderControls();
+    }));
 }
 
-function lockTo(i) {
+/** put the camera exactly on a frame's pose and lay its photograph over the model */
+function goToFrame(i) {
   const cam = S.scene.cams[i];
-  if (!cam.R) { flash('That frame was never placed — there is no viewpoint to render from.'); return; }
-  S.sel = i; S.locked = true;
-  vp.lock = cam; vp.enabled = false;
-  bmp(cam.url).then((b) => { if (b && S.scene.cams[S.sel].url === cam.url) dev.setBitmap(b, cam.url); });
+  if (!cam.R) { flash('That frame was never placed — there is no viewpoint to jump to.'); return; }
+  S.sel = i; S.atFrame = i;
+  vp.lock = cam;
+  bmp(cam.url).then((b) => {
+    if (b && S.scene.cams[S.atFrame]?.url === cam.url) dev.setBitmap(b, cam.url);
+  });
+  S.fadeTo = 1;
   S.loupe.x = $('stage').clientWidth / 2;
   S.loupe.y = $('stage').clientHeight / 2;
-  $('stage').dataset.cursor = S.compare === 'loupe' ? 'loupe' : 'default';
+  $('stage').dataset.cursor = cursorFor(S.compare);
   renderControls(); paintStrip();
 }
 
-function unlock() {
-  S.locked = false;
-  vp.lock = null; vp.enabled = true;
-  vp.syncTo(S.scene.cams[S.sel]);
+/** a drag pulls the camera off the frame — same position, same lens, now free */
+function leaveFrame() {
+  if (S.atFrame < 0) return;
+  const cam = S.scene.cams[S.atFrame];
+  vp.freeF = cam.f * Math.min(vp.w / cam.w, vp.h / cam.h);
+  vp.lock = null;
+  vp.syncTo(cam);
+  S.atFrame = -1;
+  S.fadeTo = 0;
   $('stage').dataset.cursor = 'grab';
   renderControls();
 }
@@ -252,7 +328,7 @@ function select(i) {
   if (!S.scene) return;
   S.sel = (i + S.scene.cams.length) % S.scene.cams.length;
   $('strip-scroll')?.children[S.sel]?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
-  if (S.locked) lockTo(S.sel);
+  if (S.state === 'train' || S.state === 'done') goToFrame(S.sel);
   paintStrip(); renderControls();
   if (!$('details').hidden) renderDetails();
 }
@@ -260,14 +336,14 @@ function select(i) {
 function wireStage() {
   const st = $('stage');
   st.addEventListener('pointermove', (e) => {
-    if (!S.locked) return;
+    if (S.atFrame < 0) return;
     const r = st.getBoundingClientRect();
     const x = e.clientX - r.left, y = e.clientY - r.top;
     if (S.compare === 'loupe') { S.loupe.x = x; S.loupe.y = y; }
     if (S.compare === 'swipe' && S.rect) S.swipe = clamp((x - S.rect.x) / S.rect.w, 0, 1);
   });
   st.addEventListener('wheel', (e) => {
-    if (!S.locked || S.compare !== 'loupe') return;
+    if (S.atFrame < 0 || S.compare !== 'loupe') return;
     e.preventDefault();
     S.loupe.r = clamp(S.loupe.r - e.deltaY * .12, 40, 260);
   }, { passive: false });
@@ -298,7 +374,7 @@ function buildStrip() {
     b.dataset.i = i;
     b.innerHTML = `<div class="ph"></div><span class="frame-n">${i + 1}</span>
       <span class="frame-tag" hidden></span><div class="frame-bar"><i></i></div>`;
-    b.addEventListener('click', () => { select(i); if (S.state === 'train' || S.state === 'done') lockTo(i); });
+    b.addEventListener('click', () => select(i));
     sc.appendChild(b);
     io.observe(b);
   });
@@ -321,7 +397,7 @@ function paintStrip() {
     if (t) { tag.dataset.t = c.state; tag.textContent = t; }
     const bar = b.querySelector('.frame-bar i');
     bar.style.width = scored ? `${clamp((c.psnr - 12) / 22, 0, 1) * 100}%` : '0%';
-    bar.style.background = c.state === 'holdout' ? '#63cfc0' : '#f2a03f';
+    bar.style.background = c.state === 'holdout' ? '#f2a03f' : '#2fd4c1';
   });
 }
 
@@ -350,13 +426,13 @@ function dock(kind) {
         <button class="tbtn-sm" id="t-speed">1×</button>
         <div class="tmeta">
           <span class="tmeta-1" id="t-iter">0</span>
-          <span class="tmeta-2">of ${fmt(S.maxIter)} cycles · <span id="t-splats">—</span> blobs</span>
+          <span class="tmeta-2">of ${fmt(S.maxIter)} cycles · <span id="t-splats">—</span> splats</span>
         </div>
       </div>
       <div class="chartwrap"><canvas id="chart"></canvas><div class="chart-tip" id="chart-tip" hidden></div></div>
       <div class="tscores">
-        <div class="score" data-tone="amber"><div class="score-v" id="t-ptrain">—</div><div class="score-k">trained dB</div></div>
-        <div class="score" data-tone="teal"><div class="score-v" id="t-phold">—</div><div class="score-k">hidden dB</div></div>
+        <div class="score" data-tone="accent"><div class="score-v" id="t-ptrain">—</div><div class="score-k">trained dB</div></div>
+        <div class="score" data-tone="alt"><div class="score-v" id="t-phold">—</div><div class="score-k">hidden dB</div></div>
       </div>`;
     $('t-play').addEventListener('click', toggleTrain);
     $('t-speed').addEventListener('click', () => {
@@ -373,21 +449,24 @@ function dock(kind) {
   d.innerHTML = `
     <h2>Done</h2>
     <p><b class="mono">${S.preset.psnr.hold.toFixed(1)} dB</b> on the photograph it never saw ·
-       ${fmt(st.splats)} blobs · ${(st.splats * 44 / 1e6).toFixed(1)} MB</p>
+       ${fmt(st.splats)} splats · ${(st.splats * 44 / 1e6).toFixed(1)} MB</p>
     <span class="grow"></span>
     <div class="dock-actions">
       <button class="btn btn-quiet" id="r-hold">Compare with the hidden photo</button>
       <button class="btn btn-quiet" id="r-replay">Replay</button>
-      <button class="btn btn-amber" id="r-export">Export .ply</button>
+      <button class="btn btn-quiet" id="r-export">Export .ply</button>
+      <button class="btn btn-accent" id="r-arrival">Export to Arrival.Space</button>
     </div>`;
   $('r-hold').addEventListener('click', () => {
     const h = S.scene.holdout >= 0 ? S.scene.holdout : S.sel;
     S.compare = 'swipe';
-    select(h); lockTo(h);
+    select(h); goToFrame(h);
   });
   $('r-replay').addEventListener('click', replay);
   $('r-export').addEventListener('click', () =>
-    flash(`A .ply of ${fmt(st.splats)} blobs would land in your downloads.`, 4000));
+    flash(`A .ply of ${fmt(st.splats)} splats would land in your downloads.`, 4000));
+  $('r-arrival').addEventListener('click', () =>
+    flash('Publishes the splat straight into one of your arrival.space rooms.', 4500));
 }
 
 function chartTip(h) {
@@ -397,13 +476,13 @@ function chartTip(h) {
   tip.hidden = false;
   tip.style.left = `${h.xPct}%`;
   tip.style.top = '4px';
-  tip.innerHTML = `${fmt(h.iter)} · <b style="color:#f2a03f">${h.train.toFixed(1)}</b>` +
-    (h.hold != null ? ` / <b style="color:#63cfc0">${h.hold.toFixed(1)}</b> dB` : '') +
-    (h.event ? `<br><span style="color:#a3958a">${h.event}</span>` : '');
+  tip.innerHTML = `${fmt(h.iter)} · <b style="color:#2fd4c1">${h.train.toFixed(1)}</b>` +
+    (h.hold != null ? ` / <b style="color:#f2a03f">${h.hold.toFixed(1)}</b> dB` : '') +
+    (h.event ? `<br><span style="color:#93a1a0">${h.event}</span>` : '');
 }
 
 function replay() {
-  if (!S.locked) lockTo(S.sel);
+  goToFrame(S.sel);
   S.compare = 'render';
   renderControls();
   const t0 = performance.now();
@@ -423,14 +502,17 @@ function flash(msg, ms = 2800) {
 
 function renderHud() {
   const chips = [];
+  if (S.atFrame >= 0) {
+    chips.push(`<span class="chip" data-tone="accent">through <b>frame ${S.atFrame + 1}</b> · drag to move off</span>`);
+  }
   if (S.state === 'train') {
-    chips.push(`<span class="chip" data-tone="amber">training on <b>frame ${S.active + 1}</b></span>`);
-    chips.push(`<span class="chip"><b>${fmt(S.splats)}</b> blobs</span>`);
+    chips.push(`<span class="chip">training on <b>frame ${S.active + 1}</b></span>`);
+    chips.push(`<span class="chip"><b>${fmt(S.splats)}</b> splats</span>`);
   }
-  if (S.state === 'done' && !S.locked) {
-    chips.push(`<span class="chip" data-tone="teal">drag to look around</span>`);
+  if (S.state === 'done' && S.atFrame < 0) {
+    chips.push(`<span class="chip">drag to look around</span>`);
   }
-  if (S.flash) chips.push(`<span class="chip" data-tone="amber">${S.flash.msg}</span>`);
+  if (S.flash) chips.push(`<span class="chip" data-tone="accent">${S.flash.msg}</span>`);
   const hud = $('hud');
   const next = `<div class="chip-row">${chips.join('')}</div>`;
   if (hud.dataset.k !== next) { hud.innerHTML = next; hud.dataset.k = next; }
@@ -447,6 +529,7 @@ function loop() {
   if (!S.scene) return;
 
   if (S.flash && now > S.flash.until) S.flash = null;
+  S.fade += (S.fadeTo - S.fade) * Math.min(1, dt * 10);
 
   if (S.state === 'prep') {
     const st = prepStep();
@@ -494,7 +577,7 @@ function loop() {
     for (const e of EVENTS) {
       if (p >= e.at && e.at > 0 && !S.fired.has(e.label + e.at)) {
         S.fired.add(e.label + e.at);
-        flash(e.kind === 'grow' ? `${e.label} → ${fmt(S.splats)} blobs` : e.label, 2400);
+        flash(e.kind === 'grow' ? `${e.label} → ${fmt(S.splats)} splats` : e.label, 2400);
       }
     }
     if (S.iter >= S.maxIter) finish();
@@ -510,7 +593,7 @@ function prepSub(st) {
   if (st.kind === 'marks') return `${fmt(lerp(0, s.cams * 1800, st.u))} spots · frame ${Math.max(1, Math.round(st.u * n))} of ${n}`;
   if (st.kind === 'matches') return `${fmt(lerp(0, n * 38, st.u))} pairs checked, weak ones dropped`;
   if (st.kind === 'cameras') return `${Math.round(st.u * s.cams)} of ${n} placed · ${fmt(st.u * s.points)} points`;
-  return `${fmt(s.points)} points → ${fmt(lerp(s.points, s.splats * .34, st.u))} blobs`;
+  return `${fmt(s.points)} points → ${fmt(lerp(s.points, s.splats * .34, st.u))} splats`;
 }
 
 // ── drawing ─────────────────────────────────────────────────────────────────
@@ -538,28 +621,31 @@ function draw() {
     });
   }
 
-  if (S.locked) {
-    if (!dev.ready) { ctx.fillStyle = '#0a0807'; ctx.fillRect(0, 0, w, h); return; }
-    ctx.save();
-    ctx.scale(dpr, dpr);
-    S.rect = dev.render(ctx, w / dpr, h / dpr, {
-      progress: prog, mode: S.compare, loupe: S.loupe, swipe: S.swipe,
-    });
-    ctx.restore();
-    return;
-  }
+  const onFrame = S.atFrame >= 0;
 
   vp.draw({
     mode: 'blobs', progress: prog,
     cams: S.scene.cams,
-    showCams: S.state === 'train', showPath: S.state === 'train',
+    showCams: S.state === 'train' && !onFrame,
+    showPath: S.state === 'train' && !onFrame,
     active: S.training ? S.active : -1, sel: S.sel,
     dimOthers: S.training,
   });
+
+  // the frame the camera is sitting on, drawn over the model it lines up with
+  if (S.fade > .005 && dev.ready) {
+    ctx.save();
+    ctx.scale(dpr, dpr);
+    ctx.globalAlpha = S.fade;
+    S.rect = dev.render(ctx, w / dpr, h / dpr, {
+      progress: prog, mode: S.compare, loupe: S.loupe, swipe: S.swipe, clear: false,
+    });
+    ctx.restore();
+  }
 }
 
 function photoStage(ctx, w, h, dpr, reveal) {
-  ctx.fillStyle = '#0a0807';
+  ctx.fillStyle = '#070909';
   ctx.fillRect(0, 0, w, h);
   const img = readyBmp(S.scene.cams[S.sel].url);
   if (!img) return;
@@ -573,7 +659,7 @@ function photoStage(ctx, w, h, dpr, reveal) {
 }
 
 function pairStage(ctx, w, h, dpr, reveal) {
-  ctx.fillStyle = '#0a0807';
+  ctx.fillStyle = '#070909';
   ctx.fillRect(0, 0, w, h);
   const a = readyBmp(S.scene.cams[S.sel].url);
   const j = (S.sel + 1) % S.scene.cams.length;
@@ -589,7 +675,7 @@ function pairStage(ctx, w, h, dpr, reveal) {
   ctx.drawImage(b, r2.x, r2.y, r2.w, r2.h);
   ctx.globalAlpha = 1;
   drawMatches(ctx, a, r1, r2, `k${S.sel}`, reveal);
-  ctx.fillStyle = '#a3958a';
+  ctx.fillStyle = '#93a1a0';
   ctx.font = '500 10px "Spline Sans Mono", monospace';
   ctx.fillText(`FRAME ${S.sel + 1}`, r1.x + 4, r1.y - 6);
   ctx.fillText(`FRAME ${j + 1}`, r2.x + 4, r2.y - 6);
@@ -610,7 +696,7 @@ function openDetails() {
 function renderDetails() {
   const st = S.preset.stats, n = S.scene.cams.length;
   $('d-sub').textContent =
-    `${S.preset.name} · ${n} photographs · ${st.cams} placed · ${fmt(st.points)} points · ${fmt(st.splats)} blobs`;
+    `${S.preset.name} · ${n} photographs · ${st.cams} placed · ${fmt(st.points)} points · ${fmt(st.splats)} splats`;
 
   const segHost = $('d-seg');
   segHost.innerHTML = '';
@@ -644,7 +730,7 @@ function renderDetails() {
       ],
     },
     matches: {
-      cap: 'Teal survived the geometry test. Red was thrown out.',
+      cap: 'Turquoise survived the geometry test. Red was thrown out.',
       title: 'The same spot, twice',
       body: [
         'Fingerprints are compared photo against photo. Plenty of pairings are wrong, so every ' +
@@ -655,7 +741,7 @@ function renderDetails() {
       ],
       rows: [
         stat('Pairs compared', fmt(n * 38)),
-        stat('Survived the test', '91%', 'teal'),
+        stat('Survived the test', '91%', 'accent'),
         stat('Average chain length', '4.6 photos'),
       ],
     },
@@ -667,12 +753,12 @@ function renderDetails() {
         'points fixes a camera. Solved together they give both — the positions, and a sparse ' +
         'cloud of a few thousand points.',
         'That cloud is far too coarse to look at. Its job is to say roughly where surfaces are, ' +
-        'so the blobs do not start from nothing.',
+        'so the splats do not start from nothing.',
       ],
       rows: [
-        stat('Placed', `${st.cams} <small>/ ${n}</small>`, st.cams === n ? 'teal' : 'red'),
+        stat('Placed', `${st.cams} <small>/ ${n}</small>`, st.cams === n ? 'accent' : 'red'),
         stat('Points', fmt(st.points)),
-        stat('Reprojection error', `${st.rms} <small>px</small>`, st.rms < 1 ? 'teal' : 'red'),
+        stat('Reprojection error', `${st.rms} <small>px</small>`, st.rms < 1 ? 'accent' : 'red'),
         stat('Focal length', `${Math.round(S.scene.cams[0].f)} <small>px, guessed</small>`),
         stat('Solve time', `${st.sfm} <small>s</small>`),
       ],
@@ -686,17 +772,20 @@ function renderDetails() {
   const gap = S.preset.psnr.train - S.preset.psnr.hold;
   $('d-txt2').innerHTML = `
     <h3>Guess, compare, nudge</h3>
-    <p>Each cycle renders the blobs from one photo's viewpoint, compares the result with that
-       photograph, and nudges every blob a little to shrink the difference. Nothing here knows
+    <p>Every point from the solve became a <b>splat</b>: a soft 3D blob with a position, a
+       size along three axes, an orientation, a colour and a transparency. That is the whole
+       model — no mesh, no texture, no surface.</p>
+    <p>Each cycle renders the splats from one photo's viewpoint, compares the result with that
+       photograph, and nudges every splat a little to shrink the difference. Nothing here knows
        what a ${S.preset.name.toLowerCase()} is.</p>
     <p>${HELP.hold}</p>
     <div class="grp">
       ${stat('Cycles', fmt(S.maxIter))}
-      ${stat('On trained photos', `${S.preset.psnr.train.toFixed(1)} <small>dB</small>`, 'amber')}
-      ${stat('On the hidden photo', `${S.preset.psnr.hold.toFixed(1)} <small>dB</small>`, 'teal')}
+      ${stat('On trained photos', `${S.preset.psnr.train.toFixed(1)} <small>dB</small>`, 'accent')}
+      ${stat('On the hidden photo', `${S.preset.psnr.hold.toFixed(1)} <small>dB</small>`, 'alt')}
       ${stat('Gap', `${gap >= 0 ? '' : '−'}${Math.abs(gap).toFixed(1)} <small>dB</small>`,
-             Math.abs(gap) < 1.5 ? 'teal' : 'red')}
-      ${stat('Blobs', fmt(st.splats))}
+             Math.abs(gap) < 1.5 ? 'accent' : 'red')}
+      ${stat('Splats', fmt(st.splats))}
       ${stat('Exported file', `${(st.splats * 44 / 1e6).toFixed(1)} <small>MB</small>`)}
     </div>`;
 
@@ -731,7 +820,7 @@ function drawDetail() {
 // the detail canvas reuses the stage painters, just on a different context
 function photoStageOn(ctx, w, h, dpr, reveal) {
   const img = readyBmp(S.scene.cams[S.sel].url);
-  ctx.fillStyle = '#0a0807'; ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#070909'; ctx.fillRect(0, 0, w, h);
   if (!img) return;
   const r = fitRect(img.width, img.height, w / dpr, h / dpr, 6);
   ctx.save(); ctx.scale(dpr, dpr);
@@ -744,7 +833,7 @@ function pairStageOn(ctx, w, h, dpr, reveal) {
   const a = readyBmp(S.scene.cams[S.sel].url);
   const j = (S.sel + 1) % S.scene.cams.length;
   const b = readyBmp(S.scene.cams[j].url);
-  ctx.fillStyle = '#0a0807'; ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#070909'; ctx.fillRect(0, 0, w, h);
   if (!a || !b) return;
   const half = w / dpr / 2;
   ctx.save(); ctx.scale(dpr, dpr);

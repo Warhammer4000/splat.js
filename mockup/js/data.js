@@ -1,4 +1,8 @@
 // data.js — everything the mockup pretends to know.
+
+// TODO: point at the real repository before this goes public.
+export const REPO = 'https://github.com/arrival-space/splat.js';
+
 // Numbers are the REAL measured results of the prototype (see ../prototype/README.md)
 // so the mock reads like the finished product, not like lorem ipsum.
 
@@ -58,7 +62,7 @@ export const PRESETS = [
     psnr: { train: 27.3, hold: 28.0 }, minutes: 8,
   },
   {
-    id: 'synthetic', name: 'Room corner', where: 'Rendered',
+    id: 'synthetic', name: 'Synthetic Corner', where: 'Rendered',
     kind: 'Generated on this page',
     origin: '12 views rendered here on the fly, with exact camera positions. The clean case, for comparison.',
     links: [],
@@ -138,14 +142,14 @@ export const COPY = {
       'at. Its job is to say roughly where surfaces are, so the next stage does not have ' +
       'to start from nothing.',
     ],
-    action: 'Seed the blobs',
+    action: 'Seed the splats',
   },
   seed: {
-    title: 'One blob per point',
-    lead: 'Every point becomes a soft 3D blob: a position, a size along three axes, an ' +
-          'orientation, a colour and a transparency. That is the whole model.',
+    title: 'One splat per point',
+    lead: 'Every point becomes a splat — a soft 3D blob with a position, a size along ' +
+          'three axes, an orientation, a colour and a transparency. That is the whole model.',
     more: [
-      'No mesh, no texture, no surface. A scene is a few hundred thousand of these blobs, ' +
+      'No mesh, no texture, no surface. A scene is a few hundred thousand of these splats, ' +
       'sorted back to front and stacked until they look like a photograph.',
       'They start out round, roughly as wide as the gap to their nearest neighbour, and ' +
       'mostly see-through. Everything interesting about them is learned next.',
@@ -154,21 +158,21 @@ export const COPY = {
   },
   train: {
     title: 'Guess, compare, nudge',
-    lead: 'Render the blobs from one photo’s viewpoint, compare with the photo, nudge ' +
-          'every blob a little to shrink the difference. Then pick another photo.',
+    lead: 'Render the splats from one photo’s viewpoint, compare with the photo, nudge ' +
+          'every splat a little to shrink the difference. Then pick another photo.',
     more: [
       'Nothing here knows what a truck is. The only instruction is “look more like this ' +
       'photograph from this angle”, repeated tens of thousands of times.',
-      'Blobs that end up contributing nothing get recycled — moved next to blobs that are ' +
+      'Splats that end up contributing nothing get recycled — moved next to splats that are ' +
       'carrying detail, where the capacity is actually worth something.',
       'The camera positions keep being adjusted too. They came out of a rough solve, and a ' +
-      'fraction of a degree of error shows up as blur no blob can fix.',
+      'fraction of a degree of error shows up as blur no splat can fix.',
     ],
     action: 'Finish',
   },
   result: {
     title: 'The result',
-    lead: 'One file of blobs, ready for any splat viewer.',
+    lead: 'One file, ready for any splat viewer.',
     more: [],
     action: 'Export',
   },
@@ -179,14 +183,14 @@ export const COPY = {
 export const HELP = {
   frames: 'How many photographs went in.',
   placed: 'Photos the solver managed to position in 3D. Anything unplaced goes unused.',
-  points: 'Landmarks triangulated into 3D. The starting skeleton for the blobs.',
+  points: 'Landmarks triangulated into 3D. The starting skeleton for the splats.',
   rms: 'Average distance, in pixels, between where a landmark should appear and where it ' +
        'does. Under one pixel is a solid solve.',
   focal: 'How zoomed in the lens is, in pixels. Guessed from the photos — no camera data ' +
          'is read from the files.',
   k1: 'Lens distortion: straight lines bending near the edge of the frame.',
   track: 'How many photos an average landmark is visible in. Longer is sturdier.',
-  splats: 'Blobs in the model right now. It grows during training as detail is needed.',
+  splats: 'Splats in the model right now. The count grows during training as detail is needed.',
   iter: 'One render-compare-nudge cycle against one photograph.',
   ips: 'Cycles per second on this machine.',
   psnr: 'How close the render is to the photograph, in decibels. Every +3 dB halves the ' +
@@ -196,14 +200,14 @@ export const HELP = {
   sharp: 'How much fine detail a frame has. Low means motion blur.',
   parallax: 'How much the viewpoint actually moved between photos, in degrees. Turning on ' +
             'the spot gives zero, and zero means no depth can be recovered.',
-  vram: 'Graphics memory held by the blobs, the photos and the optimiser state.',
+  vram: 'Graphics memory held by the splats, the photos and the optimiser state.',
   mem: 'Size of the finished file.',
   match: 'Landmark pairings between two photos that survived the geometry test.',
 };
 
 // Named training events — the moments worth pointing at on the curve.
 export const EVENTS = [
-  { at: 0.000, kind: 'start', label: 'Blobs seeded' },
+  { at: 0.000, kind: 'start', label: 'Splats seeded' },
   { at: 0.035, kind: 'warm',  label: 'Cameras unlocked' },
   { at: 0.090, kind: 'grow',  label: 'Capacity +5%' },
   { at: 0.190, kind: 'grow',  label: 'Capacity +5%' },
@@ -223,12 +227,12 @@ export const GHOSTS = {
   },
   nocam: {
     label: 'Fixed camera positions', drop: 1.1, holdDrop: 0.7,
-    note: 'Cameras left exactly where the solver put them. The blobs spend their capacity ' +
+    note: 'Cameras left exactly where the solver put them. The splats spend their capacity ' +
           'covering up a fraction of a degree of pose error.',
   },
   small: {
-    label: 'A quarter of the blobs', drop: 2.6, holdDrop: 1.4,
-    note: 'Fewer blobs, less to overfit with. Both curves drop, but the gap between them ' +
+    label: 'A quarter of the splats', drop: 2.6, holdDrop: 1.4,
+    note: 'Fewer splats, less to overfit with. Both curves drop, but the gap between them ' +
           'narrows.',
   },
 };

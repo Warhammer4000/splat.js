@@ -237,7 +237,7 @@ $('btn-sfm').addEventListener('click', async () => {
     const t0 = performance.now();
     state.sfm = await runSfM(state.images, log,
       (imgIdx, x, y) => state.images[imgIdx].sampleColor(x, y),
-      { graph: (state.scene && state.scene.graph) || 'walk',
+      { graph: (state.scene && state.scene.graph) || undefined, // scene may declare; else feature-based default
         msFeatures: !!(window.__sfmOpts && window.__sfmOpts.msFeatures),
         features: (window.__sfmOpts && window.__sfmOpts.features) || undefined });
     const dt = ((performance.now() - t0) / 1000).toFixed(1);

@@ -19,22 +19,26 @@ ready  →  prep  →  train  →  done        (+ Details, on demand, once done)
 
 - **ready** — the set is already loaded: frames in the strip, first photo filling
   the stage. One card sits on top of it carrying the five sets as five
-  thumbnails (click one, it loads immediately), what this set is, where it comes
+  thumbnails plus a [+] tile for your own photos (click one, it loads
+  immediately), what this set is, where it comes
   from with links to the paper and the image set, the fact that everything runs
   in this tab, and *Start training*. No description of the scene — the button
-  already says there is no 3D yet. Once a run starts the header keeps the set
-  name and an **Another set** button.
+  already says there is no 3D yet. Once a run starts, the top left keeps the set
+  name and a **← Train another set** button: that reopens this same card over the
+  running job, with a Cancel. Nothing is thrown away until a different set is
+  actually picked — clicking the set you are already on just closes the card.
 - **prep** — the solve runs itself. Four beats, about eight seconds, each one
   visible on the big stage: landmarks appearing on a photo → two frames with the
   matches that survived → cameras dropping into place around the cloud → points
-  becoming blobs. The dock reads out what is happening; you cannot get it wrong
+  becoming splats. The dock reads out what is happening; you cannot get it wrong
   because there is nothing to press.
-- **train** — the main event. The stage is the render, sharpening. Orbit the
-  model, or stay locked to a frame and drag the loupe over it to see the
-  photograph underneath. Play/pause, 1×/4×/16×, cycle count, blob count, the
-  score curve, both scores. Frames pulse in the strip as they get sampled.
+- **train** — the main event. The stage is the model, sharpening. Play/pause,
+  1×/4×/16×, cycle count, splat count, the score curve, both scores. Frames pulse
+  in the strip as they get sampled.
 - **done** — chrome recedes, the model gets the whole screen. The dock carries
-  the honest number, and: compare with the hidden photo · replay · export.
+  the honest number, and: compare with the hidden photo · replay · export .ply ·
+  **Export to Arrival.Space** (the primary action — the demo's reason to exist is
+  putting the result somewhere).
 
 **Details** is a separate view, and it only exists after the run: landmarks,
 matching and the camera solve, each with its own picture, plus the score curve
@@ -55,6 +59,45 @@ looking for it.
 
 Kept from v1 because they carry the demo: the loupe, the filmstrip, the two-line
 score curve, and the full-bleed result.
+
+## One camera, no modes
+
+There is no "Model" / "Frame N" switch. There is a camera, and a frame is a place
+it can be:
+
+- **Click any frame** (strip, or ←/→) and the camera jumps to where that
+  photograph was taken. The photograph is then drawn *on* the model it lines up
+  with — pose and intrinsics are the frame's own, so it registers exactly. The
+  model keeps rendering outside the photo's frame, which is what makes it read as
+  one scene rather than two pictures.
+- **The photograph is the top layer, and every reveal takes some of it away.**
+  *Swipe* wipes it off from the divider (photograph left, render right),
+  *Loupe* punches a hole in it, *Render* removes it entirely, *Error* replaces
+  both with the difference. That is the same mechanic the real thing will have:
+  a 2D image lying over a live render, removed to show what is underneath.
+- **Drag** and the camera simply moves off. It starts from the frame's exact
+  position, orientation and focal length, so nothing jumps; the photograph fades
+  out because it no longer lines up. Click another frame to snap onto that one.
+
+The reveal controls only exist while the camera is on a frame, so there is never a
+control that does nothing.
+
+*Mockup detail:* at a frame the "render" is `develop.js`'s photo-derived field
+rather than the 3D cloud, because a sparse stand-in cloud would make the
+comparison meaningless. The two cross-fade. Wired to the real trainer there is
+nothing to cross-fade — it renders the actual model from any pose.
+
+## Words
+
+They are **splats** everywhere in the UI, not "blobs" — the product is called
+Splat.js and that is the word people will look up. The Details sheet defines it
+once, in plain language: *a splat is a soft 3D blob with a position, a size along
+three axes, an orientation, a colour and a transparency.*
+
+## Colour
+
+Turquoise = live / selected / primary. Amber = the frame held back from training
+and its score. Red = trouble. Corners are round; controls are pills.
 
 ## Code
 

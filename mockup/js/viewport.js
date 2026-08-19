@@ -41,8 +41,9 @@ export class Viewport {
     this.yaw = 0.6; this.pitch = 0.22; this.dist = 8; this.target = [0, 0, 0];
     this.dirty = true;
     this.w = 1; this.h = 1;
-    this.enabled = true;          // off while the stage shows a locked comparison
-    this.onInteract = null;
+    this.enabled = true;
+    this.freeF = null;            // focal carried over when leaving a frame pose
+    this.onLeave = null;          // called when a drag pulls off a frame pose
     this._bind();
   }
 
@@ -52,9 +53,10 @@ export class Viewport {
     let drag = null;
     cv.addEventListener('pointerdown', (e) => {
       if (!this.enabled) return;
+      // dragging off a frame is not a mode change, it is just movement
+      if (this.lock) this.onLeave?.();
       drag = { x: e.clientX, y: e.clientY, pan: e.shiftKey || e.button === 2 || e.button === 1 };
       cv.setPointerCapture(e.pointerId);
-      if (this.onInteract) this.onInteract();
     });
     cv.addEventListener('pointermove', (e) => {
       if (!drag) return;
@@ -77,11 +79,10 @@ export class Viewport {
     cv.addEventListener('pointercancel', end);
     cv.addEventListener('contextmenu', (e) => e.preventDefault());
     cv.addEventListener('wheel', (e) => {
-      if (!this.enabled) return;
+      if (!this.enabled || this.lock) return;   // on a frame the wheel sizes the loupe
       e.preventDefault();
       this.dist = Math.max(0.4, Math.min(200, this.dist * Math.exp(e.deltaY * 0.0011)));
       this.dirty = true;
-      if (this.onInteract) this.onInteract();
     }, { passive: false });
   }
 
@@ -123,7 +124,7 @@ export class Viewport {
     this.target = [C[0] + fwd[0] * d, C[1] + fwd[1] * d, C[2] + fwd[2] * d];
     this.dist = d;
     this.yaw = Math.atan2(-fwd[0], -fwd[2]);
-    this.pitch = Math.asin(Math.max(-1, Math.min(1, -fwd[1])));
+    this.pitch = Math.asin(Math.max(-1, Math.min(1, fwd[1])));
     this.dirty = true;
   }
 
@@ -149,7 +150,10 @@ export class Viewport {
       -(R[3] * pos[0] + R[4] * pos[1] + R[5] * pos[2]),
       -(R[6] * pos[0] + R[7] * pos[1] + R[8] * pos[2]),
     ];
-    return { R, t, f: Math.min(this.w, this.h) * 0.86, cx: this.w / 2, cy: this.h / 2 };
+    return {
+      R, t, cx: this.w / 2, cy: this.h / 2,
+      f: this.freeF || Math.min(this.w, this.h) * 0.86,
+    };
   }
 
   viewPose() {
@@ -180,20 +184,13 @@ export class Viewport {
    */
   draw(o = {}) {
     const { ctx, w, h } = this;
-    ctx.fillStyle = '#0a0807';
+    ctx.fillStyle = '#070909';
     ctx.fillRect(0, 0, w, h);
     if (!this.scene) return;
 
     const P = this.viewPose();
     const { R, t, f, cx, cy } = P;
     const dpr = this.dpr || 1;
-
-    if (P.letterbox) {                       // show the photo's exact frame
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect((w - P.letterbox[0]) / 2, (h - P.letterbox[1]) / 2, P.letterbox[0], P.letterbox[1]);
-      ctx.clip();
-    }
 
     const { xyz, rgb } = this.scene;
     const mode = o.mode || 'points';
@@ -255,8 +252,6 @@ export class Viewport {
     }
 
     if (o.showCams && o.cams) this._drawCams(o, P);
-
-    if (P.letterbox) ctx.restore();
     this.dirty = false;
   }
 
@@ -298,11 +293,11 @@ export class Viewport {
       if (pc) path.push(pc);
 
       const isActive = i === o.active, isSel = i === o.sel;
-      let col = 'rgba(163,149,138,.42)', lw = 1 * dpr;
-      if (c.state === 'holdout') col = 'rgba(99,207,192,.75)';
-      if (isSel) { col = 'rgba(239,231,218,.95)'; lw = 1.4 * dpr; }
-      if (isActive) { col = 'rgba(242,160,63,1)'; lw = 1.8 * dpr; }
-      if (!isActive && !isSel && o.dimOthers) col = 'rgba(163,149,138,.2)';
+      let col = 'rgba(147,161,160,.42)', lw = 1 * dpr;
+      if (c.state === 'holdout') col = 'rgba(242,160,63,.75)';
+      if (isSel) { col = 'rgba(230,236,235,.95)'; lw = 1.4 * dpr; }
+      if (isActive) { col = 'rgba(47,212,193,1)'; lw = 1.8 * dpr; }
+      if (!isActive && !isSel && o.dimOthers) col = 'rgba(147,161,160,.2)';
 
       // frustum corners at distance s
       const k = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([ax, ay]) => {
@@ -315,7 +310,7 @@ export class Viewport {
       if (!pc || k.some((p) => !p)) continue;
 
       if (isActive) {
-        ctx.fillStyle = 'rgba(242,160,63,.13)';
+        ctx.fillStyle = 'rgba(47,212,193,.13)';
         ctx.beginPath();
         ctx.moveTo(k[0][0], k[0][1]);
         for (let j = 1; j < 4; j++) ctx.lineTo(k[j][0], k[j][1]);
@@ -331,7 +326,7 @@ export class Viewport {
     }
 
     if (o.showPath && path.length > 1) {
-      ctx.strokeStyle = 'rgba(242,160,63,.22)';
+      ctx.strokeStyle = 'rgba(47,212,193,.22)';
       ctx.lineWidth = 1 * dpr;
       ctx.setLineDash([3 * dpr, 4 * dpr]);
       ctx.beginPath();

@@ -1,7 +1,7 @@
 // app.js — the mockup shell: one stage, one strip of frames, one inspector,
 // six beats from photographs to a finished splat.
 
-import { PRESETS, PHASES, COPY, HELP, EVENTS, GHOSTS, GUIDE } from './data.js';
+import { PRESETS, PHASES, COPY, HELP, EVENTS, GHOSTS, GUIDE, REPO } from './data.js';
 import { loadScene, DATA } from './scene.js';
 import { Viewport } from './viewport.js';
 import { Developer, fitRect } from './develop.js';
@@ -74,6 +74,7 @@ buildGuide();
 wireChrome();
 
 function wireChrome() {
+  $('gh').href = REPO;
   $('btn-detail').addEventListener('click', (e) => {
     const on = e.currentTarget.getAttribute('aria-pressed') !== 'true';
     e.currentTarget.setAttribute('aria-pressed', String(on));
@@ -181,6 +182,7 @@ async function start(preset) {
 
   if (!vp) {
     vp = new Viewport($('stage-canvas'));
+    vp.onLeave = () => { if (S.locked) unlock(); };   // drag pulls off the frame
     dev = new Developer();
   }
   vp.resize();
@@ -247,7 +249,7 @@ function advance() {
     S.iter = S.maxIter; S.training = false;
     setPhase('result');
   } else if (p === 'result') {
-    flash('A .ply of ' + fmt(S.preset.stats.splats) + ' blobs would land in your downloads.', 4000);
+    flash('A .ply of ' + fmt(S.preset.stats.splats) + ' splats would land in your downloads.', 4000);
   }
 }
 
@@ -264,7 +266,7 @@ function renderRail() {
     ${c.more.length ? `<details class="more"><summary>What actually happens</summary>${c.more.map((m) => `<p>${m}</p>`).join('')}</details>` : ''}
     <div class="rail-fill"></div>
     <div id="rail-knobs"></div>
-    <button class="btn ${S.phase === 'train' ? 'btn-quiet' : 'btn-amber'}" id="rail-go">${c.action}</button>
+    <button class="btn ${S.phase === 'train' ? 'btn-quiet' : 'btn-accent'}" id="rail-go">${c.action}</button>
   `);
   $('rail-go').addEventListener('click', advance);
   if (S.phase === 'train') renderKnobs($('rail-knobs'));
@@ -278,8 +280,8 @@ function renderKnobs(host) {
       <label class="knob">Camera positions keep moving
         <button class="toggle" id="k-cam" aria-pressed="${S.camOpt}"></button></label>
       <p class="knob-note">${S.camOpt
-        ? 'On: the solve was rough, so the poses are being corrected as the blobs learn.'
-        : 'Off: the blobs have to hide the pose error themselves, and it shows as blur.'}</p>
+        ? 'On: the solve was rough, so the poses are being corrected as the splats learn.'
+        : 'Off: the splats have to hide the pose error themselves, and it shows as blur.'}</p>
       <label class="knob">Show camera frames
         <button class="toggle" id="k-frust" aria-pressed="${S.showCams}"></button></label>
       <div class="knob">Compare with
@@ -329,7 +331,7 @@ function renderStageBar() {
       ? 'Green survived the geometry test, red did not'
       : `${fmt(cam?.feats || 0)} marks on this frame`));
   } else if (S.phase === 'cameras' || S.phase === 'seed') {
-    title.textContent = S.phase === 'seed' ? 'Seeded blobs' : 'Sparse cloud';
+    title.textContent = S.phase === 'seed' ? 'Seeded splats' : 'Sparse cloud';
     bar.appendChild(seg([[true, 'Show cameras'], [false, 'Cloud only']], S.showCams, (v) => { S.showCams = v; renderStageBar(); }));
     bar.appendChild(spacer());
     bar.appendChild(note(`${S.preset.stats.cams} of ${S.scene.cams.length} frames placed · ${fmt(S.preset.stats.points)} points`));
@@ -368,20 +370,20 @@ function renderHud() {
   const hud = $('hud');
   const chips = [];
   if (S.phase === 'train') {
-    chips.push(`<span class="chip" data-tone="amber">training on <b>frame ${S.active + 1}</b></span>`);
-    chips.push(`<span class="chip"><b>${fmt(S.splats)}</b> blobs</span>`);
+    chips.push(`<span class="chip" data-tone="accent">training on <b>frame ${S.active + 1}</b></span>`);
+    chips.push(`<span class="chip"><b>${fmt(S.splats)}</b> splats</span>`);
   }
   if (S.phase === 'result') {
-    chips.push(`<span class="chip" data-tone="teal"><b>${fmt(S.preset.stats.splats)}</b> blobs</span>`);
+    chips.push(`<span class="chip" data-tone="alt"><b>${fmt(S.preset.stats.splats)}</b> splats</span>`);
     chips.push(`<span class="chip">${(S.preset.stats.splats * 44 / 1e6).toFixed(1)} MB</span>`);
   }
-  if (S.phase === 'cameras' && S.run) chips.push(`<span class="chip" data-tone="amber">placing frame <b>${S.camsRevealed}</b></span>`);
-  if (S.flash) chips.push(`<span class="chip" data-tone="amber">${S.flash.msg}</span>`);
+  if (S.phase === 'cameras' && S.run) chips.push(`<span class="chip" data-tone="accent">placing frame <b>${S.camsRevealed}</b></span>`);
+  if (S.flash) chips.push(`<span class="chip" data-tone="accent">${S.flash.msg}</span>`);
 
   const legend = (S.phase === 'cameras' || S.phase === 'seed' || (S.phase === 'train' && !S.locked)) && S.showCams
     ? `<div class="legend">
-         <span style="color:#f2a03f"><i></i>in use now</span>
-         <span style="color:#63cfc0"><i></i>held back from training</span>
+         <span style="color:#2fd4c1"><i></i>in use now</span>
+         <span style="color:#f2a03f"><i></i>held back from training</span>
          <span><i></i>placed</span>
        </div>` : '';
 
@@ -443,7 +445,7 @@ function paintStrip() {
     if (t) { tag.dataset.t = c.state; tag.textContent = t; }
     const bar = b.querySelector('.frame-bar i');
     bar.style.width = showScores ? `${clamp((c.psnr - 12) / 22, 0, 1) * 100}%` : '0%';
-    bar.style.background = c.state === 'holdout' ? '#63cfc0' : '#f2a03f';
+    bar.style.background = c.state === 'holdout' ? '#f2a03f' : '#2fd4c1';
   });
   const info = $('strip-info');
   if (info) {
@@ -467,7 +469,7 @@ function lockTo(i) {
   const c = S.scene.cams[i];
   if (!c.R) { flash('That frame was never placed — there is no viewpoint to render from.'); return; }
   S.sel = i; S.locked = true;
-  vp.lock = c; vp.enabled = false;
+  vp.lock = c;
   loadPhoto(c.url);
   S.loupe.x = vp.w / 2 / (vp.dpr || 1); S.loupe.y = vp.h / 2 / (vp.dpr || 1);
   $('stage-view').dataset.cursor = S.compare === 'loupe' ? 'loupe' : 'default';
@@ -477,7 +479,7 @@ function lockTo(i) {
 function unlock() {
   if (!S.locked) return;
   S.locked = false;
-  vp.lock = null; vp.enabled = true;
+  vp.lock = null;
   vp.syncTo(S.scene.cams[S.sel]);
   $('stage-view').dataset.cursor = 'grab';
   renderStageBar();
@@ -534,9 +536,9 @@ function tabScene(p) {
     ])}
     ${grp('Solve', [
       stat('Placed', `${st.cams} <small>/ ${sc.cams.length}</small>`, {
-        help: 'placed', tone: st.cams === sc.cams.length ? 'teal' : 'red' }),
+        help: 'placed', tone: st.cams === sc.cams.length ? 'accent' : 'red' }),
       stat('Points', fmt(st.points), { help: 'points' }),
-      stat('Reprojection error', `${st.rms} <small>px</small>`, { help: 'rms', tone: st.rms < 1 ? 'teal' : 'red' }),
+      stat('Reprojection error', `${st.rms} <small>px</small>`, { help: 'rms', tone: st.rms < 1 ? 'accent' : 'red' }),
       stat('Focal length', `${Math.round(sc.cams[0].f)} <small>px, guessed</small>`, { help: 'focal', adv: true }),
       stat('Landmarks per photo', fmt(sc.cams[S.sel]?.feats || 0), { adv: true }),
       stat('Solve time', `${st.sfm} <small>s</small>`, { adv: true }),
@@ -561,8 +563,8 @@ function tabCams(p) {
       <td>${c.i + 1}</td>
       <td data-tone="dim">${fmt(c.feats)}</td>
       <td data-tone="${c.err > 1 ? 'red' : ''}">${c.state === 'unplaced' ? '—' : c.err}</td>
-      <td data-tone="${c.state === 'holdout' ? 'teal' : ''}">${showScore && c.state !== 'unplaced' ? c.psnr.toFixed(1) : '—'}</td>
-      <td data-tone="${c.state === 'unplaced' ? 'red' : c.state === 'holdout' ? 'teal' : 'dim'}">${
+      <td data-tone="${c.state === 'holdout' ? 'alt' : ''}">${showScore && c.state !== 'unplaced' ? c.psnr.toFixed(1) : '—'}</td>
+      <td data-tone="${c.state === 'unplaced' ? 'red' : c.state === 'holdout' ? 'alt' : 'dim'}">${
         c.state === 'placed' ? '·' : c.state === 'holdout' ? 'held' : c.state === 'blurry' ? 'blur' : 'unplaced'}</td>
     </tr>`).join('');
   p.innerHTML = html(`
@@ -577,12 +579,12 @@ function tabModel(p) {
   const n = S.phase === 'result' ? S.preset.stats.splats : S.splats;
   p.innerHTML = html(`
     ${grp('Model', [
-      stat('Blobs', fmt(n), { help: 'splats' }),
-      stat('Numbers per blob', '14', { help: 'splats' }),
+      stat('Splats', fmt(n), { help: 'splats' }),
+      stat('Numbers per splat', '14', { help: 'splats' }),
       stat('Seeded from', `${fmt(S.preset.stats.points)} <small>points</small>`),
       stat('Ceiling', fmt(Math.round(S.preset.stats.splats * 1.4)), { adv: true }),
     ])}
-    ${grp('Each blob carries', [
+    ${grp('Each splat carries', [
       stat('Position', '3 numbers', { adv: true }),
       stat('Size along 3 axes', '3 numbers', { adv: true }),
       stat('Orientation', '4 numbers', { adv: true }),
@@ -606,13 +608,13 @@ function tabTrain(p) {
       stat('Step size', `${(1.6e-4 * Math.pow(.01, prog)).toExponential(1)}`, { adv: true }),
     ])}
     ${grp('Score', [
-      stat('On trained photos', `${psnrAt(prog).train.toFixed(2)} <small>dB</small>`, { help: 'psnr', tone: 'amber' }),
-      stat('On the hidden photo', `${psnrAt(prog).hold.toFixed(2)} <small>dB</small>`, { help: 'hold', tone: 'teal' }),
+      stat('On trained photos', `${psnrAt(prog).train.toFixed(2)} <small>dB</small>`, { help: 'psnr', tone: 'accent' }),
+      stat('On the hidden photo', `${psnrAt(prog).hold.toFixed(2)} <small>dB</small>`, { help: 'hold', tone: 'alt' }),
       stat('Gap', `${(psnrAt(prog).train - psnrAt(prog).hold).toFixed(2)} <small>dB</small>`, { adv: true }),
     ])}
     ${grp(`Frame ${S.sel + 1}`, [
       stat('State', c.state),
-      stat('Score', c.psnr ? `${c.psnr.toFixed(1)} <small>dB</small>` : '—', { tone: c.state === 'holdout' ? 'teal' : '' }),
+      stat('Score', c.psnr ? `${c.psnr.toFixed(1)} <small>dB</small>` : '—', { tone: c.state === 'holdout' ? 'alt' : '' }),
       stat('Sharpness', `${(c.sharp * 100) | 0}%`, { help: 'sharp' }),
       stat('Landmarks', fmt(c.feats), { adv: true }),
       stat('Matched into the cloud', fmt(c.matched), { help: 'match', adv: true }),
@@ -646,8 +648,8 @@ function renderTransport() {
     </div>
     <div class="chartwrap"><canvas id="chart"></canvas><div class="chart-tip" id="chart-tip" hidden></div></div>
     <div class="tscores">
-      <div class="score" data-tone="amber"><div class="score-v" id="t-ptrain">—</div><div class="score-k">trained dB</div></div>
-      <div class="score" data-tone="teal"><div class="score-v" id="t-phold">—</div><div class="score-k">hidden dB</div></div>
+      <div class="score" data-tone="accent"><div class="score-v" id="t-ptrain">—</div><div class="score-k">trained dB</div></div>
+      <div class="score" data-tone="alt"><div class="score-v" id="t-phold">—</div><div class="score-k">hidden dB</div></div>
     </div>`);
 
   $('t-play').addEventListener('click', toggleTrain);
@@ -666,13 +668,14 @@ function renderResultBar(t) {
     <div class="result-head">
       <h2>${S.preset.name} is done</h2>
       <p><b class="mono">${S.preset.psnr.hold.toFixed(1)} dB</b> on the photograph it never saw ·
-         ${fmt(st.splats)} blobs · ${(st.splats * 44 / 1e6).toFixed(1)} MB ·
+         ${fmt(st.splats)} splats · ${(st.splats * 44 / 1e6).toFixed(1)} MB ·
          ${S.preset.minutes} min in this tab</p>
     </div>
     <div class="result-actions">
       <button class="btn btn-quiet" id="r-compare">Compare with the hidden photo</button>
       <button class="btn btn-quiet" id="r-replay">Replay the training</button>
-      <button class="btn btn-amber" id="r-export">Export .ply</button>
+      <button class="btn btn-quiet" id="r-export">Export .ply</button>
+      <button class="btn btn-accent" id="r-arrival">Export to Arrival.Space</button>
     </div>`);
   $('r-compare').addEventListener('click', () => {
     const h = S.scene.holdout >= 0 ? S.scene.holdout : S.sel;
@@ -681,6 +684,8 @@ function renderResultBar(t) {
   });
   $('r-replay').addEventListener('click', replay);
   $('r-export').addEventListener('click', advance);
+  $('r-arrival').addEventListener('click', () =>
+    flash('Publishes the splat straight into one of your arrival.space rooms.', 4500));
 }
 
 function replay() {
@@ -749,9 +754,9 @@ function attachChart() {
       tip.hidden = false;
       tip.style.left = `${h.xPct}%`;
       tip.style.top = '4px';
-      tip.innerHTML = `${fmt(h.iter)} · <b style="color:#f2a03f">${h.train.toFixed(1)}</b>` +
-        (h.hold != null ? ` / <b style="color:#63cfc0">${h.hold.toFixed(1)}</b> dB` : '') +
-        (h.event ? `<br><span style="color:#a3958a">${h.event}</span>` : '');
+      tip.innerHTML = `${fmt(h.iter)} · <b style="color:#2fd4c1">${h.train.toFixed(1)}</b>` +
+        (h.hold != null ? ` / <b style="color:#f2a03f">${h.hold.toFixed(1)}</b> dB` : '') +
+        (h.event ? `<br><span style="color:#93a1a0">${h.event}</span>` : '');
     },
   });
   chart.resize();
@@ -781,7 +786,7 @@ function loop() {
     const bar = $('run-bar');
     if (bar) {
       bar.style.width = `${u * 100}%`;
-      const T = { features: ['Finding landmarks', 'scanning frame'], cameras: ['Placing cameras', 'frame'], seed: ['Seeding blobs', 'point'] }[S.run.kind];
+      const T = { features: ['Finding landmarks', 'scanning frame'], cameras: ['Placing cameras', 'frame'], seed: ['Seeding splats', 'point'] }[S.run.kind];
       $('run-title').textContent = T[0];
       $('run-sub').textContent = S.run.kind === 'cameras'
         ? `${Math.round(u * S.preset.stats.cams)} of ${S.scene.cams.length} placed`
@@ -823,7 +828,7 @@ function loop() {
     for (const e of EVENTS) {
       if (p >= e.at && !(S.fired ||= new Set()).has(e.label + e.at)) {
         S.fired.add(e.label + e.at);
-        if (e.kind === 'grow') flash(`${e.label} → ${fmt(S.splats)} blobs`, 2600);
+        if (e.kind === 'grow') flash(`${e.label} → ${fmt(S.splats)} splats`, 2600);
         else if (e.at > 0) flash(e.label, 2600);
       }
     }
@@ -850,7 +855,7 @@ function drawStage(now) {
   }
 
   if (S.locked && (phase === 'train' || phase === 'result')) {
-    if (!dev.ready) { ctx.fillStyle = '#0a0807'; ctx.fillRect(0, 0, w, h); return; }
+    if (!dev.ready) { ctx.fillStyle = '#070909'; ctx.fillRect(0, 0, w, h); return; }
     ctx.save();
     ctx.scale(dpr, dpr);
     const r = dev.render(ctx, w / dpr, h / dpr, {
@@ -884,7 +889,7 @@ function drawStage(now) {
 function drawPhotoStage(ctx, w, h, dpr, withMarks) {
   const cam = S.scene.cams[S.sel];
   const pair = withMarks && S.pairView;
-  ctx.fillStyle = '#0a0807';
+  ctx.fillStyle = '#070909';
   ctx.fillRect(0, 0, w, h);
 
   const img = readyBmp(cam.url);
@@ -912,7 +917,7 @@ function drawPhotoStage(ctx, w, h, dpr, withMarks) {
     ctx.drawImage(img2, r2.x, r2.y, r2.w, r2.h);
   }
   if (r2) drawMatches(ctx, img, r1, r2, `k${S.sel}`, markReveal());
-  ctx.fillStyle = '#a3958a';
+  ctx.fillStyle = '#93a1a0';
   ctx.font = '500 10px "Spline Sans Mono", monospace';
   ctx.fillText(`FRAME ${S.sel + 1}`, r1.x + 4, r1.y - 5);
   if (r2) ctx.fillText(`FRAME ${j + 1}`, r2.x + 4, r2.y - 5);
@@ -926,7 +931,7 @@ function markReveal() {
 }
 
 function drawWait(ctx, w, h) {
-  ctx.fillStyle = '#7a6e64';
+  ctx.fillStyle = '#6b7877';
   ctx.font = '400 12px "Spline Sans Mono", monospace';
   ctx.textAlign = 'center';
   ctx.fillText('loading frame…', w / 2, h / 2);
@@ -978,7 +983,7 @@ function buildGuide() {
 }
 
 function diagram(kind) {
-  const A = '#f2a03f', T = '#63cfc0', R = '#e2664f', D = '#4c4038';
+  const A = '#2fd4c1', T = '#f2a03f', R = '#e2664f', D = '#4c4038';
   const cam = (x, y, a, col) => `<g transform="translate(${x} ${y}) rotate(${a})">
       <path d="M0 0 L9 -6 L9 6 Z" fill="${col}" opacity=".85"/></g>`;
   if (kind === 'spin') {

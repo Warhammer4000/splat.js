@@ -74,7 +74,7 @@ export class Developer {
     sc.drawImage(this.bmp, 0, 0, cells, ch);
     const px = sc.getImageData(0, 0, cells, ch).data;
 
-    c.fillStyle = '#0a0807';
+    c.fillStyle = '#070909';
     c.fillRect(0, 0, dw, dh);
 
     // blurry base: what a coarse cloud of soft blobs actually resolves to
@@ -133,7 +133,7 @@ export class Developer {
       const d = (Math.abs(a.data[i] - b.data[i]) + Math.abs(a.data[i + 1] - b.data[i + 1])
                + Math.abs(a.data[i + 2] - b.data[i + 2])) / 3;
       const u = Math.min(1, d / 70);
-      // dark → teal → amber → red: cool where the model agrees, hot where it does not
+      // cool where the model agrees, hot where it does not
       out.data[i]     = 20 + 235 * Math.pow(u, .75);
       out.data[i + 1] = 40 + 150 * Math.max(0, Math.sin(u * Math.PI * .95));
       out.data[i + 2] = 45 + 90 * Math.max(0, 1 - u * 2.4);
@@ -157,45 +157,65 @@ export class Developer {
       ctx.drawImage(this._error(r.w, r.h, o.progress), r.x, r.y, r.w, r.h);
     };
 
-    ctx.fillStyle = '#0a0807';
-    ctx.fillRect(0, 0, w, h);
+    if (o.clear !== false) { ctx.fillStyle = '#070909'; ctx.fillRect(0, 0, w, h); }
 
     if (o.mode === 'photo') { drawPhoto(); return r; }
     if (o.mode === 'error') { drawErr(); return r; }
     drawDev();
     if (o.mode === 'render') return r;
 
+    // From here on the photograph is the top layer and the render is underneath.
+    // Every mode is the same gesture: take some of the photograph away and the
+    // render shows through.
+    const label = (text, x, align, tone) => {
+      ctx.font = '500 10px "Spline Sans Mono", monospace';
+      ctx.textAlign = align; ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = 'rgba(7,9,9,.75)';
+      ctx.fillText(text, x + (align === 'left' ? 1 : -1), r.y + r.h - 11);
+      ctx.fillStyle = tone;
+      ctx.fillText(text, x, r.y + r.h - 12);
+    };
+
     if (o.mode === 'swipe') {
       const x = r.x + r.w * (o.swipe ?? .5);
-      ctx.save();
-      ctx.beginPath(); ctx.rect(x, r.y, r.x + r.w - x, r.h); ctx.clip();
+      ctx.save();                                  // photograph, up to the divider
+      ctx.beginPath(); ctx.rect(r.x, r.y, x - r.x, r.h); ctx.clip();
       drawPhoto();
       ctx.restore();
-      ctx.strokeStyle = 'rgba(242,160,63,.9)'; ctx.lineWidth = 1.5;
+
+      ctx.strokeStyle = 'rgba(47,212,193,.9)'; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(x, r.y); ctx.lineTo(x, r.y + r.h); ctx.stroke();
-      ctx.fillStyle = 'rgba(242,160,63,.9)';
+      ctx.fillStyle = 'rgba(47,212,193,.9)';
       ctx.beginPath(); ctx.arc(x, r.y + r.h / 2, 7, 0, 7); ctx.fill();
-      ctx.fillStyle = '#241605';
+      ctx.fillStyle = '#04231f';
       ctx.font = '600 9px "Spline Sans Mono", monospace';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('↔', x, r.y + r.h / 2 + .5);
+
+      if (x - r.x > 96) label('PHOTOGRAPH', r.x + 12, 'left', 'rgba(230,236,235,.9)');
+      if (r.x + r.w - x > 76) label('RENDER', r.x + r.w - 12, 'right', 'rgba(47,212,193,.95)');
       return r;
     }
 
     if (o.mode === 'loupe' && o.loupe) {
       const { x, y, r: rr } = o.loupe;
-      ctx.save();
-      ctx.beginPath(); ctx.arc(x, y, rr, 0, 7); ctx.clip();
-      if (o.loupeShows === 'error') drawErr(); else drawPhoto();
+      ctx.save();                                  // photograph, with a hole in it
+      ctx.beginPath();
+      ctx.rect(r.x, r.y, r.w, r.h);
+      ctx.arc(x, y, rr, 0, 7);
+      ctx.clip('evenodd');
+      drawPhoto();
       ctx.restore();
-      ctx.strokeStyle = 'rgba(242,160,63,.95)'; ctx.lineWidth = 2;
+
+      ctx.strokeStyle = 'rgba(47,212,193,.95)'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(x, y, rr, 0, 7); ctx.stroke();
-      ctx.strokeStyle = 'rgba(10,8,7,.5)'; ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(7,9,9,.5)'; ctx.lineWidth = 4;
       ctx.beginPath(); ctx.arc(x, y, rr + 3, 0, 7); ctx.stroke();
-      ctx.fillStyle = 'rgba(242,160,63,.95)';
+      ctx.fillStyle = 'rgba(47,212,193,.95)';
       ctx.font = '500 10px "Spline Sans Mono", monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(o.loupeShows === 'error' ? 'ERROR' : 'PHOTOGRAPH', x, y - rr - 9);
+      ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+      ctx.fillText('RENDER', x, y - rr - 9);
+      label('PHOTOGRAPH', r.x + 12, 'left', 'rgba(230,236,235,.9)');
     }
     return r;
   }

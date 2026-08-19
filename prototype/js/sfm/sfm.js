@@ -380,7 +380,11 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
   const K0 = images.map((im) => ({
     f: 1.2 * Math.max(im.fw, im.fh), cx: im.fw / 2, cy: im.fh / 2,
   }));
-  const pairs = buildPairs(n, opts.graph || 'walk');
+  // With SIFT the wide 'orbit' graph is safe everywhere (the walk-window
+  // limit was a BRIEF pathology: repeated-texture mismatches at wide
+  // baselines poisoned tracks — camping went 113 -> 64 registered). SIFT
+  // camping with the wide graph: 113/113, best-ever PSNR, tail drift down.
+  const pairs = buildPairs(n, opts.graph || (useSift ? 'orbit' : 'walk'));
   log(`matching ${pairs.length} image pairs ...`);
   const pairInfo = []; // { i, j, matches: [[fa, fb], ...] }
   const failedRich = []; // many matches but failed the E-gate (rescue candidates)
