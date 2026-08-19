@@ -446,3 +446,5 @@ body {
   display: inline-block; width: 8px; height: 8px; border-radius: 50%;
   background: #e5484d; margin-right: 7px; vertical-align: 0;
 }
+
+#btn-go[disabled] { opacity: .38; cursor: default; }
