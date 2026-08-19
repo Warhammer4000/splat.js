@@ -11,6 +11,8 @@
 import { createSession, gaussiansToPly } from '../../src/index.js';
 import { extractSharpFrames, isVideoFile } from '../../src/io/video.js';
 import { recordCaptureVideo, cameraSupported } from './camera.js';
+import { saveLastCapture, loadLastCapture } from './store.js';
+import { zipStore } from './zip.js';
 import { handleOAuthCallback, sendToArrival, hasToken } from './arrival.js';
 import { PRESETS, REPO, DATA, HOLD_HELP, ownSet } from './data.js';
 import { Viewport, camCentre } from './viewport.js';
@@ -137,9 +139,44 @@ function boot() {
   if (!navigator.gpu) {
     flash('This demo needs WebGPU — use a current Chrome or Edge.', 60000);
   }
+  // a refresh mid-run would throw away the model (and, before storage
+  // landed, the capture) — ask first
+  addEventListener('beforeunload', (e) => {
+    if (S.state === 'train' || S.state === 'prep') { e.preventDefault(); e.returnValue = ''; }
+  });
   window.__splat = S;          // console access
   open(PRESETS[0]);
+  offerLastCapture();
   requestAnimationFrame(loop);
+}
+
+/** the previous own capture, restored from this device's storage */
+async function offerLastCapture() {
+  const rec = await loadLastCapture();
+  if (!rec || !rec.files || rec.files.length < 2) return;
+  const host = $('setpick');
+  const b = document.createElement('button');
+  b.dataset.id = '__last';
+  b.innerHTML = `<div class="ph"></div><span>Last capture</span>`;
+  const img = Object.assign(new Image(), { src: URL.createObjectURL(rec.files[0].blob), alt: '' });
+  img.onload = () => b.querySelector('.ph')?.replaceWith(img);
+  const makeSet = () => {
+    const files = rec.files.map((e) => new File([e.blob], e.name, { type: e.blob.type || 'image/jpeg' }));
+    if (S.ownUrls) S.ownUrls.forEach(URL.revokeObjectURL);
+    S.ownUrls = files.map((f) => URL.createObjectURL(f));
+    const set = ownSet(files, S.ownUrls);
+    set.id = '__last';
+    set.kind = 'Saved on this device';
+    set.origin = `${files.length} frames from your last capture, restored from this browser's ` +
+      'own storage. They never left this device.';
+    return set;
+  };
+  b.addEventListener('click', () => {
+    if (S.picking) { S.pending = makeSet(); paintCard(S.pending); return; }
+    if (S.preset && S.preset.id === '__last') return;
+    open(makeSet());
+  });
+  host.insertBefore(b, host.firstChild);
 }
 
 function buildSetPicker() {
@@ -207,6 +244,11 @@ async function useOwnPhotos(list) {
   }
   if (S.ownUrls) S.ownUrls.forEach(URL.revokeObjectURL);
   S.ownUrls = files.map((f) => URL.createObjectURL(f));
+  // survive a refresh: the capture is kept on-device and offered back
+  saveLastCapture({
+    kind: 'photos', created: Date.now(),
+    files: files.map((f) => ({ name: f.name, blob: f })),
+  }).catch(() => {});
   open(ownSet(files, S.ownUrls));
 }
 
@@ -239,6 +281,11 @@ async function useOwnVideo(file) {
     }
     if (S.ownUrls) S.ownUrls.forEach(URL.revokeObjectURL);
     S.ownUrls = frames.map((f) => URL.createObjectURL(f.source));
+    // persist the EXTRACTED frames (small JPEGs), not the raw video
+    saveLastCapture({
+      kind: 'video', created: Date.now(),
+      files: frames.map((f) => ({ name: f.name, blob: f.source })),
+    }).catch(() => {});
     const set = ownSet(frames, S.ownUrls);
     set.kind = 'Your video';
     set.origin = `${frames.length} sharp frames picked from your ${Math.round(duration)}s video, ` +
@@ -348,6 +395,7 @@ async function startPrep() {
         if (S.gen !== gen) return;
       }
     }
+    S.loadedFiles = files;   // originals, for "Download photos" in export
     await session.load(files);
     if (S.gen !== gen) return;
 
@@ -619,6 +667,7 @@ function buildExport() {
     <div class="menu" hidden>
       <button data-act="arr"><b>Upload to Arrival.Space</b><span>Straight into a space of yours</span></button>
       <button data-act="ply"><b>Download .ply</b><span>Standard splat file · ${mb} MB</span></button>
+      <button data-act="imgs"><b>Download photos</b><span>The ${S.loadedFiles ? S.loadedFiles.length : 0} training images · zip</span></button>
     </div>`;
 
   const menu = wrap.querySelector('.menu');
@@ -640,6 +689,23 @@ function buildExport() {
   wrap.querySelector('[data-act="arr"]').addEventListener('click', () => {
     menu.hidden = true;
     if (!S.uploading) uploadDialog();
+  });
+  wrap.querySelector('[data-act="imgs"]').addEventListener('click', async () => {
+    menu.hidden = true;
+    if (!S.loadedFiles || !S.loadedFiles.length) { flash('No source images in this run.'); return; }
+    flash('Packing your photos …', 60000);
+    const entries = [];
+    for (const f of S.loadedFiles) {
+      const blob = f.source || f;
+      entries.push({ name: f.name, data: new Uint8Array(await blob.arrayBuffer()) });
+    }
+    const zip = zipStore(entries);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(zip);
+    a.download = `${(S.preset.name || 'capture').toLowerCase().replace(/\W+/g, '_')}_photos.zip`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    flash(`${entries.length} photos zipped and on their way.`, 4000);
   });
   return wrap;
 }
