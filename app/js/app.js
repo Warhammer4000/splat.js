@@ -240,11 +240,10 @@ async function startPrep() {
   dock('prep');
 
   try {
-    // size the trainer's view buffers for THIS device's screen at 2x device
-    // pixels (both orientations — the clamps below are pixel-count based)
-    const dpr = Math.min(2, devicePixelRatio || 1);
-    const mvW = Math.ceil((screen.width || 1280) * dpr);
-    const mvH = Math.ceil((screen.height || 800) * dpr);
+    // view buffers sized for the screen at 1x CSS pixels (the stage renders
+    // at 1x — splats don't reward supersampling; clamps are pixel-count based)
+    const mvW = Math.ceil(screen.width || 1280);
+    const mvH = Math.ceil(screen.height || 800);
     S.viewPixBudget = Math.min(
       mvW * mvH,
       16000 * 256, // per-raster tile-grid cap (16k tiles of 16x16)
