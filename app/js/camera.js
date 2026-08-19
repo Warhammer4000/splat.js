@@ -81,9 +81,10 @@ export async function recordCaptureVideo() {
       <button data-m="video" aria-pressed="true">Video</button>
       <button data-m="photos" aria-pressed="false">Photos</button>
     </div>
+    <button class="camrec-x" id="cam-cancel" aria-label="Cancel">&times;</button>
     <div class="camrec-hint" id="cam-hint">Move <b>sideways</b>, slowly. Keep the subject in frame — a wide arc beats a spin.</div>
     <div class="camrec-row">
-      <button class="btn btn-quiet" id="cam-cancel">Cancel</button>
+      <span></span>
       <button class="camrec-btn" id="cam-rec" aria-label="Capture"></button>
       <span class="camrec-time" id="cam-time">0:00</span>
     </div>

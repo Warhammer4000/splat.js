@@ -364,7 +364,7 @@ body {
   display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
   padding: 0 22px;
 }
-.camrec-row .btn-quiet { justify-self: start; }
+
 .camrec-time { justify-self: end; font: 500 13px var(--mono); color: var(--paper); }
 .camrec-btn {
   width: 64px; height: 64px; border-radius: 50%; cursor: pointer;
@@ -407,3 +407,14 @@ body {
 
 /* breathing room above Start training (the removed paragraph used to provide it) */
 #btn-go { margin-top: 18px; }
+
+/* capture close, top right */
+.camrec-x {
+  position: absolute; top: 14px; right: 14px; z-index: 2;
+  width: 40px; height: 40px; border-radius: 50%; cursor: pointer;
+  display: grid; place-items: center;
+  background: rgba(7, 9, 9, .65); backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, .12);
+  color: var(--paper); font-size: 22px; line-height: 1;
+}
+.camrec-x:hover { background: rgba(7, 9, 9, .85); }
