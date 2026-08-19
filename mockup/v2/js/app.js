@@ -72,6 +72,7 @@ function boot() {
 
   addEventListener('resize', () => { vp.resize(); chart?.resize(); dchart?.resize(); dvp?.resize(); });
   addEventListener('keydown', (e) => {
+    if (!$('about').hidden) { if (e.key === 'Escape') $('about').hidden = true; return; }
     if (!$('details').hidden) { if (e.key === 'Escape') $('details').hidden = true; return; }
     if (S.picking && e.key === 'Escape') { closePicker(); return; }
     if (e.key === ' ' && S.state === 'train') { e.preventDefault(); toggleTrain(); }
@@ -88,6 +89,12 @@ function boot() {
   });
 
   $('gh').href = REPO;
+  $('about-gh').href = REPO;
+  $('brand').addEventListener('click', (e) => { e.stopPropagation(); $('about').hidden = false; });
+  $('about-x').addEventListener('click', () => { $('about').hidden = true; });
+  $('about').addEventListener('click', (e) => {
+    if (!e.target.closest('.about-card')) $('about').hidden = true;
+  });
   window.__v2 = S;            // console access, same as v1
   window.__vp = vp;
   open(PRESETS[0]);
@@ -194,7 +201,6 @@ async function open(preset, autostart = false) {
   $('start').hidden = true;
   $('controls').hidden = true;
   $('btn-new').hidden = true;
-  $('set-name').hidden = true;
   $('strip').innerHTML = '';
   dock('');
 
@@ -209,7 +215,6 @@ async function open(preset, autostart = false) {
   buildStrip();
 
   paintCard(preset);
-  $('set-name').textContent = `${preset.name} · ${preset.count} frames`;
   bmp(S.scene.cams[0].url);
   if (autostart) startPrep();
   else $('start').hidden = false;
@@ -219,7 +224,6 @@ async function open(preset, autostart = false) {
 function startPrep() {
   $('start').hidden = true;
   $('btn-new').hidden = false;
-  $('set-name').hidden = false;
   S.state = 'prep';
   S.prepAt = performance.now();
   dock('prep');
@@ -237,8 +241,18 @@ function prepStep() {
 function startTraining() {
   S.state = 'train';
   S.training = true;
-  goToFrame(S.sel);
-  $('controls').hidden = false;
+  // No frame is selected — training opens on the model itself, evolving, and
+  // stepping onto a photograph is a deliberate act. But the camera starts near
+  // the first usable frame rather than at some arbitrary orbit, so the first
+  // thing seen is roughly what the photographer saw. Never the held-back one.
+  const first = S.scene.cams.find((c) => c.R && c.state !== 'holdout') || S.scene.cams[0];
+  if (first && first.R) {
+    S.sel = first.i;
+    vp.freeF = null;
+    vp.syncTo(first);
+    vp.dist = S.scene.radius * 1.35;   // stepped back, so the model is in view
+    paintStrip();
+  }
   renderControls();
   dock('train');
 }

@@ -23,10 +23,16 @@ body {
 }
 .bar .grow { flex: 1; }
 .bar .brand { margin-right: 4px; }
-.set-name { font: 500 12.5px var(--mono); color: var(--muted); white-space: nowrap; }
-.set-name::before { content: '● '; color: var(--accent); font-size: 9px; vertical-align: 2px; }
-#btn-new { color: var(--paper); border-color: var(--line-2); }
+#btn-new {
+  display: inline-flex; align-items: center; gap: 7px;
+  color: var(--paper); border-color: var(--line-2);
+}
 #btn-new:hover { border-color: var(--accent); color: var(--accent); }
+#btn-new .ai {
+  width: 14px; height: 14px; flex: none;
+  fill: none; stroke: var(--accent); stroke-width: 1.75;
+  stroke-linecap: round; stroke-linejoin: round;
+}
 
 /* ── stage ───────────────────────────────────────────────────────────────── */
 
@@ -272,3 +278,45 @@ body {
 .menu span { display: block; margin-top: 2px; font: 400 11.5px var(--mono); color: var(--dim); }
 
 
+
+/* ── what this is ────────────────────────────────────────────────────────── */
+
+.brand { padding: 0; cursor: pointer; }
+.brand:hover .brand-name { color: #fff; }
+.brand:hover .brand-mark { color: #5ee7d6; }
+
+.about {
+  position: fixed; inset: 0; z-index: 50;
+  display: grid; place-items: center; padding: 24px;
+  background: rgba(8, 10, 11, .72); backdrop-filter: blur(4px);
+  animation: rise .16s ease-out;
+}
+.about[hidden] { display: none; }
+
+.about-card {
+  position: relative; width: min(560px, 100%);
+  padding: 34px 34px 26px;
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: 16px;
+  box-shadow: var(--shadow);
+}
+.about-card h2 { font: 700 26px/1.15 var(--display); letter-spacing: -.02em; margin: 6px 0 14px; }
+.about-card p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+.about-card code {
+  font: 400 12.5px var(--mono); color: var(--paper);
+  background: var(--panel-2); padding: 1px 5px; border-radius: 4px;
+}
+
+.about-note {
+  margin: 18px 0 20px; padding: 13px 15px;
+  border: 1px solid var(--accent-30); border-radius: 12px; background: var(--accent-14);
+}
+.about-note b { display: block; font: 600 13.5px var(--ui); color: var(--accent); }
+.about-note span { display: block; margin-top: 3px; font-size: 13px; color: var(--muted); line-height: 1.55; }
+
+.about-foot {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+  padding-top: 16px; border-top: 1px solid var(--line);
+  font: 400 12px var(--mono); color: var(--dim);
+}
+.about-foot a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.about-foot a:hover { color: #5ee7d6; }

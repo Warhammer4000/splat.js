@@ -18,11 +18,18 @@ ready  →  prep  →  train  →  done        (+ Details, on demand, once done)
 ```
 
 - **ready** — the set is already loaded: frames in the strip, first photo filling
-  the stage. One card sits on top of it carrying the five sets as five
-  thumbnails plus a [+] tile for your own photos (click one, it loads
-  immediately), what this set is, where it comes
-  from with links to the paper and the image set, the fact that everything runs
-  in this tab, and *Start training*. No description of the scene — the button
+  the stage. One card sits on top of it, and it leads with **your own photos** —
+  a drop zone and a *Choose photos* button, the only filled button on the card.
+  Below a divider come the five ready-made sets as thumbnails (click one, it
+  loads immediately), what that set is, where it comes from with links to the
+  paper and the image set, the fact that everything runs in this tab, and an
+  outlined *Start training*.
+
+  **Dropping photos actually works.** They are decoded in the page, kept as
+  object URLs, and become a set like any other: the strip fills with them, the
+  prep beats mark landmarks on them, and the training compares against them. The
+  geometry is invented (there is no solver here) but its colours are sampled from
+  the first photo, so the stand-in cloud at least belongs to the scene. No description of the scene — the button
   already says there is no 3D yet. Once a run starts, the top left keeps the set
   name and a **← Train another set** button, which reopens this same card over the
   running job with an × in its corner. There it is a chooser, not a switch:
@@ -34,7 +41,12 @@ ready  →  prep  →  train  →  done        (+ Details, on demand, once done)
   matches that survived → cameras dropping into place around the cloud → points
   becoming splats. The dock reads out what is happening; you cannot get it wrong
   because there is nothing to press.
-- **train** — the main event. The stage is the model, sharpening. A status
+- **train** — the main event. It opens on the model itself with **no frame
+  selected**, so the first thing you watch is the thing that is changing. The
+  camera starts near the first usable frame (never the held-back one) and stepped
+  back, so that is roughly the photographer's view rather than an arbitrary
+  orbit. Stepping onto a photograph — and the reveal that comes with it — is a
+  deliberate click. A status
   strip sits directly under the header — play/pause, 1×/4×/16×, cycle count,
   splat count, the score curve, both scores — so the photographs keep the bottom
   of the screen to themselves. Frames pulse in the strip as they get sampled.
@@ -112,6 +124,14 @@ model — it only lays the photograph over whatever `viewport.js` has put on the
 canvas and takes some of it away again, and the error map is a genuine read-back
 of those pixels diffed against the photograph. Wiring the trainer in means
 swapping what fills the canvas, and nothing else.
+
+## What it says it is
+
+Clicking the wordmark opens a short panel: what Splat.js does (photographs in,
+landmarks, matching, camera solve, splats, training, a standard `.ply` out), a
+highlighted note that nothing is uploaded — no server, no cloud, no account, the
+photographs are decoded in the page and go nowhere — the GitHub link, and
+*Made by Stratum1 GmbH*. Esc, ×, or a click outside closes it.
 
 ## Which way is up
 

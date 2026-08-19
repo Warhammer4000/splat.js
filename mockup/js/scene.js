@@ -51,6 +51,20 @@ async function json(url) {
   return JSON.parse(txt.replace(/^﻿/, ''));
 }
 
+/** A stand-in cloud has no colours of its own, so borrow the scene's. */
+async function samplePalette(url) {
+  const blob = await (await fetch(url)).blob();
+  const bm = await createImageBitmap(blob, { resizeWidth: 24, resizeQuality: 'low' });
+  const c = document.createElement('canvas');
+  c.width = bm.width; c.height = bm.height;
+  c.getContext('2d', { willReadFrequently: true }).drawImage(bm, 0, 0);
+  bm.close?.();
+  const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+  const out = [];
+  for (let i = 0; i < d.length; i += 4) out.push([d[i], d[i + 1], d[i + 2]]);
+  return out;
+}
+
 /** Procedural stand-in cloud + path for scenes with nothing staged on disk. */
 function simulate(preset) {
   const R0 = rng(preset.id.length * 7717 + preset.count);
@@ -71,11 +85,12 @@ function simulate(preset) {
   };
   const xyz = new Float32Array(N * 3);
   const rgb = new Uint8Array(N * 3);
-  const palette = {
+  const basePalette = {
     walk:   [[92, 104, 66], [128, 116, 86], [64, 60, 52], [150, 148, 140]],
     arc:    [[168, 150, 128], [120, 110, 104], [190, 176, 150], [86, 80, 74]],
     sphere: [[96, 116, 62], [140, 126, 88], [72, 84, 54], [168, 164, 152]],
   }[preset.simPath] || [[140, 130, 120]];
+  const palette = preset.palette && preset.palette.length ? preset.palette : basePalette;
 
   for (let i = 0; i < N; i++) {
     let x, y, z;
@@ -101,8 +116,12 @@ function simulate(preset) {
       y = -1.3 + Math.exp(-(r * r) / 6) * (1.4 + R0() * .5) + R0() * .16;
     }
     xyz[i * 3] = x; xyz[i * 3 + 1] = y; xyz[i * 3 + 2] = z;
-    const c = palette[(R0() * palette.length) | 0];
-    const j = .8 + R0() * .5;
+    // a spatial hash, not a random pick: neighbouring points share a colour, so
+    // the stand-in reads as patches of a scene rather than confetti
+    const cell = (v) => Math.floor(v * 1.6) | 0;
+    const hash = Math.abs((cell(x) * 73856093) ^ (cell(y) * 19349663) ^ (cell(z) * 83492791));
+    const c = palette[hash % palette.length];
+    const j = .85 + R0() * .3;
     rgb[i * 3] = Math.min(255, c[0] * j);
     rgb[i * 3 + 1] = Math.min(255, c[1] * j);
     rgb[i * 3 + 2] = Math.min(255, c[2] * j);
@@ -160,6 +179,10 @@ export async function loadScene(preset) {
       return p && { R: p.R, t: p.t, f: (cam.fx + cam.fy) / 2, cx: cam.cx, cy: cam.cy, w: cam.w, h: cam.h };
     });
   } else {
+    // the invented geometry may as well be the right colour
+    if (!preset.palette) {
+      try { preset.palette = await samplePalette(urlOf(names[0], 0)); } catch { /* keep the default */ }
+    }
     ({ xyz, rgb, poses } = simulate(preset));
   }
 

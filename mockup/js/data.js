@@ -1,6 +1,7 @@
 // data.js — everything the mockup pretends to know.
 
-// TODO: point at the real repository before this goes public.
+// The repository. Cloned from https://github.com/arrival-space/splat.js.git —
+// links use the web URL.
 export const REPO = 'https://github.com/arrival-space/splat.js';
 
 // Numbers are the REAL measured results of the prototype (see ../prototype/README.md)
@@ -19,7 +20,7 @@ export const PRESETS = [
     mockPoses: 'file',                    // MOCKUP ONLY: real poses+cloud on disk drive the visuals
     capture: 'orbit',
     captureLine: 'One slow arc walked around the subject',
-    res: '1957 x 1091',
+    res: '979 x 546',
     badge: { kind: 'good', text: 'Clean result' },
     blurb: 'A parked truck, circled once on foot. Even spacing, constant light, ' +
            'plenty of sideways movement — close to a textbook capture.',
@@ -38,7 +39,7 @@ export const PRESETS = [
     mockPoses: 'file',
     capture: 'orbit',
     captureLine: 'Two passes around a locomotive, 84 frames',
-    res: '1959 x 1090',
+    res: '980 x 545',
     badge: { kind: 'good', text: 'Twice the frames' },
     blurb: 'More photos of a harder subject: dark paint, repeating windows, and a seam ' +
            'where the shoot was interrupted and picked up again.',
