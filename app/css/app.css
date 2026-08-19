@@ -367,12 +367,15 @@ body {
 
 .camrec-time { justify-self: end; font: 500 13px var(--mono); color: var(--paper); }
 .camrec-btn {
-  width: 64px; height: 64px; border-radius: 50%; cursor: pointer;
+  position: relative; width: 64px; height: 64px; border-radius: 50%;
+  cursor: pointer; padding: 0;
   border: 4px solid rgba(230, 236, 235, .9); background: transparent;
-  display: grid; place-items: center; justify-self: center;
+  justify-self: center;
 }
 .camrec-btn::after {
-  content: ''; width: 46px; height: 46px; border-radius: 50%;
+  content: ''; position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: 46px; height: 46px; border-radius: 50%;
   background: #e5484d; transition: border-radius .15s, width .15s, height .15s;
 }
 .camrec-btn[data-on="1"]::after { width: 26px; height: 26px; border-radius: 6px; }
