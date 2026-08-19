@@ -4,7 +4,7 @@
 // → look at the result. Everything explanatory moved out of the way into a
 // Details sheet that only exists once there is something to explain.
 
-import { PRESETS, EVENTS, HELP, REPO } from '../../js/data.js';
+import { PRESETS, EVENTS, HELP, REPO, ownSet } from '../../js/data.js';
 import { loadScene, DATA } from '../../js/scene.js';
 import { Viewport } from '../../js/viewport.js';
 import { Developer, fitRect } from '../../js/develop.js';
@@ -31,6 +31,7 @@ const S = {
   sel: 0, active: 0,
   atFrame: -1, compare: 'swipe',      // atFrame = the camera is sitting on that pose
   pending: null,                      // set chosen in the picker, not loaded yet
+  ownUrls: null,                      // object URLs for photographs the visitor chose
   fade: 0, fadeTo: 0,                 // how much of the photograph is laid over the model
   loupe: { x: 0, y: 0, r: 104 }, swipe: .5, rect: null,
   iter: 0, maxIter: 40000, speed: 1, splats: 0, training: false,
@@ -51,12 +52,22 @@ function boot() {
   dev = new Developer();
 
   $('btn-go').addEventListener('click', async () => {
-    if (S.own) { flash('In the real thing this is where your own photos go. The demo ships the ready sets.', 5000); return; }
     if (S.picking) { const p = S.pending || S.preset; closePicker(); await open(p, true); return; }
     startPrep();
   });
-  $('btn-new').addEventListener('click', showPicker);
+  $('btn-new').addEventListener('click', (e) => { e.stopPropagation(); showPicker(); });
   $('card-x').addEventListener('click', closePicker);
+  $('file-input').addEventListener('change', (e) => useOwnPhotos(e.target.files));
+
+  const card = $('start');
+  ['dragenter', 'dragover'].forEach((t) => card.addEventListener(t, (e) => {
+    e.preventDefault(); card.classList.add('drop');
+  }));
+  ['dragleave', 'dragend'].forEach((t) => card.addEventListener(t, () => card.classList.remove('drop')));
+  card.addEventListener('drop', (e) => {
+    e.preventDefault(); card.classList.remove('drop');
+    useOwnPhotos(e.dataTransfer.files);
+  });
   $('d-close').addEventListener('click', () => { $('details').hidden = true; });
 
   addEventListener('resize', () => { vp.resize(); chart?.resize(); dchart?.resize(); dvp?.resize(); });
@@ -68,6 +79,13 @@ function boot() {
     if (e.key === 'ArrowLeft') select(S.sel - 1);
   });
   wireStage();
+
+  addEventListener('click', (e) => {
+    if (!e.target.closest('.exportwrap')) {
+      document.querySelectorAll('.menu').forEach((m) => { m.hidden = true; });
+    }
+    if (S.picking && !e.target.closest('#start')) closePicker();
+  });
 
   $('gh').href = REPO;
   window.__v2 = S;            // console access, same as v1
@@ -85,8 +103,8 @@ function buildSetPicker() {
     b.dataset.id = p.id;
     b.innerHTML = `<div class="ph"></div><span>${p.name}</span>`;
     b.addEventListener('click', () => {
-      if (S.picking) { S.pending = p; S.own = false; paintCard(p); return; }   // choose, do not load
-      if (p === S.preset && !S.own) return;                                   // already on it
+      if (S.picking) { S.pending = p; paintCard(p); return; }   // choose, do not load
+      if (p === S.preset) return;                               // already on it
       open(p);
     });
     host.appendChild(b);
@@ -96,14 +114,6 @@ function buildSetPicker() {
       b.querySelector('.ph')?.replaceWith(img);
     });
   }
-
-  const own = document.createElement('button');
-  own.className = 'own-tile';
-  own.id = 'pick-own';
-  own.setAttribute('aria-pressed', 'false');
-  own.innerHTML = '<div class="plus">+</div><span>Your photos</span>';
-  own.addEventListener('click', showOwn);
-  host.appendChild(own);
 }
 
 function paintCard(preset) {
@@ -116,13 +126,14 @@ function paintCard(preset) {
   $('btn-go').textContent = 'Start training';
   [...$('setpick').children].forEach((b) =>
     b.setAttribute('aria-pressed', String(b.dataset.id === preset.id)));
+  $('upload').classList.toggle('is-current', preset.id === '__own');
 }
 
 /** the chooser, over a run that keeps going behind it. Choosing a tile only
  *  chooses — the current run is untouched until Start training commits. */
 function showPicker() {
   if (S.state === 'ready') return;
-  S.picking = true; S.own = false;
+  S.picking = true;
   S.pending = S.preset;
   paintCard(S.preset);
   $('card-x').hidden = false;
@@ -130,24 +141,34 @@ function showPicker() {
 }
 
 function closePicker() {
-  S.picking = false; S.own = false; S.pending = null;
+  S.picking = false; S.pending = null;
   $('start').hidden = true;
   $('card-x').hidden = true;
   $('btn-go').textContent = 'Start training';
 }
 
-/** the [+] tile: same card, different set of words */
-function showOwn() {
-  S.own = true; S.pending = null;
-  $('start-kind').textContent = 'Your own photos';
-  $('start-title').textContent = 'Bring your own';
-  $('start-origin').textContent =
-    '20 to 200 overlapping photos of one place. Walk around your subject rather than ' +
-    'turning on the spot — sideways movement is what makes depth solvable.';
-  $('start-links').innerHTML = '';
-  $('btn-go').textContent = 'Choose photos';
-  [...$('setpick').children].forEach((b) =>
-    b.setAttribute('aria-pressed', String(b.id === 'pick-own')));
+/**
+ * Photographs the visitor picked. They are decoded here and never leave the
+ * page; each one gets an object URL so the rest of the app can treat them
+ * exactly like a staged set.
+ */
+async function useOwnPhotos(list) {
+  const files = [...list].filter((f) => f.type.startsWith('image/'));
+  if (files.length < 2) {
+    flash('Pick at least a couple of overlapping photos of the same place.', 4500);
+    return;
+  }
+  if (S.ownUrls) S.ownUrls.forEach(URL.revokeObjectURL);
+  S.ownUrls = files.map((f) => URL.createObjectURL(f));
+
+  let w = 1600, h = 1000;
+  try {
+    const probe = await createImageBitmap(files[0]);
+    w = probe.width; h = probe.height;
+    probe.close?.();
+  } catch { /* a format the browser will not decode; the defaults will do */ }
+
+  open(ownSet(files, S.ownUrls, w, h));
 }
 
 /** first frame of a set, without loading the whole thing */
@@ -165,7 +186,7 @@ async function heroUrl(p) {
 async function open(preset, autostart = false) {
   S.preset = preset;
   S.state = 'ready';
-  S.own = false; S.picking = false; S.pending = null;
+  S.picking = false; S.pending = null;
   S.scene = null;
   $('btn-go').textContent = 'Start training';
   $('card-x').hidden = true;
@@ -295,35 +316,49 @@ function renderControls() {
 
   if (S.state !== 'done') return;
 
-  const details = document.createElement('button');
-  details.className = 'cbtn';
-  details.textContent = 'Details';
-  details.addEventListener('click', openDetails);
-  c.appendChild(details);
+  // what the model came to, in three numbers — the rest is one click away
+  const st = S.preset.stats;
+  const stats = document.createElement('button');
+  stats.className = 'statchip';
+  stats.innerHTML = `<span><b>${fmt(st.splats)}</b> splats</span>` +
+    `<span><b>${S.preset.psnr.hold.toFixed(1)}</b> dB</span>` +
+    `<span><b>${S.preset.minutes}</b> min</span><i>Details ›</i>`;
+  stats.addEventListener('click', openDetails);
+  c.appendChild(stats);
+  c.appendChild(buildExport());
+}
 
+const DL_ICON = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true" class="dl">' +
+  '<path d="M22 15.3333V19.7777C22 20.3671 21.7659 20.9323 21.3491 21.349C20.9324 21.7658 20.3671 21.9999 19.7778 21.9999H4.22222C3.63285 21.9999 3.06762 21.7658 2.65087 21.349C2.23413 20.9323 2 20.3671 2 19.7777V15.3333"/>' +
+  '<path d="M6.44449 9.77745L12 15.333M12 15.333L17.5556 9.77745M12 15.333L12 1.99967"/></svg>';
+
+/** the export control: a round icon and the two things it can do */
+function buildExport() {
+  const mb = (S.preset.stats.splats * 44 / 1e6).toFixed(1);
   const wrap = document.createElement('div');
   wrap.className = 'exportwrap';
   wrap.innerHTML = `
-    <button class="cbtn accent" id="r-export">
-      <svg viewBox="0 0 24 24" aria-hidden="true" class="dl"><path d="M12 3v11m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>Export</button>
-    <div class="menu" id="ex-menu" hidden>
-      <button id="ex-arr"><b>Send to Arrival.Space</b><span>Straight into one of your rooms</span></button>
-      <button id="ex-ply"><b>Download .ply</b><span>Standard splat file · ${(S.preset.stats.splats * 44 / 1e6).toFixed(1)} MB</span></button>
+    <button class="iconbtn" title="Export" aria-label="Export">${DL_ICON}</button>
+    <div class="menu" hidden>
+      <button data-act="arr"><b>Send to Arrival.Space</b><span>Straight into one of your rooms</span></button>
+      <button data-act="ply"><b>Download .ply</b><span>Standard splat file · ${mb} MB</span></button>
     </div>`;
-  c.appendChild(wrap);
 
-  const menu = wrap.querySelector('#ex-menu');
-  wrap.querySelector('#r-export').addEventListener('click', (e) => {
-    e.stopPropagation(); menu.hidden = !menu.hidden;
+  const menu = wrap.querySelector('.menu');
+  wrap.querySelector('.iconbtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.querySelectorAll('.menu').forEach((m) => { if (m !== menu) m.hidden = true; });
+    menu.hidden = !menu.hidden;
   });
-  wrap.querySelector('#ex-ply').addEventListener('click', () => {
+  wrap.querySelector('[data-act="ply"]').addEventListener('click', () => {
     menu.hidden = true;
     flash(`A .ply of ${fmt(S.preset.stats.splats)} splats would land in your downloads.`, 4000);
   });
-  wrap.querySelector('#ex-arr').addEventListener('click', () => {
+  wrap.querySelector('[data-act="arr"]').addEventListener('click', () => {
     menu.hidden = true;
     flash('Publishes the splat straight into one of your arrival.space rooms.', 4500);
   });
+  return wrap;
 }
 
 /** put the camera exactly on a frame's pose and lay its photograph over the model */
@@ -403,7 +438,7 @@ function buildStrip() {
     const b = document.createElement('button');
     b.className = 'frame';
     b.dataset.i = i;
-    b.innerHTML = `<div class="ph"></div><span class="frame-n">${i + 1}</span>
+    b.innerHTML = `<div class="ph"></div>
       <span class="frame-tag" hidden></span><div class="frame-bar"><i></i></div>`;
     b.addEventListener('click', () => select(i));
     sc.appendChild(b);
@@ -497,16 +532,6 @@ function flash(msg, ms = 2800) {
 
 function renderHud() {
   const chips = [];
-  if (S.atFrame >= 0) {
-    chips.push(`<span class="chip" data-tone="accent">through <b>frame ${S.atFrame + 1}</b> · drag to move off</span>`);
-  }
-  if (S.state === 'train') {
-    chips.push(`<span class="chip">training on <b>frame ${S.active + 1}</b></span>`);
-    chips.push(`<span class="chip"><b>${fmt(S.splats)}</b> splats</span>`);
-  }
-  if (S.state === 'done' && S.atFrame < 0) {
-    chips.push(`<span class="chip">drag to look around</span>`);
-  }
   if (S.flash) chips.push(`<span class="chip" data-tone="accent">${S.flash.msg}</span>`);
   const hud = $('hud');
   const next = `<div class="chip-row">${chips.join('')}</div>`;
@@ -686,6 +711,7 @@ const DTABS = [['marks', 'Landmarks'], ['matches', 'Matching'], ['cams', 'Camera
 
 function openDetails() {
   $('details').hidden = false;
+  $('d-export').replaceChildren(buildExport());
   renderDetails();
   if (!dchart) dchart = new Chart($('d-chart'), {});
   dchart.resize();

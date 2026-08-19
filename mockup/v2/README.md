@@ -34,14 +34,16 @@ ready  →  prep  →  train  →  done        (+ Details, on demand, once done)
   matches that survived → cameras dropping into place around the cloud → points
   becoming splats. The dock reads out what is happening; you cannot get it wrong
   because there is nothing to press.
-- **train** — the main event. The stage is the model, sharpening. Play/pause,
-  1×/4×/16×, cycle count, splat count, the score curve, both scores. Frames pulse
-  in the strip as they get sampled.
-- **done** — the bottom bar disappears entirely and the model gets everything
-  down to the filmstrip, with the camera frustums left on faintly so it still
-  reads as a reconstruction. Every number moves into **Details**; the only two
-  controls are Details and **Export**, which opens a menu — send to
-  Arrival.Space, or download the .ply.
+- **train** — the main event. The stage is the model, sharpening. A status
+  strip sits directly under the header — play/pause, 1×/4×/16×, cycle count,
+  splat count, the score curve, both scores — so the photographs keep the bottom
+  of the screen to themselves. Frames pulse in the strip as they get sampled.
+- **done** — the status bar disappears entirely and the model gets everything
+  between the header and the filmstrip, with the camera frustums left on faintly so it still
+  reads as a reconstruction. Top right carries a readout of what the run came to
+  — *92,000 splats · 25.6 dB · 3 min · Details ›* — which opens the sheet, and a
+  round **export** button beside it whose menu offers Arrival.Space or a .ply.
+  The same export control sits in the sheet header next to its ×.
 
 **Details** is a separate view, and it only exists after the run: landmarks,
 matching and the camera solve, each with its own picture, plus the score curve

@@ -54,6 +54,8 @@ async function json(url) {
 /** Procedural stand-in cloud + path for scenes with nothing staged on disk. */
 function simulate(preset) {
   const R0 = rng(preset.id.length * 7717 + preset.count);
+  const W = preset.imgW || 1280, H = preset.imgH || 800;
+  const F = 0.85 * Math.max(W, H);
   const N = Math.min(14000, Math.max(4000, preset.stats.points));
   // a point on the surface of a box — landmarks sit on surfaces, never inside them
   const onBox = (c, s) => {
@@ -122,7 +124,7 @@ function simulate(preset) {
       pos = [Math.cos(a) * 6.2, .9 + Math.sin(u * 4) * .5, Math.sin(a) * 6.2];
       at = [0, -.6, 0];
     }
-    poses.push({ ...lookAt(pos, at), f: 900, cx: 640, cy: 400, w: 1280, h: 800 });
+    poses.push({ ...lookAt(pos, at), f: F, cx: W / 2, cy: H / 2, w: W, h: H });
   }
   return { xyz, rgb, poses };
 }
@@ -131,9 +133,12 @@ function simulate(preset) {
  * @returns {Promise<{frames, cams, xyz, rgb, center, radius, holdout}>}
  */
 export async function loadScene(preset) {
-  const names = preset.files
-    ? (await json(`${DATA}${preset.dir}/${preset.files}`)).slice(0, preset.count)
+  // a set is either staged under /data, or a handful of files the visitor just
+  // dropped in — from here on the two are the same thing
+  const names = preset.own ? preset.own.map((f) => f.name)
+    : preset.files ? (await json(`${DATA}${preset.dir}/${preset.files}`)).slice(0, preset.count)
     : frameNames(preset);
+  const urlOf = (name, i) => (preset.own ? preset.own[i].url : `${DATA}${preset.dir}/${name}`);
 
   let xyz, rgb, poses;   // reassigned when the far background is trimmed
 
@@ -256,8 +261,8 @@ export async function loadScene(preset) {
     const placed = !!pose && i < placedCount;
     const sharp = .45 + R1() * .55;
     return {
-      i, name, url: `${DATA}${preset.dir}/${name}`,
-      ...(pose || { R: null, t: null, f: 900, cx: 640, cy: 400, w: 1280, h: 800 }),
+      i, name, url: urlOf(name, i),
+      ...(pose || { R: null, t: null, f: 900, cx: 640, cy: 400, w: preset.imgW || 1280, h: preset.imgH || 800 }),
       state: !placed ? 'unplaced' : (sharp < .5 ? 'blurry' : 'placed'),
       feats: Math.round(1400 + R1() * 900),
       matched: Math.round(380 + R1() * 520),

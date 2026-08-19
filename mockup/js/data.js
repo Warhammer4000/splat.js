@@ -95,6 +95,36 @@ export const PRESETS = [
   },
 ];
 
+/**
+ * A set made of the visitor's own photographs. Same shape as the staged ones,
+ * so nothing downstream has to know the difference — only the geometry is
+ * invented, because there is no solver here to find the real thing.
+ */
+export function ownSet(files, urls, imgW, imgH) {
+  const n = files.length;
+  return {
+    id: '__own', name: 'Your photos', where: 'Uploaded',
+    own: files.map((f, i) => ({ name: f.name, url: urls[i] })),
+    count: n, mockPoses: 'sim', simPath: 'sphere',
+    imgW, imgH,
+    kind: 'Your own photos',
+    res: `${imgW} x ${imgH}`,
+    origin: `${n} photos, read straight off your machine. Nothing is uploaded — they are ` +
+            'decoded in this tab and go no further.',
+    links: [],
+    captureLine: 'Your capture',
+    badge: { kind: 'note', text: 'Yours' },
+    blurb: '',
+    stats: {
+      sfm: Math.round(4 + n * 0.35), cams: n, of: n,
+      points: Math.min(30000, Math.round(n * 420)), rms: 0.61,
+      splats: Math.min(140000, Math.round(n * 2200) + 40000),
+    },
+    psnr: { train: 23.4, hold: 22.6 },
+    minutes: Math.max(1, Math.round(n / 14)),
+  };
+}
+
 export const PHASES = [
   { id: 'frames',   n: '01', label: 'Frames' },
   { id: 'features', n: '02', label: 'Landmarks' },
