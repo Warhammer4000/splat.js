@@ -49,11 +49,13 @@ export class Viewport {
       if (drag.pan) {
         const s = this.dist * 0.0016;
         const c = Math.cos(this.yaw), n = Math.sin(this.yaw);
-        this.target[0] -= (dx * c) * s;
-        this.target[2] -= (dx * n) * s;
+        this.target[0] -= (dx * c) * s * this.upSign;
+        this.target[2] -= (dx * n) * s * this.upSign;
         this.target[1] += dy * s * this.upSign;
       } else {
-        this.yaw -= dx * 0.006;
+        // upSign keeps the orbit feel identical in y-down worlds, where the
+        // screen-x axis is mirrored relative to yaw
+        this.yaw -= dx * 0.006 * this.upSign;
         this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch - dy * 0.005));
       }
       this.dirty = true;
@@ -126,14 +128,16 @@ export class Viewport {
       this.target[1] - fwd[1] * this.dist,
       this.target[2] - fwd[2] * this.dist,
     ];
-    const right = [cy, 0, -sy];
-    // camera +y (image down) must point to world-down for either convention
-    const cr = [
+    // In a y-down world the RIGHT vector flips (never the down vector by
+    // itself: negating one row of an orthonormal triple makes a REFLECTION —
+    // det -1 — and the whole scene renders mirrored). down = fwd x right is
+    // proper by construction for either convention.
+    const right = [u * cy, 0, -u * sy];
+    const down = [
       fwd[1] * right[2] - fwd[2] * right[1],
       fwd[2] * right[0] - fwd[0] * right[2],
       fwd[0] * right[1] - fwd[1] * right[0],
     ];
-    const down = u > 0 ? cr : [-cr[0], -cr[1], -cr[2]];
     const R = [right[0], right[1], right[2], down[0], down[1], down[2], fwd[0], fwd[1], fwd[2]];
     const t = [
       -(R[0] * pos[0] + R[1] * pos[1] + R[2] * pos[2]),
