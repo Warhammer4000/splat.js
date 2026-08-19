@@ -323,3 +323,6 @@ body {
 
 /* run-length hint on the start card */
 .srclinks .approx { color: var(--dim, #6b7877); margin-left: 10px; font-size: 12px; }
+
+/* the run length, inline after the live cycle count */
+.tmeta-max { font: 400 11px var(--mono); color: var(--dim); }

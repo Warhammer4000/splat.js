@@ -678,8 +678,8 @@ function dock(kind) {
       <div class="tcontrols">
         <button class="play" id="t-play" data-state="pause">❚❚</button>
         <div class="tmeta">
-          <span class="tmeta-1" id="t-iter">0</span>
-          <span class="tmeta-2">of ${fmt(MAX_ITERS)} cycles · <span id="t-splats">—</span> splats · <span id="t-ips">—</span>/s</span>
+          <span class="tmeta-1"><span id="t-iter">0</span> <span class="tmeta-max">/ ${fmt(MAX_ITERS)}</span></span>
+          <span class="tmeta-2"><span id="t-splats">—</span> splats · <span id="t-ips">—</span>/s</span>
         </div>
       </div>
       <div class="chartwrap"><canvas id="chart"></canvas><div class="chart-tip" id="chart-tip" hidden></div></div>
