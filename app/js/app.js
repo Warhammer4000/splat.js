@@ -23,8 +23,10 @@ const fmt = (n) => Math.round(n).toLocaleString('en-US');
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 // short first run (phones especially) — the done screen offers "+10k cycles"
-// which stretches the trainer's schedules and resumes
-const INITIAL_ITERS = 10000;
+// which stretches the trainer's schedules and resumes. 20k, not 10k: with a
+// 10k horizon the growth phase is squeezed against too few settle iterations
+// and the model comes out over-grown for its polish time.
+const INITIAL_ITERS = 20000;
 const MORE_ITERS = 10000;
 
 const S = {
