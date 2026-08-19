@@ -228,7 +228,6 @@ function paintCard(preset) {
   $('start-links').innerHTML = (preset.links || [])
     .map((l) => `<a href="${l.url}" target="_blank" rel="noopener">${l.label}</a>`).join('')
     + (preset.approx ? `<span class="approx">${preset.approx} on a fast GPU</span>` : '');
-  $('card-runs').hidden = false;
   $('btn-go').textContent = 'Start training';
   [...$('setpick').children].forEach((b) =>
     b.setAttribute('aria-pressed', String(b.dataset.id === preset.id)));
@@ -338,7 +337,6 @@ async function open(preset, autostart = false) {
   $('btn-go').textContent = 'Start training';
   $('btn-go').disabled = false;
   $('card-x').hidden = true;
-  $('card-runs').hidden = false;
   $('start').hidden = true;
   $('controls').hidden = true;
   $('btn-new').hidden = true;
