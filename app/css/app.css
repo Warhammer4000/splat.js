@@ -436,3 +436,7 @@ body {
   color: var(--paper); font-size: 19px; line-height: 1;
 }
 .camrec-x:hover { background: rgba(7, 9, 9, .85); }
+
+/* the upload box is controls-only now */
+.upload { justify-content: center; }
+.upload-btns { align-items: center; }
