@@ -6,8 +6,16 @@ faked so the *interaction* can be judged before any of it is wired up.
 
 ```
 cd Browser_3DGS && node serve.mjs 8734
-# http://localhost:8734/mockup/
+# http://localhost:8734/mockup/      v1 — the full pipeline, six beats
+# http://localhost:8734/mockup/v2/   v2 — the tech-demo cut, one screen
 ```
+
+**Two versions, same modules.** v1 (this file) walks a visitor through every
+stage of the pipeline and grew into something close to a web app. **[v2](v2/)**
+strips it back to a toy you press play on: load a set, hit start, watch the solve
+run itself, watch it train, look at the result — with the explanations moved into
+a Details view that only appears once there is something to explain. Read
+[v2/README.md](v2/README.md) for that cut.
 
 Vanilla ES modules, no build step, same as the prototype.
 
@@ -99,7 +107,7 @@ Play / pause / +1000 cycles / 1× 4× 16×, plus:
 - Free orbit at any time; the current training camera flashes in the 3D view.
 - `Space` play/pause, `←/→` step through frames.
 
-## Capture guide (the v2 seed)
+## Capture guide (the education piece, for a later release)
 
 Reachable from the top bar and from the start screen. Five rules, misconception
 first: *turning on the spot records nothing*. Each has a diagram in the same
@@ -108,10 +116,10 @@ thing that saves a first-time user from a wasted capture, and it is why the
 solve tab also reports **measured parallax** with a verdict — the guide's advice
 and the app's diagnosis use the same words.
 
-## What is deliberately not here (v1)
+## What is deliberately not here
 
 - **Importing COLMAP poses.** The demo is end-to-end in the browser. Bringing
-  your own reconstruction is a v2 power-user path, not a button on the main flow.
+  your own reconstruction is a later power-user path, not a button on the main flow.
 - Training hyperparameters. The three knobs above are educational; a settings
   drawer for the rest can come later behind **Detail**.
 - Accounts, sharing, storage.
@@ -146,8 +154,10 @@ only; no part of the UI exposes them.
 
 ## Files
 
+Shared modules live in `js/`; each version owns only its shell.
+
 ```
-index.html        shell: top bar, start screen, lab, guide dialog
+index.html        v1 shell: top bar, start screen, lab, guide dialog
 css/app.css       tokens + components
 js/data.js        presets, copy, glossary, events, ghost runs, guide
 js/app.js         state machine, phases, rail, strip, inspector, transport
@@ -155,4 +165,7 @@ js/scene.js       frame list, poses, sparse cloud, per-frame numbers
 js/viewport.js    3D stage: cloud, blobs, frustums, orbit, lock-to-camera
 js/develop.js     the comparison surface: blob-field render, loupe, swipe, error
 js/chart.js       the score curve with event markers and a ghost run
+js/marks.js       landmark + match overlays (shared)
+js/img.js         one decode per photo (shared)
+v2/               the tech-demo cut — see v2/README.md
 ```

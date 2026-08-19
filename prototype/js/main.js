@@ -467,38 +467,34 @@ async function frameLoop() {
   scheduleFrame();
 }
 
-// Keep training at full speed when the tab is hidden: rAF stops entirely in
-// background tabs (and setTimeout gets throttled to 1Hz), but messages from a
-// dedicated worker keep firing — the standard workaround.
+// Keep training at full speed when the browser throttles rAF — which happens
+// for hidden tabs AND occluded windows (document.hidden can stay false for
+// the latter). Worker messages are never throttled, so a worker tick acts as
+// a watchdog: whenever a scheduled frame hasn't fired within 150ms while
+// training, it drives the loop directly.
 const tickWorker = (() => {
   try {
-    const src = 'setInterval(() => postMessage(0), 16);';
+    const src = 'setInterval(() => postMessage(0), 33);';
     return new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
   } catch { return null; }
 })();
 let framePending = false;
-let rafId = 0;
+let frameScheduledAt = 0;
+function runFrame() {
+  if (!framePending) return; // rAF and watchdog can both arrive; run once
+  framePending = false;
+  frameLoop();
+}
 if (tickWorker) {
   tickWorker.onmessage = () => {
-    if (framePending && document.hidden && state.training) { framePending = false; frameLoop(); }
+    if (framePending && state.training && performance.now() - frameScheduledAt > 150) runFrame();
   };
 }
 function scheduleFrame() {
-  if (document.hidden && tickWorker && state.training) {
-    framePending = true; // next worker tick drives the loop
-  } else {
-    rafId = requestAnimationFrame(frameLoop);
-  }
+  framePending = true;
+  frameScheduledAt = performance.now();
+  requestAnimationFrame(runFrame);
 }
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) {
-    // an already-queued rAF would stall until the tab returns — reroute it
-    if (rafId) { cancelAnimationFrame(rafId); rafId = 0; framePending = true; }
-  } else if (framePending) {
-    framePending = false;
-    rafId = requestAnimationFrame(frameLoop);
-  }
-});
 
 // ---------------------------------------------------------------------------
 // export

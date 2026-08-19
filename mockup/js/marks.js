@@ -61,11 +61,11 @@ export function drawMatches(ctx, img, r1, r2, key, reveal = 1) {
     const dx = bad ? (((n * 61) % 100) / 100 - .5) * .7 : .035 + Math.sin(p.y * 3) * .012;
     const dy = bad ? (((n * 37) % 100) / 100 - .5) * .5 : Math.sin(p.x * 4) * .008;
     const x2 = r2.x + clamp(p.x - dx) * r2.w, y2 = r2.y + clamp(p.y + dy) * r2.h;
-    ctx.strokeStyle = bad ? 'rgba(226,102,79,.8)' : 'rgba(99,207,192,.3)';
+    ctx.strokeStyle = bad ? 'rgba(226,102,79,.85)' : 'rgba(99,207,192,.55)';
     ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
     ctx.fillStyle = bad ? 'rgba(226,102,79,.9)' : 'rgba(99,207,192,.9)';
-    ctx.beginPath(); ctx.arc(x1, y1, 1.6, 0, 7); ctx.fill();
-    ctx.beginPath(); ctx.arc(x2, y2, 1.6, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(x1, y1, 2, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(x2, y2, 2, 0, 7); ctx.fill();
   });
   return ok;
 }

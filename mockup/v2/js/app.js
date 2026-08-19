@@ -551,8 +551,10 @@ function pairStage(ctx, w, h, dpr, reveal) {
   const r1 = fitRect(a.width, a.height, half, h / dpr, 14);
   const r2 = fitRect(b.width, b.height, half, h / dpr, 14);
   r2.x += half;
+  ctx.globalAlpha = .7;                 // dim the photos so the lines carry
   ctx.drawImage(a, r1.x, r1.y, r1.w, r1.h);
   ctx.drawImage(b, r2.x, r2.y, r2.w, r2.h);
+  ctx.globalAlpha = 1;
   drawMatches(ctx, a, r1, r2, `k${S.sel}`, reveal);
   ctx.fillStyle = '#a3958a';
   ctx.font = '500 10px "Spline Sans Mono", monospace';
