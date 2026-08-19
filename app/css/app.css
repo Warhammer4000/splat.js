@@ -450,3 +450,5 @@ body {
   background: transparent; color: var(--dim);
   border: 1px solid var(--line); cursor: default;
 }
+
+label.btn { cursor: pointer; }
