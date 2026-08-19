@@ -28,7 +28,10 @@ export const TILE = 16;
 export const SHARED_SORT = 2048;    // shared-memory sort fast path (16KB workgroup mem)
 export const ENTRIES_CAP = 12000000; // global (key,id) pair budget across all tiles (96MB)
 export const FIXED = 16384.0;
-export const FIXED_CONIC = 4096.0;  // conic grads are px^2-scaled: coarser fixed point
+// same scale as FIXED since the render pass normalizes conic grads by
+// (1 + rad^2) per splat (they are px^2-scaled otherwise; the old coarser
+// 4096 scale still hit the i32 ceiling on big splats at native res)
+export const FIXED_CONIC = 16384.0;
 
 // Cutoffs (parameterized so gradcheck can use a "strict" variant whose
 // boundary discontinuities are negligible): E_CUT is the Gaussian exponent
@@ -502,9 +505,21 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
     let gmean = ga * vec2f(cA * d.x + cB * d.y, cB * d.x + cC * d.y);
     atomAdd(b,      gmean.x);
     atomAdd(b + 1u, gmean.y);
-    atomAddC(b + 2u, -ga * 0.5 * d.x * d.x);
-    atomAddC(b + 3u, -ga * d.x * d.y);
-    atomAddC(b + 4u, -ga * 0.5 * d.y * d.y);
+    // conic grads scale with d^2 (px^2): measured at native res, big-splat
+    // accumulators hit the i32 ceiling and silently wrapped (max 2.14e9 with
+    // FIXEDC 4096). Normalize per splat by (1 + lambda_max) of the dilated 2D
+    // covariance — d^2/lambda_max is bounded by 2*E_CUT, so per-add values
+    // stay O(1) without amplifying quantization noise (a radius^2 normalizer
+    // overshoots by (rad/sigma)^2 and BREAKS the FD gradcheck). The chain
+    // pass recomputes the identical factor from proj[12..14] and undoes it.
+    let cva = proj[b + 12u] + 0.3;
+    let cvc = proj[b + 14u] + 0.3;
+    let cmid = 0.5 * (cva + cvc);
+    let lmax = cmid + sqrt(max(cmid * cmid - (cva * cvc - proj[b + 13u] * proj[b + 13u]), 0.0));
+    let cnorm = 1.0 / (1.0 + lmax);
+    atomAddC(b + 2u, -ga * 0.5 * d.x * d.x * cnorm);
+    atomAddC(b + 3u, -ga * d.x * d.y * cnorm);
+    atomAddC(b + 4u, -ga * 0.5 * d.y * d.y * cnorm);
     atomAdd(b + 5u, galpha * opa * G);          // d/dcomp
     atomAdd(b + 6u, ga * (1.0 - opa));          // d/dlogitOpacity
     atomAdd(b + 7u, gcv.r);
@@ -543,6 +558,18 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let scale = select(FIXED, FIXEDC, k >= 2u && k <= 4u);
     gp[k] = f32(atomicLoad(&gradP[b + k])) / scale;
     atomicStore(&gradP[b + k], 0);
+  }
+  // undo the render pass's per-splat conic range normalization (identical
+  // lambda_max formula from the same proj values)
+  {
+    let cva = proj[b + 12u] + 0.3;
+    let cvc = proj[b + 14u] + 0.3;
+    let cmid = 0.5 * (cva + cvc);
+    let lmax = cmid + sqrt(max(cmid * cmid - (cva * cvc - proj[b + 13u] * proj[b + 13u]), 0.0));
+    let cdenorm = 1.0 + lmax;
+    gp[2] *= cdenorm;
+    gp[3] *= cdenorm;
+    gp[4] *= cdenorm;
   }
   for (var k = 0u; k < 16u; k++) { gradF[b + k] = 0.0; }
   if (proj[b + 11u] <= 0.0) { return; }

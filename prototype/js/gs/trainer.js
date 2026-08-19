@@ -123,7 +123,7 @@ export class GSTrainer {
     d.queue.writeBuffer(this.bufParams, 0, gaussians.data.buffer, gaussians.data.byteOffset,
       this.n * STRIDE * 4);
     this.bufProj = buf(nb, B.STORAGE | B.COPY_SRC, 'proj');
-    this.bufGradP = buf(nb, B.STORAGE, 'gradP');
+    this.bufGradP = buf(nb, B.STORAGE | B.COPY_SRC, 'gradP'); // COPY_SRC: precision diagnostics
     this.bufGradF = buf(nb, B.STORAGE | B.COPY_SRC, 'gradF');
     this.bufM = buf(nb, B.STORAGE | B.COPY_DST | B.COPY_SRC, 'adam-m');
     this.bufV = buf(nb, B.STORAGE | B.COPY_DST | B.COPY_SRC, 'adam-v');
