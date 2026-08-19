@@ -240,9 +240,9 @@ async function startPrep() {
   dock('prep');
 
   try {
-    // size the trainer's view buffers for THIS device's full-retina screen
-    // (both orientations — the clamps below are pixel-count based)
-    const dpr = Math.min(3, devicePixelRatio || 1);
+    // size the trainer's view buffers for THIS device's screen at 2x device
+    // pixels (both orientations — the clamps below are pixel-count based)
+    const dpr = Math.min(2, devicePixelRatio || 1);
     const mvW = Math.ceil((screen.width || 1280) * dpr);
     const mvH = Math.ceil((screen.height || 800) * dpr);
     S.viewPixBudget = Math.min(

@@ -72,7 +72,7 @@ export class Viewport {
 
   resize() {
     const r = this.cv.getBoundingClientRect();
-    const dpr = Math.min(3, devicePixelRatio || 1); // full retina on phones
+    const dpr = Math.min(2, devicePixelRatio || 1);
     const w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
     if (w !== this.cv.width || h !== this.cv.height) { this.cv.width = w; this.cv.height = h; }
     this.w = w; this.h = h; this.dpr = dpr;
