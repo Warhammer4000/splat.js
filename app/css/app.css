@@ -397,3 +397,6 @@ body {
   position: absolute; right: 22px; bottom: 108px;
 }
 .camrec-flash video { filter: brightness(1.7); }
+
+.runs a { color: var(--accent); text-decoration: none; }
+.runs a:hover { text-decoration: underline; }
