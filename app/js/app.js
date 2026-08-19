@@ -43,6 +43,7 @@ const S = {
   chartEvents: [],             // real refine/growth moments for the curve
   flash: null,
   detailTab: 'marks',
+  keys: new Set(),             // held WASD keys (camera-relative fly)
   gen: 0,                      // run generation — stale async work checks it
 };
 
@@ -80,14 +81,19 @@ function boot() {
   $('d-close').addEventListener('click', () => { $('details').hidden = true; });
 
   addEventListener('resize', () => { vp.resize(); chart?.resize(); dchart?.resize(); dvp?.resize(); });
+  const WASD = ['KeyW', 'KeyA', 'KeyS', 'KeyD'];
   addEventListener('keydown', (e) => {
+    if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
     if (!$('about').hidden) { if (e.key === 'Escape') $('about').hidden = true; return; }
     if (!$('details').hidden) { if (e.key === 'Escape') $('details').hidden = true; return; }
     if (S.picking && e.key === 'Escape') { closePicker(); return; }
     if (e.key === ' ' && S.state === 'train') { e.preventDefault(); toggleTrain(); }
     if (e.key === 'ArrowRight') select(S.sel + 1);
     if (e.key === 'ArrowLeft') select(S.sel - 1);
+    if (WASD.includes(e.code)) S.keys.add(e.code);
   });
+  addEventListener('keyup', (e) => S.keys.delete(e.code));
+  addEventListener('blur', () => S.keys.clear());
   wireStage();
 
   addEventListener('click', (e) => {
@@ -776,13 +782,33 @@ function renderHud() {
 
 // ── main loop ───────────────────────────────────────────────────────────────
 let lastPulse = 0;
+let lastLoopT = performance.now();
+
+/** WASD fly: move the orbit target along the camera's own axes */
+function flyStep(dt) {
+  if (!S.keys.size || !S.scene) return;
+  if (S.state !== 'train' && S.state !== 'done') return;
+  if (S.picking || !$('details').hidden) return;
+  if (S.atFrame >= 0) leaveFrame();   // like a drag, movement leaves the photo
+  const { fwd, right } = vp._basis();
+  const sp = S.scene.radius * 0.7 * dt;
+  const move = (v, f) => { for (let i = 0; i < 3; i++) vp.target[i] += v[i] * f; };
+  if (S.keys.has('KeyW')) move(fwd, sp);
+  if (S.keys.has('KeyS')) move(fwd, -sp);
+  if (S.keys.has('KeyA')) move(right, -sp);
+  if (S.keys.has('KeyD')) move(right, sp);
+  vp.dirty = true;
+}
 
 function loop() {
   requestAnimationFrame(loop);
   const now = performance.now();
+  const dt = Math.min(0.05, (now - lastLoopT) / 1000);
+  lastLoopT = now;
   if (S.flash && now > S.flash.until) S.flash = null;
   // no fade on the photo overlay — it reads as lag on slow devices
   S.fade = S.fadeTo;
+  flyStep(dt);
 
   if (S.state === 'prep') paintPrepDock();
 

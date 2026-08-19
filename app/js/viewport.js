@@ -47,11 +47,13 @@ export class Viewport {
       const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
       drag.x = e.clientX; drag.y = e.clientY;
       if (drag.pan) {
+        // camera-relative pan: sideways along the view's right, vertical
+        // along its up — content follows the cursor from any orientation
         const s = this.dist * 0.0016;
-        const c = Math.cos(this.yaw), n = Math.sin(this.yaw);
-        this.target[0] -= (dx * c) * s * this.upSign;
-        this.target[2] -= (dx * n) * s * this.upSign;
-        this.target[1] += dy * s * this.upSign;
+        const { right, down } = this._basis();
+        for (let i = 0; i < 3; i++) {
+          this.target[i] -= (right[i] * dx + down[i] * dy) * s;
+        }
       } else {
         // upSign keeps the orbit feel identical in y-down worlds, where the
         // screen-x axis is mirrored relative to yaw
@@ -117,26 +119,32 @@ export class Viewport {
     this.dirty = true;
   }
 
-  /** current free-orbit pose in the trainer's camera shape */
-  freePose() {
+  /** the free camera's orthonormal frame. In a y-down world the RIGHT
+   *  vector flips (never the down vector by itself: negating one row of an
+   *  orthonormal triple makes a REFLECTION — det -1 — and the whole scene
+   *  renders mirrored). down = fwd x right is proper by construction for
+   *  either convention. */
+  _basis() {
     const cp = Math.cos(this.pitch), sp = Math.sin(this.pitch);
     const cy = Math.cos(this.yaw), sy = Math.sin(this.yaw);
     const u = this.upSign;
     const fwd = [-sy * cp, u * sp, -cy * cp];
-    const pos = [
-      this.target[0] - fwd[0] * this.dist,
-      this.target[1] - fwd[1] * this.dist,
-      this.target[2] - fwd[2] * this.dist,
-    ];
-    // In a y-down world the RIGHT vector flips (never the down vector by
-    // itself: negating one row of an orthonormal triple makes a REFLECTION —
-    // det -1 — and the whole scene renders mirrored). down = fwd x right is
-    // proper by construction for either convention.
     const right = [u * cy, 0, -u * sy];
     const down = [
       fwd[1] * right[2] - fwd[2] * right[1],
       fwd[2] * right[0] - fwd[0] * right[2],
       fwd[0] * right[1] - fwd[1] * right[0],
+    ];
+    return { fwd, right, down };
+  }
+
+  /** current free-orbit pose in the trainer's camera shape */
+  freePose() {
+    const { fwd, right, down } = this._basis();
+    const pos = [
+      this.target[0] - fwd[0] * this.dist,
+      this.target[1] - fwd[1] * this.dist,
+      this.target[2] - fwd[2] * this.dist,
     ];
     const R = [right[0], right[1], right[2], down[0], down[1], down[2], fwd[0], fwd[1], fwd[2]];
     const t = [
