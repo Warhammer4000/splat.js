@@ -27,8 +27,10 @@ node serve.mjs 8734
 # http://localhost:8734/app/
 ```
 
-Needs a browser with WebGPU (current Chrome or Edge). Drop 20–200 overlapping
-photos of one place into the app, or start from a test set (a clone bundles the
+Needs a browser with WebGPU (current Chrome or Edge). Drop 20–200 overlapping photos of one place into the app — or a video (the
+sharpest frames are picked automatically, the same policy the arrival.space
+server pipeline uses), or record one with the device camera — or start from a
+test set (a clone bundles the
 synthetic set; the photo sets are served on the hosted demo).
 
 ## Use the library

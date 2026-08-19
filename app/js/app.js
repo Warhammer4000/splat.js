@@ -9,6 +9,8 @@
 // splat.js Session — plus the trainer's rendered canvas.
 
 import { createSession, gaussiansToPly } from '../../src/index.js';
+import { extractSharpFrames, isVideoFile } from '../../src/io/video.js';
+import { recordCaptureVideo, cameraSupported } from './camera.js';
 import { handleOAuthCallback, sendToArrival, hasToken } from './arrival.js';
 import { PRESETS, REPO, DATA, HOLD_HELP, ownSet } from './data.js';
 import { Viewport, camCentre } from './viewport.js';
@@ -68,6 +70,19 @@ function boot() {
   $('btn-new').addEventListener('click', (e) => { e.stopPropagation(); showPicker(); });
   $('card-x').addEventListener('click', closePicker);
   $('file-input').addEventListener('change', (e) => useOwnPhotos(e.target.files));
+  if (cameraSupported()) {
+    const rb = $('btn-record');
+    rb.hidden = false;
+    rb.addEventListener('click', async () => {
+      try {
+        const file = await recordCaptureVideo();
+        if (file) useOwnVideo(file);
+      } catch (e) {
+        console.error(e);
+        flash(`Camera unavailable: ${e.message}`, 6000);
+      }
+    });
+  }
 
   const card = $('start');
   ['dragenter', 'dragover'].forEach((t) => card.addEventListener(t, (e) => {
@@ -174,14 +189,59 @@ function closePicker() {
 }
 
 async function useOwnPhotos(list) {
-  const files = [...list].filter((f) => f.type.startsWith('image/'));
+  const all = [...list];
+  const video = all.find(isVideoFile);
+  if (video) { useOwnVideo(video); return; }
+  const files = all.filter((f) => f.type.startsWith('image/'));
   if (files.length < 2) {
-    flash('Pick at least a couple of overlapping photos of the same place.', 4500);
+    flash('Pick at least a couple of overlapping photos of the same place — or one video.', 4500);
     return;
   }
   if (S.ownUrls) S.ownUrls.forEach(URL.revokeObjectURL);
   S.ownUrls = files.map((f) => URL.createObjectURL(f));
   open(ownSet(files, S.ownUrls));
+}
+
+/** A video: pick its sharpest frames (the server pipeline's policy, run
+ *  here) and continue exactly like a photo set. */
+async function useOwnVideo(file) {
+  const card = document.createElement('div');
+  card.className = 'upcard';
+  card.id = 'vidcard';
+  card.innerHTML = `
+    <b>Reading your video</b>
+    <div class="prep-sub" id="vid-sub">decoding …</div>
+    <div class="prep-meter"><i id="vid-bar" style="width:0%"></i></div>`;
+  $('stage').appendChild(card);
+  const LABEL = { scan: 'looking for the sharpest frames', capture: 'saving the winners' };
+  try {
+    const { frames, duration } = await extractSharpFrames(file, {
+      log: (m) => console.log('[video]', m),
+      onProgress: (e) => {
+        const bar = $('vid-bar');
+        if (!bar) return;
+        const half = e.stage === 'scan' ? 0 : 50;
+        bar.style.width = `${half + (e.done / e.total) * 50}%`;
+        $('vid-sub').textContent = `${LABEL[e.stage]} · ${e.done} / ${e.total}`;
+      },
+    });
+    if (frames.length < 12) {
+      flash('That video is too short — a slow 20+ second pass works best.', 6000);
+      return;
+    }
+    if (S.ownUrls) S.ownUrls.forEach(URL.revokeObjectURL);
+    S.ownUrls = frames.map((f) => URL.createObjectURL(f.source));
+    const set = ownSet(frames, S.ownUrls);
+    set.kind = 'Your video';
+    set.origin = `${frames.length} sharp frames picked from your ${Math.round(duration)}s video, ` +
+      'right here in this tab. Blurred moments lost to their sharper neighbours.';
+    open(set);
+  } catch (e) {
+    console.error(e);
+    flash(`Could not read that video: ${e.message}`, 8000);
+  } finally {
+    card.remove();
+  }
 }
 
 /** reset everything and show a set's start card (autostart commits a switch) */
