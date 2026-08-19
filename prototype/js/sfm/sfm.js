@@ -335,6 +335,7 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
         wk.postMessage({
           id, gray: images[id].gray, w: images[id].fw, h: images[id].fh,
           maxFeats: opts.siftFeats || 3900, firstOctave: opts.siftFirstOctave ?? 0,
+          peakScale: opts.siftPeak ?? 1,
         });
       };
       workers.forEach(feed);
@@ -356,7 +357,8 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
       // features:'sift' = real scale-space SIFT (COLMAP-grade, validated at
       // 82.5% keypoint recall vs COLMAP's own extraction; slower).
       const f = useSift
-        ? detectSift(images[i].gray, images[i].fw, images[i].fh, opts.siftFeats || 3900, opts.siftFirstOctave ?? 0)
+        ? detectSift(images[i].gray, images[i].fw, images[i].fh, opts.siftFeats || 3900,
+            opts.siftFirstOctave ?? 0, opts.siftPeak ?? 1)
         : opts.msFeatures
           ? detectAndDescribeMS(images[i].gray, images[i].fw, images[i].fh, 1500)
           : detectAndDescribe(images[i].gray, images[i].fw, images[i].fh, 1500);
@@ -1105,7 +1107,7 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
   // (detector noise is in pixels; model misfit adds to it).
   const useGlobalSearch =
     !!((((typeof window !== 'undefined' && window.__sfmOpts) || {}).globalInit) ?? opts.globalInit);
-  let best = null;
+  const candidates = [];
   for (const s of FOCAL_SCALES) {
     const res = await runGeometry(s, false);
     const fEff = (s * 1.2).toFixed(2);
@@ -1117,13 +1119,25 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
     res.rankErr = useGlobalSearch ? res.medErr : res.angErr;
     log(`focal ${fEff}x maxDim: ${res.cams.length}/${n} cams, ${res.points.length} pts, ` +
         `median reproj ${res.medErr.toFixed(2)}px (angular ${(res.angErr * 1e4).toFixed(2)}e-4)`);
-    const better = !best
-      || res.cams.length > best.cams.length
-      || (res.cams.length === best.cams.length && res.rankErr < best.rankErr);
-    if (better) best = res;
+    candidates.push(res);
     await tick();
   }
-  if (!best) throw new Error('no focal candidate produced a valid initialization — need more parallax/overlap');
+  if (!candidates.length) throw new Error('no focal candidate produced a valid initialization — need more parallax/overlap');
+  // A candidate must register (nearly) the most cameras to compete, but among
+  // those the PIXEL median error picks the winner: a too-long focal can bend
+  // the reconstruction to register EVERYTHING (measured on truck at 960px
+  // features: 1.56x registered 42/42 and won on count while the true 0.78x
+  // sat at 37/42 with clearly better pixel error -> ATE 0.04% vs 2.28%). The
+  // angular metric is no tiebreak either — it divides by f and favored the
+  // same wrong candidate. The near-count window (88%) keeps the completeness
+  // prior for genuinely fragile candidates; the BA rerun of the winner
+  // recovers the few cameras the cheap search pass missed.
+  const maxCams = Math.max(...candidates.map((r) => r.cams.length));
+  const eligible = candidates.filter((r) => r.cams.length >= Math.ceil(0.88 * maxCams));
+  let best = null;
+  for (const res of eligible) {
+    if (!best || res.medErr < best.medErr) best = res;
+  }
 
   // re-run the winner verbosely (with bundle adjustment) to produce the
   // final reconstruction

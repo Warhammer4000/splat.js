@@ -64,7 +64,8 @@ function downsample2(src, w, h) {
 
 /** Extract SIFT keypoints + descriptors.
  *  gray: Float32Array 0..1. Returns { n, x, y, scale, angle, desc(Uint8Array n*128) }. */
-export function detectSift(gray, w, h, maxFeats = 4000, firstOctave = 0) {
+export function detectSift(gray, w, h, maxFeats = 4000, firstOctave = 0, peakScale = 1) {
+  const PT = PEAK_THRESH * peakScale;
   let baseImg = gray, bw = w, bh = h;
   if (firstOctave === -1) {
     // 2x upsample (bilinear) — more small-scale features, 4x the work
@@ -120,7 +121,7 @@ export function detectSift(gray, w, h, maxFeats = 4000, firstOctave = 0) {
         for (let x = B; x < ow - B; x++) {
           const i = y * ow + x;
           const v = d1[i];
-          if (Math.abs(v) < 0.8 * PEAK_THRESH) continue;
+          if (Math.abs(v) < 0.8 * PT) continue;
           let isMax = true, isMin = true;
           for (let dy = -1; dy <= 1 && (isMax || isMin); dy++)
             for (let dx = -1; dx <= 1 && (isMax || isMin); dx++) {
@@ -161,7 +162,7 @@ export function detectSift(gray, w, h, maxFeats = 4000, firstOctave = 0) {
               contrast = Dbm[ii] + 0.5 * (dx1 * ox + dy1 * oy + ds1 * os);
               // edge rejection on the 2x2 spatial Hessian
               const tr = dxx + dyy, dt = dxx * dyy - dxy * dxy;
-              if (dt > 0 && tr * tr / dt < (EDGE_R + 1) * (EDGE_R + 1) / EDGE_R && Math.abs(contrast) >= PEAK_THRESH) ok = true;
+              if (dt > 0 && tr * tr / dt < (EDGE_R + 1) * (EDGE_R + 1) / EDGE_R && Math.abs(contrast) >= PT) ok = true;
               break;
             }
             xi += Math.round(ox); yi += Math.round(oy); si += Math.round(os);
