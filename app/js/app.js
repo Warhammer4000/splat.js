@@ -428,8 +428,15 @@ async function finish() {
   S.atFrame = -1; S.fadeTo = 0;
   vp.lock = null; vp.freeF = null;
   $('stage').dataset.cursor = 'grab';
-  vp.frameScene();
-  vp.dist = S.scene.radius * 2.2;
+  // land roughly where the first photograph was taken — the photographer's
+  // view of the result, not an abstract overview
+  const first = S.scene.cams.find((c) => c.R && c.state !== 'holdout') || S.scene.cams[0];
+  if (first && first.R) {
+    vp.syncTo(first);
+    vp.dist = S.scene.radius * 1.1;   // stepped back just enough for context
+  } else {
+    vp.frameScene();
+  }
   renderControls();
   dock('');
   const hold = S.psnrHold != null ? ` · ${S.psnrHold.toFixed(1)} dB on the photograph it never saw` : '';
