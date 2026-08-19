@@ -507,7 +507,7 @@ $('btn-pcsync').addEventListener('click', async () => {
       log('starting PlayCanvas engine ...');
       state.pcv = await PCViewer.create($('pc-canvas'));
     }
-    const { data, n } = await state.trainer.readGaussians();
+    const { data, n, sh, shK } = await state.trainer.readGaussians();
     const meta = state.trainer.camMeta[0];
     const camPos = Float32Array.from(state.trainer.camMeta.flatMap(camPosition));
     const baked = bakeOpacityCompensation(data, n, meta.f, camPos);
@@ -516,6 +516,7 @@ $('btn-pcsync').addEventListener('click', async () => {
       center: state.gaussians.center,
       radius: state.gaussians.radius,
       cam0: meta,
+      sh, shK,
     });
     state.pcv.setCameras(state.trainer.camMeta, state.gaussians.radius * 0.027);
     state.pcv.showCameras = state.showCams !== false;
@@ -535,12 +536,13 @@ $('btn-frustums').addEventListener('click', () => {
 });
 
 $('btn-export').addEventListener('click', async () => {
-  const { data, n } = await state.trainer.readGaussians();
+  const { data, n, sh, shK } = await state.trainer.readGaussians();
   const meta = state.trainer.camMeta[0];
   const camPos = Float32Array.from(state.trainer.camMeta.flatMap(camPosition));
   const baked = bakeOpacityCompensation(data, n, meta.f, camPos);
-  downloadPly(baked, n, 'browser_3dgs.ply');
-  log(`exported ${n} Gaussians to PLY (iteration ${state.trainer.iter}, opacity compensation baked)`);
+  downloadPly(baked, n, 'browser_3dgs.ply', sh, shK);
+  log(`exported ${n} Gaussians to PLY (iteration ${state.trainer.iter}, ` +
+      `SH degree ${state.trainer.shDeg}, opacity compensation baked)`);
 });
 
 // ---------------------------------------------------------------------------

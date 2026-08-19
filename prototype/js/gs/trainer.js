@@ -2,7 +2,7 @@
 
 import {
   STRIDE, TILE, ENTRIES_CAP, makeProjectSrc, makeRenderSrc, makeChainSrc,
-  SCAN_SRC, SCATTER_SRC, SORT_SRC, ADAM_SRC, BLIT_SRC,
+  SCAN_SRC, SCATTER_SRC, SORT_SRC, ADAM_SRC, SH_ADAM_SRC, BLIT_SRC, shRestCoefs,
 } from './shaders.js';
 import { rodrigues, m3mul } from '../sfm/geometry.js';
 
@@ -28,6 +28,10 @@ export class GSTrainer {
     this.iter = 0;
     this.pixelsSeen = 0;
     this.stride = STRIDE;
+    // view-dependent color: SH degree (0 disables; coeffs live in a separate
+    // channel-major buffer of 3*shK floats per splat)
+    this.shDeg = opts.shDeg ?? 2;
+    this.shK = this.shDeg > 0 ? shRestCoefs(this.shDeg) : 0;
     this.canvasFormat = navigator.gpu.getPreferredCanvasFormat();
     this._buildPipelines();
   }
@@ -37,7 +41,7 @@ export class GSTrainer {
     const mk = (code, label) => d.createShaderModule({ code, label });
     this.pipeProject = d.createComputePipeline({
       label: 'project', layout: 'auto',
-      compute: { module: mk(makeProjectSrc(this.opts.eCut, this.opts.aMin, this.opts.radClamp), 'project'), entryPoint: 'main' },
+      compute: { module: mk(makeProjectSrc(this.opts.eCut, this.opts.aMin, this.opts.radClamp, this.shDeg), 'project'), entryPoint: 'main' },
     });
     this.pipeScan = d.createComputePipeline({
       label: 'tile-scan', layout: 'auto',
@@ -60,12 +64,18 @@ export class GSTrainer {
       // anisoReg default 0.005 (was 0.02): with SIFT-grade poses the needle
       // pathology is gone (camping p99 ratio 42:1) and the stronger pull
       // toward isotropy measurably blurs edges (-0.8dB holdout on train-84)
-      compute: { module: mk(makeChainSrc(this.opts.anisoReg ?? 0.005), 'chain'), entryPoint: 'main' },
+      compute: { module: mk(makeChainSrc(this.opts.anisoReg ?? 0.005, this.shDeg), 'chain'), entryPoint: 'main' },
     });
     this.pipeAdam = d.createComputePipeline({
       label: 'adam', layout: 'auto',
       compute: { module: mk(ADAM_SRC, 'adam'), entryPoint: 'main' },
     });
+    if (this.shK) {
+      this.pipeSHAdam = d.createComputePipeline({
+        label: 'sh-adam', layout: 'auto',
+        compute: { module: mk(SH_ADAM_SRC, 'sh-adam'), entryPoint: 'main' },
+      });
+    }
     const blitModule = mk(BLIT_SRC, 'blit');
     this.pipeBlit = d.createRenderPipeline({
       label: 'blit', layout: 'auto',
@@ -142,9 +152,19 @@ export class GSTrainer {
     this.bufParamsRead = buf(nb, B.COPY_DST | B.MAP_READ, 'paramsRead'); // cap-sized
     this.bufCamGrad = buf((cams.length + 1) * 8 * 4, B.STORAGE | B.COPY_DST | B.COPY_SRC, 'camGrad');
     d.queue.writeBuffer(this.bufCamGrad, 0, new Int32Array((cams.length + 1) * 8));
+    if (this.shK) {
+      // SH coeffs + their (non-atomic: written once per splat by the chain
+      // pass) gradients + Adam moments; zero-initialized per the WebGPU spec
+      const shb = this.cap * this.shK * 3 * 4;
+      this.bufSH = buf(shb, B.STORAGE | B.COPY_DST | B.COPY_SRC, 'sh');
+      this.bufSHGrad = buf(shb, B.STORAGE | B.COPY_SRC, 'shGrad');
+      this.bufSHM = buf(shb, B.STORAGE | B.COPY_DST, 'sh-adam-m');
+      this.bufSHV = buf(shb, B.STORAGE | B.COPY_DST, 'sh-adam-v');
+      this.uniSHAdam = buf(32, B.UNIFORM | B.COPY_DST, 'uniSHAdam');
+    }
 
-    this.uniTrain = buf(128, B.UNIFORM | B.COPY_DST, 'uniTrain');
-    this.uniView = buf(128, B.UNIFORM | B.COPY_DST, 'uniView');
+    this.uniTrain = buf(144, B.UNIFORM | B.COPY_DST, 'uniTrain');
+    this.uniView = buf(144, B.UNIFORM | B.COPY_DST, 'uniView');
     this.uniAdam = buf(112, B.UNIFORM | B.COPY_DST, 'uniAdam');
 
     const bgProject = (uni) => d.createBindGroup({
@@ -154,6 +174,7 @@ export class GSTrainer {
         { binding: 1, resource: { buffer: this.bufParams } },
         { binding: 2, resource: { buffer: this.bufProj } },
         { binding: 3, resource: { buffer: this.bufTileCnt } },
+        ...(this.shK ? [{ binding: 4, resource: { buffer: this.bufSH } }] : []),
       ],
     });
     const bgScan = (uni) => d.createBindGroup({
@@ -224,6 +245,10 @@ export class GSTrainer {
         { binding: 3, resource: { buffer: this.bufGradP } },
         { binding: 4, resource: { buffer: this.bufGradF } },
         { binding: 5, resource: { buffer: this.bufCamGrad } },
+        ...(this.shK ? [
+          { binding: 6, resource: { buffer: this.bufSH } },
+          { binding: 7, resource: { buffer: this.bufSHGrad } },
+        ] : []),
       ],
     });
     this.bgAdam = d.createBindGroup({
@@ -236,6 +261,24 @@ export class GSTrainer {
         { binding: 4, resource: { buffer: this.bufV } },
       ],
     });
+    if (this.shK) {
+      this.bgSHAdam = d.createBindGroup({
+        layout: this.pipeSHAdam.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.uniSHAdam } },
+          { binding: 1, resource: { buffer: this.bufSH } },
+          { binding: 2, resource: { buffer: this.bufSHGrad } },
+          { binding: 3, resource: { buffer: this.bufSHM } },
+          { binding: 4, resource: { buffer: this.bufSHV } },
+        ],
+      });
+      // Adam hp + lr for the SH coeffs; INRIA convention: rest lr = DC/20,
+      // directly applicable since our bands also add in color space
+      this.shAdamData = new Float32Array([
+        0.9, 0.999, 1e-15, 1,
+        this.opts.shLr ?? 1.25e-4, this.n * this.shK * 3, 0, 0,
+      ]);
+    }
 
     for (const m of this.camMeta) m.f0 = m.f; // original focal (shared scale is optimized)
     this.camUniforms = this.camMeta.map((m, i) => this._camUniform(m, 1, m.offset, i));
@@ -289,7 +332,7 @@ export class GSTrainer {
   }
 
   _camUniform({ R, t, f, cx, cy, w, h, g = 0, b = 0 }, trainMode, offset, camIdx = 0) {
-    const u = new Float32Array(32);
+    const u = new Float32Array(36);
     u.set([R[0], R[1], R[2], 0], 0);
     u.set([R[3], R[4], R[5], 0], 4);
     u.set([R[6], R[7], R[8], 0], 8);
@@ -298,6 +341,7 @@ export class GSTrainer {
     u.set([w, h, Math.ceil(w / TILE), this.n], 20);
     u.set([0, 0, 0, 0], 24);                      // black background
     u.set([trainMode, camIdx, this.camMeta ? this.camMeta.length : 0, b], 28); // .w = exposure bias
+    u[32] = this.shDeg; // active SH degree (stepOnce ramps this during training)
     // target offset as raw u32 bits (f32 is exact only to 2^24; full-res
     // target buffers exceed that) — shader reads it via bitcast
     new Uint32Array(u.buffer)[27] = offset >>> 0;
@@ -338,6 +382,10 @@ export class GSTrainer {
       ci = (ci + 1) % this.camMeta.length;
     }
     const meta = this.camMeta[ci];
+    if (this.shK) {
+      // INRIA-style band ramp: one SH degree per 1000 iters
+      this.camUniforms[ci][32] = Math.min(this.shDeg, Math.floor(this.iter / 1000));
+    }
     d.queue.writeBuffer(this.uniTrain, 0, this.camUniforms[ci]);
     d.queue.writeBuffer(this.bufTileCnt, 0, this.tileZero);
     this.iter++;
@@ -350,6 +398,11 @@ export class GSTrainer {
     const posLr = this.basePosLr * Math.pow(0.01, Math.min(1, this.iter / (0.75 * this.horizon)));
     this.adamData[0] = this.adamData[1] = this.adamData[2] = posLr;
     d.queue.writeBuffer(this.uniAdam, 0, this.adamData);
+    if (this.shK) {
+      this.shAdamData[3] = this.iter;
+      this.shAdamData[5] = this.n * this.shK * 3;
+      d.queue.writeBuffer(this.uniSHAdam, 0, this.shAdamData);
+    }
 
     const enc = d.createCommandEncoder();
     const p = enc.beginComputePass();
@@ -360,6 +413,11 @@ export class GSTrainer {
     p.setPipeline(this.pipeAdam);
     p.setBindGroup(0, this.bgAdam);
     p.dispatchWorkgroups(Math.ceil((this.n * STRIDE) / 256));
+    if (this.shK) {
+      p.setPipeline(this.pipeSHAdam);
+      p.setBindGroup(0, this.bgSHAdam);
+      p.dispatchWorkgroups(Math.ceil((this.n * this.shK * 3) / 256));
+    }
     p.end();
     d.queue.submit([enc.finish()]);
 
@@ -572,10 +630,10 @@ export class GSTrainer {
   async refine(rng = Math.random) {
     const d = this.device;
     const nb = this.cap * STRIDE * 4;
-    const readBuf = async (buf) => {
-      const rb = d.createBuffer({ size: nb, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    const readBuf = async (buf, bytes = nb) => {
+      const rb = d.createBuffer({ size: bytes, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
       const enc = d.createCommandEncoder();
-      enc.copyBufferToBuffer(buf, 0, rb, 0, nb);
+      enc.copyBufferToBuffer(buf, 0, rb, 0, bytes);
       d.queue.submit([enc.finish()]);
       await rb.mapAsync(GPUMapMode.READ);
       const out = new Float32Array(rb.getMappedRange()).slice();
@@ -585,6 +643,10 @@ export class GSTrainer {
     const params = await readBuf(this.bufParams);
     const m = await readBuf(this.bufM);
     const v = await readBuf(this.bufV);
+    const shr = this.shK * 3;
+    const sh = this.shK ? await readBuf(this.bufSH, this.cap * shr * 4) : null;
+    const shM = this.shK ? await readBuf(this.bufSHM, this.cap * shr * 4) : null;
+    const shV = this.shK ? await readBuf(this.bufSHV, this.cap * shr * 4) : null;
     const sig = (x) => 1 / (1 + Math.exp(-x));
 
     let dead = [];
@@ -642,6 +704,15 @@ export class GSTrainer {
       }
       params[bi + 14] = 0; params[bi + 15] = 0;
       for (let k = 0; k < STRIDE; k++) { m[bi + k] = 0; v[bi + k] = 0; }
+      if (sh) { // clones/splits inherit the donor's view-dependence, fresh moments
+        const so = (bi / STRIDE) * shr;
+        const sd = don * shr;
+        for (let k = 0; k < shr; k++) {
+          sh[so + k] = sh[sd + k];
+          shM[so + k] = 0; shV[so + k] = 0;
+          if (doSplit) { shM[sd + k] = 0; shV[sd + k] = 0; }
+        }
+      }
     };
     for (const i of dead) spawnAt(i * STRIDE, false); // relocation: to mass, as before
     // growth: new capacity where mass already is (stop late in training so
@@ -660,6 +731,11 @@ export class GSTrainer {
     d.queue.writeBuffer(this.bufParams, 0, params);
     d.queue.writeBuffer(this.bufM, 0, m);
     d.queue.writeBuffer(this.bufV, 0, v);
+    if (sh) {
+      d.queue.writeBuffer(this.bufSH, 0, sh);
+      d.queue.writeBuffer(this.bufSHM, 0, shM);
+      d.queue.writeBuffer(this.bufSHV, 0, shV);
+    }
 
     // tile-pressure telemetry (counts from the most recent render)
     const rbT = d.createBuffer({ size: this.maxTiles * 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
@@ -678,7 +754,7 @@ export class GSTrainer {
     return { moved: dead.length, grown, n: this.n, maxTile, overflow: this.entryOverflowTiles || 0 };
   }
 
-  /** Read back current Gaussian parameters. */
+  /** Read back current Gaussian parameters (+ SH coeffs when enabled). */
   async readGaussians() {
     const d = this.device;
     const enc = d.createCommandEncoder();
@@ -687,6 +763,17 @@ export class GSTrainer {
     await this.bufParamsRead.mapAsync(GPUMapMode.READ);
     const data = new Float32Array(this.bufParamsRead.getMappedRange()).slice();
     this.bufParamsRead.unmap();
-    return { data, n: this.n };
+    let sh = null;
+    if (this.shK) {
+      const bytes = this.n * this.shK * 3 * 4;
+      const rb = d.createBuffer({ size: bytes, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+      const e2 = d.createCommandEncoder();
+      e2.copyBufferToBuffer(this.bufSH, 0, rb, 0, bytes);
+      d.queue.submit([e2.finish()]);
+      await rb.mapAsync(GPUMapMode.READ);
+      sh = new Float32Array(rb.getMappedRange()).slice();
+      rb.unmap(); rb.destroy();
+    }
+    return { data, n: this.n, sh, shK: this.shK };
   }
 }

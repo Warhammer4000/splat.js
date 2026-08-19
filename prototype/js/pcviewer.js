@@ -133,10 +133,10 @@ export class PCViewer {
     }
   }
 
-  /** Load/replace the splat from raw trainer parameters (stride-8 layout). */
+  /** Load/replace the splat from raw trainer parameters (+ optional SH). */
   async setSplat(data, n, opts = {}) {
     const pc = this.pc;
-    const blob = gaussiansToPly(data, n);
+    const blob = gaussiansToPly(data, n, opts.sh, opts.shK);
     const url = URL.createObjectURL(blob);
     const name = `splat-${++this.gen}.ply`;
     const asset = new pc.Asset(name, 'gsplat', { url, filename: name });

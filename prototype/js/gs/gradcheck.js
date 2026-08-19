@@ -90,9 +90,9 @@ export async function gradCheckPose(opts = {}) {
 }
 
 /** Shared tiny-rig construction (also used by gradCheckSmall). */
-async function makeRig() {
+async function makeRig(extraOpts = {}) {
   const { GSTrainer } = await import('./trainer.js');
-  const trainer = await GSTrainer.create({ eCut: 9, aMin: 1e-4, radClamp: 10, anisoReg: 0 });
+  const trainer = await GSTrainer.create({ eCut: 9, aMin: 1e-4, radClamp: 10, anisoReg: 0, ...extraOpts });
   const n = 160;
   const stride = 16;
   let s = 123456789 >>> 0;
@@ -179,6 +179,85 @@ export async function gradCheckSmall(opts = {}) {
   const res = await gradCheck(trainer, { samples: 80, tol: 0.05, ...opts });
   trainer.device.destroy();
   return res;
+}
+
+/** Validate the SH coefficient gradients AND the position-through-direction
+ *  term: the rig gets random nonzero SH coeffs (so dY/ddir matters), then
+ *  (a) the generic param check reruns (pos slots now include the dir term)
+ *  and (b) sampled SH coeffs are FD-checked against bufSHGrad.
+ *    (await import('./js/gs/gradcheck.js')).gradCheckSH(3) */
+export async function gradCheckSH(deg = 3, { samples = 60, tol = 0.05 } = {}) {
+  const { trainer, destroy } = await makeRig({ shDeg: deg });
+  try {
+    const d = trainer.device;
+    const K = trainer.shK;
+    const total = trainer.n * 3 * K;
+    let s = 424242 >>> 0;
+    const rnd = () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; };
+    const shArr = new Float32Array(total);
+    for (let i = 0; i < total; i++) shArr[i] = (rnd() - 0.5) * 0.5;
+    d.queue.writeBuffer(trainer.bufSH, 0, shArr);
+
+    // (a) param gradients with active view dependence
+    const params = await gradCheck(trainer, { samples: 80, tol });
+
+    // (b) SH coefficient gradients vs finite differences
+    const meta = trainer.camMeta[0];
+    const runPass = () => {
+      d.queue.writeBuffer(trainer.uniTrain, 0, trainer.camUniforms[0]);
+      d.queue.writeBuffer(trainer.bufTileCnt, 0, trainer.tileZero);
+      d.queue.writeBuffer(trainer.bufStats, 0, new Uint32Array(4));
+      const enc = d.createCommandEncoder();
+      const p = enc.beginComputePass();
+      trainer.encodeRaster(p, meta, true);
+      p.setPipeline(trainer.pipeChain); p.setBindGroup(0, trainer.bgChain);
+      p.dispatchWorkgroups(Math.ceil(trainer.n / 256));
+      p.end();
+      d.queue.submit([enc.finish()]);
+    };
+    const readBuf = async (buf, bytes) => {
+      const rb = d.createBuffer({ size: bytes, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+      const enc = d.createCommandEncoder();
+      enc.copyBufferToBuffer(buf, 0, rb, 0, bytes);
+      d.queue.submit([enc.finish()]);
+      await rb.mapAsync(GPUMapMode.READ);
+      const out = rb.getMappedRange().slice(0);
+      rb.unmap(); rb.destroy();
+      return out;
+    };
+    const readLoss = async () => new Uint32Array(await readBuf(trainer.bufStats, 16))[1] / 32768;
+
+    runPass();
+    const grad = new Float32Array(await readBuf(trainer.bufSHGrad, total * 4));
+    const h = 0.02;
+    const errs = [];
+    let attempts = 0;
+    while (errs.length < samples && attempts < samples * 10) {
+      attempts++;
+      const j = (rnd() * total) | 0;
+      if (Math.abs(grad[j]) < 0.02 && rnd() < 0.9) continue; // prefer informative
+      const orig = shArr[j];
+      const set = (v) => d.queue.writeBuffer(trainer.bufSH, j * 4, new Float32Array([v]));
+      set(orig + h); runPass(); const lp = await readLoss();
+      set(orig - h); runPass(); const lm = await readLoss();
+      set(orig);
+      const fd = (lp - lm) / (2 * h);
+      const a = grad[j];
+      const denom = Math.max(Math.abs(a), Math.abs(fd));
+      errs.push(denom < 1e-3 ? 0 : Math.abs(a - fd) / denom);
+    }
+    runPass(); // leave gradP zeroed
+    errs.sort((a, b) => a - b);
+    const median = errs[errs.length >> 1];
+    const fails = errs.filter((e) => e > tol).length;
+    return {
+      ok: params.ok && median < tol,
+      params,
+      sh: { checked: errs.length, median: +median.toFixed(4), max: +errs[errs.length - 1].toFixed(4), failsOverTol: fails },
+    };
+  } finally {
+    destroy();
+  }
 }
 
 export async function gradCheck(trainer, { camIdx = 0, samples = 48, seed = 7, tol = 0.1 } = {}) {

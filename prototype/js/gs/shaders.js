@@ -9,12 +9,17 @@
 // (conic -> 2D cov -> 3D cov -> scales/quaternion, incl. the J position term).
 //
 // Remaining prototype simplifications vs. reference 3DGS:
-//  * DC color only (no spherical harmonics), sigmoid-activated
 //  * Charbonnier loss (no SSIM)
 //
 // Gaussian parameter layout (stride 16 f32):
 //   [0-2 pos, 3-5 logScale xyz, 6-9 quat (w,x,y,z, raw), 10-12 color logits,
 //    13 logitOpacity, 14-15 pad]
+// View-dependent color (shDeg > 0) lives in a SEPARATE per-splat SH buffer
+// (channel-major: K red rest coeffs, K green, K blue). The color model is
+//   c(dir) = max(0, sigmoid(logit) + sum_k sh_k Y_k(dir))
+// — the DC stays the bounded sigmoid (identical to shDeg 0 when sh == 0),
+// the rest bands are the STANDARD basis in color space, so the PLY export is
+// exact: f_dc = (sigmoid(logit) - 0.5)/C0, f_rest_k = sh_k.
 // Per-frame projected layout (stride 16 f32):
 //   [0 meanX, 1 meanY, 2 depth, 3 conicA, 4 conicB, 5 conicC, 6 comp,
 //    7 opacity, 8-10 rgb, 11 visible flag, 12-14 cov2D (a,b,c), 15 radius]
@@ -48,6 +53,90 @@ const RADM = ${Math.sqrt(2 * E).toExponential()};
 const RADCL = ${RC.toExponential()};
 `;
 
+// ---- spherical harmonics (view-dependent color) ----
+// Real SH basis, INRIA constant convention (deg 1-3). Generated per compiled
+// degree; the RUNTIME active degree ramps via cam.misc3.x (INRIA-style, one
+// band per 1000 iters) — inactive bands contribute nothing and get 0 grads.
+const SH_C1 = 0.4886025119029199;
+const SH_C2 = [1.0925484305920792, -1.0925484305920792, 0.31539156525252005,
+  -1.0925484305920792, 0.5462742152960396];
+const SH_C3 = [-0.5900435899266435, 2.890611442640554, -0.4570457994644658,
+  0.3731763325901154, -0.4570457994644658, 1.445305721320277, -0.5900435899266435];
+export const shRestCoefs = (deg) => (deg + 1) * (deg + 1) - 1;
+
+// WGSL: basis values Y_k(v) and (for the chain pass) their gradients dY_k/dv
+// at a unit direction v. Emitted only for shDeg >= 1 compiles.
+const shFns = (deg) => {
+  const K = shRestCoefs(deg);
+  const e = (v) => v.toExponential();
+  let y = `
+  Y[0] = ${e(-SH_C1)} * y;
+  Y[1] = ${e(SH_C1)} * z;
+  Y[2] = ${e(-SH_C1)} * x;`;
+  let dy = `
+  D[0] = vec3f(0.0, ${e(-SH_C1)}, 0.0);
+  D[1] = vec3f(0.0, 0.0, ${e(SH_C1)});
+  D[2] = vec3f(${e(-SH_C1)}, 0.0, 0.0);`;
+  if (deg >= 2) {
+    y += `
+  Y[3] = ${e(SH_C2[0])} * x * y;
+  Y[4] = ${e(SH_C2[1])} * y * z;
+  Y[5] = ${e(SH_C2[2])} * (2.0 * zz - xx - yy);
+  Y[6] = ${e(SH_C2[3])} * x * z;
+  Y[7] = ${e(SH_C2[4])} * (xx - yy);`;
+    dy += `
+  D[3] = ${e(SH_C2[0])} * vec3f(y, x, 0.0);
+  D[4] = ${e(SH_C2[1])} * vec3f(0.0, z, y);
+  D[5] = ${e(SH_C2[2])} * vec3f(-2.0 * x, -2.0 * y, 4.0 * z);
+  D[6] = ${e(SH_C2[3])} * vec3f(z, 0.0, x);
+  D[7] = ${e(SH_C2[4])} * vec3f(2.0 * x, -2.0 * y, 0.0);`;
+  }
+  if (deg >= 3) {
+    y += `
+  Y[8]  = ${e(SH_C3[0])} * y * (3.0 * xx - yy);
+  Y[9]  = ${e(SH_C3[1])} * x * y * z;
+  Y[10] = ${e(SH_C3[2])} * y * (4.0 * zz - xx - yy);
+  Y[11] = ${e(SH_C3[3])} * z * (2.0 * zz - 3.0 * xx - 3.0 * yy);
+  Y[12] = ${e(SH_C3[4])} * x * (4.0 * zz - xx - yy);
+  Y[13] = ${e(SH_C3[5])} * z * (xx - yy);
+  Y[14] = ${e(SH_C3[6])} * x * (xx - yy);`;
+    dy += `
+  D[8]  = ${e(SH_C3[0])} * vec3f(6.0 * x * y, 3.0 * xx - 3.0 * yy, 0.0);
+  D[9]  = ${e(SH_C3[1])} * vec3f(y * z, x * z, x * y);
+  D[10] = ${e(SH_C3[2])} * vec3f(-2.0 * x * y, 4.0 * zz - xx - 3.0 * yy, 8.0 * y * z);
+  D[11] = ${e(SH_C3[3])} * vec3f(-6.0 * x * z, -6.0 * y * z, 6.0 * zz - 3.0 * xx - 3.0 * yy);
+  D[12] = ${e(SH_C3[4])} * vec3f(4.0 * zz - 3.0 * xx - yy, -2.0 * x * y, 8.0 * x * z);
+  D[13] = ${e(SH_C3[5])} * vec3f(2.0 * x * z, -2.0 * y * z, xx - yy);
+  D[14] = ${e(SH_C3[6])} * vec3f(3.0 * xx - yy, -2.0 * x * y, 0.0);`;
+  }
+  const pre = deg >= 2
+    ? 'let x = v.x; let y = v.y; let z = v.z;\n  let xx = x * x; let yy = y * y; let zz = z * z;'
+    : 'let x = v.x; let y = v.y; let z = v.z;';
+  return /* wgsl */ `
+const SHK = ${K}u;
+fn shActiveK() -> u32 {
+  let ad = u32(cam.misc3.x + 0.5);
+  return min((ad + 1u) * (ad + 1u) - 1u, ${K}u);
+}
+fn camPosWorld() -> vec3f {
+  return -vec3f(
+    cam.R0.x * cam.t.x + cam.R1.x * cam.t.y + cam.R2.x * cam.t.z,
+    cam.R0.y * cam.t.x + cam.R1.y * cam.t.y + cam.R2.y * cam.t.z,
+    cam.R0.z * cam.t.x + cam.R1.z * cam.t.y + cam.R2.z * cam.t.z);
+}
+fn shBasis(v: vec3f) -> array<f32, ${K}> {
+  var Y: array<f32, ${K}>;
+  ${pre}${y}
+  return Y;
+}
+fn shBasisGrad(v: vec3f) -> array<vec3f, ${K}> {
+  var D: array<vec3f, ${K}>;
+  ${pre}${dy}
+  return D;
+}
+`;
+};
+
 const CAM_STRUCT = /* wgsl */ `
 struct Cam {
   R0: vec4f,      // row 0 of world-to-cam rotation
@@ -58,6 +147,7 @@ struct Cam {
   size: vec4f,    // x = width, y = height, z = tilesX, w = numGaussians
   misc: vec4f,    // xyz = background color, w = target offset (u32 bits)
   misc2: vec4f,   // x = trainMode (1/0), y = camera index, z = numCams, w = exposure bias
+  misc3: vec4f,   // x = active SH degree
 };
 @group(0) @binding(0) var<uniform> cam: Cam;
 const TILEF = ${TILE}.0;
@@ -135,12 +225,13 @@ fn computeGeom(pbase: u32) -> Geom {
 `;
 
 // Pass 1: project each splat and COUNT the tiles it touches.
-export const makeProjectSrc = (E = DEFAULT_E_CUT, A = DEFAULT_A_MIN, RC = 1.0) =>
+export const makeProjectSrc = (E = DEFAULT_E_CUT, A = DEFAULT_A_MIN, RC = 1.0, shDeg = 0) =>
   CAM_STRUCT + cutConsts(E, A, RC) + /* wgsl */ `
 @group(0) @binding(1) var<storage, read> params: array<f32>;
 @group(0) @binding(2) var<storage, read_write> proj: array<f32>;
 @group(0) @binding(3) var<storage, read_write> tileCnt: array<atomic<u32>>;
-` + GEOM_FNS + /* wgsl */ `
+` + (shDeg > 0 ? `@group(0) @binding(4) var<storage, read> sh: array<f32>;\n` : '')
+  + GEOM_FNS + (shDeg > 0 ? shFns(shDeg) : '') + /* wgsl */ `
 @compute @workgroup_size(256)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
   let i = gid.x;
@@ -183,9 +274,26 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   proj[b + 5u]  = ad * inv;        // conic C
   proj[b + 6u]  = comp;
   proj[b + 7u]  = opa;
-  proj[b + 8u]  = 1.0 / (1.0 + exp(-clamp(params[b + 10u], -9.0, 9.0)));
-  proj[b + 9u]  = 1.0 / (1.0 + exp(-clamp(params[b + 11u], -9.0, 9.0)));
-  proj[b + 10u] = 1.0 / (1.0 + exp(-clamp(params[b + 12u], -9.0, 9.0)));
+  var col = vec3f(
+    1.0 / (1.0 + exp(-clamp(params[b + 10u], -9.0, 9.0))),
+    1.0 / (1.0 + exp(-clamp(params[b + 11u], -9.0, 9.0))),
+    1.0 / (1.0 + exp(-clamp(params[b + 12u], -9.0, 9.0))));
+${shDeg > 0 ? /* wgsl */ `
+  // view-dependent color: SH rest bands added to the sigmoid DC, clamp at 0
+  {
+    let un = vec3f(params[b], params[b + 1u], params[b + 2u]) - camPosWorld();
+    let v = un / max(length(un), 1e-9);
+    var Y = shBasis(v);
+    let aK = shActiveK();
+    let sb = i * ${3 * shRestCoefs(shDeg)}u;
+    for (var k = 0u; k < aK; k++) {
+      col += vec3f(sh[sb + k], sh[sb + SHK + k], sh[sb + 2u * SHK + k]) * Y[k];
+    }
+    col = max(col, vec3f(0.0));
+  }` : ''}
+  proj[b + 8u]  = col.x;
+  proj[b + 9u]  = col.y;
+  proj[b + 10u] = col.z;
   proj[b + 11u] = 1.0;
   proj[b + 12u] = g.va;
   proj[b + 13u] = g.vb;
@@ -497,7 +605,9 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
     let c = vec3f(proj[b + 8u], proj[b + 9u], proj[b + 10u]);
 
     let Tb = Ta / (1.0 - alpha); // transmittance in front of this splat
-    let gcv = gC * (alpha * Tb) * c * (vec3f(1.0) - c); // sigmoid chain rule
+    // raw dL/dcolor — the activation chain (sigmoid DC + SH bands) is
+    // per-splat constant, so the chain pass applies it once after summation
+    let gcv = gC * (alpha * Tb);
     var galpha = dot(gC, c * Tb - S / (1.0 - alpha));
     if (araw > 0.99) { galpha = 0.0; } // alpha clamped: no gradient through it
 
@@ -532,7 +642,7 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
 }
 `;
 
-export const makeChainSrc = (AREG = 0.02) => CAM_STRUCT + /* wgsl */ `
+export const makeChainSrc = (AREG = 0.02, shDeg = 0) => CAM_STRUCT + /* wgsl */ `
 const AREG = ${AREG.toExponential()};
 ` + /* wgsl */ `
 @group(0) @binding(1) var<storage, read> params: array<f32>;
@@ -542,11 +652,13 @@ const AREG = ${AREG.toExponential()};
 // per-camera pose gradients: row per camera x 8 slots
 // [dwx, dwy, dwz, dtx, dty, dtz, dlogGain, dBias]; row numCams slot 0 = dlogf
 @group(0) @binding(5) var<storage, read_write> gradCam: array<atomic<i32>>;
+${shDeg > 0 ? `@group(0) @binding(6) var<storage, read> sh: array<f32>;
+@group(0) @binding(7) var<storage, read_write> shGrad: array<f32>;` : ''}
 
 fn camAdd(idx: u32, v: f32) {
   atomicAdd(&gradCam[idx], i32(clamp(v * FIXCAM, -1.0e9, 1.0e9)));
 }
-` + GEOM_FNS + /* wgsl */ `
+` + GEOM_FNS + (shDeg > 0 ? shFns(shDeg) : '') + /* wgsl */ `
 @compute @workgroup_size(256)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
   let i = gid.x;
@@ -572,6 +684,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     gp[4] *= cdenorm;
   }
   for (var k = 0u; k < 16u; k++) { gradF[b + k] = 0.0; }
+${shDeg > 0 ? /* wgsl */ `
+  let sbz = i * ${3 * shRestCoefs(shDeg)}u;
+  for (var k = 0u; k < ${3 * shRestCoefs(shDeg)}u; k++) { shGrad[sbz + k] = 0.0; }` : ''}
   if (proj[b + 11u] <= 0.0) { return; }
 
   let g = computeGeom(b);
@@ -729,11 +844,79 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   gradF[b + 8u] = gqr.z;
   gradF[b + 9u] = gqr.w;
 
-  // colors + opacity (already activation-chained in the render pass)
-  gradF[b + 10u] = gp[7];
-  gradF[b + 11u] = gp[8];
-  gradF[b + 12u] = gp[9];
+  // ---- color: DC sigmoid chain + SH band grads (+ position via view dir) ----
+  let sCol = vec3f(
+    1.0 / (1.0 + exp(-clamp(params[b + 10u], -9.0, 9.0))),
+    1.0 / (1.0 + exp(-clamp(params[b + 11u], -9.0, 9.0))),
+    1.0 / (1.0 + exp(-clamp(params[b + 12u], -9.0, 9.0))));
+  var dRGB = vec3f(gp[7], gp[8], gp[9]);
+${shDeg > 0 ? /* wgsl */ `
+  {
+    let un = vec3f(params[b], params[b + 1u], params[b + 2u]) - camPosWorld();
+    let ulen = max(length(un), 1e-9);
+    let v = un / ulen;
+    var Y = shBasis(v);
+    var D = shBasisGrad(v);
+    let aK = shActiveK();
+    let sb = i * ${3 * shRestCoefs(shDeg)}u;
+    var col = sCol;
+    for (var k = 0u; k < aK; k++) {
+      col += vec3f(sh[sb + k], sh[sb + SHK + k], sh[sb + 2u * SHK + k]) * Y[k];
+    }
+    // clamp-at-zero gate: a channel clamped in the forward has no gradient
+    dRGB *= vec3f(
+      select(0.0, 1.0, col.x > 0.0),
+      select(0.0, 1.0, col.y > 0.0),
+      select(0.0, 1.0, col.z > 0.0));
+    var gv = vec3f(0.0);
+    for (var k = 0u; k < aK; k++) {
+      shGrad[sb + k] = dRGB.x * Y[k];
+      shGrad[sb + SHK + k] = dRGB.y * Y[k];
+      shGrad[sb + 2u * SHK + k] = dRGB.z * Y[k];
+      let w = dRGB.x * sh[sb + k] + dRGB.y * sh[sb + SHK + k] + dRGB.z * sh[sb + 2u * SHK + k];
+      gv += w * D[k];
+    }
+    // dL/dp through the view direction v = (p - cam)/|p - cam|
+    let shPos = (gv - v * dot(v, gv)) / ulen;
+    gradF[b]      += shPos.x;
+    gradF[b + 1u] += shPos.y;
+    gradF[b + 2u] += shPos.z;
+  }` : ''}
+  gradF[b + 10u] = dRGB.x * sCol.x * (1.0 - sCol.x);
+  gradF[b + 11u] = dRGB.y * sCol.y * (1.0 - sCol.y);
+  gradF[b + 12u] = dRGB.z * sCol.z * (1.0 - sCol.z);
   gradF[b + 13u] = gp[6];
+}
+`;
+
+// Adam for the SH coefficient buffer (single lr, no clamps, NaN-guarded).
+export const SH_ADAM_SRC = /* wgsl */ `
+struct SHA {
+  hp: vec4f,   // beta1, beta2, eps, step t
+  cfg: vec4f,  // x = lr, y = total coeffs (n * 3K)
+};
+@group(0) @binding(0) var<uniform> au: SHA;
+@group(0) @binding(1) var<storage, read_write> sh: array<f32>;
+@group(0) @binding(2) var<storage, read> g: array<f32>;
+@group(0) @binding(3) var<storage, read_write> mBuf: array<f32>;
+@group(0) @binding(4) var<storage, read_write> vBuf: array<f32>;
+
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+  let j = gid.x;
+  if (j >= u32(au.cfg.y)) { return; }
+  var gr = g[j];
+  if (!(abs(gr) < 1e18)) { gr = 0.0; }
+  let b1 = au.hp.x;
+  let b2 = au.hp.y;
+  let m = b1 * mBuf[j] + (1.0 - b1) * gr;
+  let v = b2 * vBuf[j] + (1.0 - b2) * gr * gr;
+  mBuf[j] = m;
+  vBuf[j] = v;
+  let t = au.hp.w;
+  let mh = m / (1.0 - pow(b1, t));
+  let vh = v / (1.0 - pow(b2, t));
+  sh[j] = sh[j] - au.cfg.x * mh / (sqrt(vh) + au.hp.z);
 }
 `;
 

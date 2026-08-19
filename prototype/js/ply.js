@@ -38,10 +38,18 @@ export function bakeOpacityCompensation(data, n, f, camPositions) {
   return out;
 }
 
-export function gaussiansToPly(data, n) {
+/** sh: optional channel-major SH rest buffer (n * 3K floats: K red coeffs,
+ *  K green, K blue per splat) — the trainer's color model is EXACTLY the
+ *  standard one (f_dc = (sigmoid(logit)-0.5)/C0, f_rest = raw coeffs), so
+ *  standard viewers reproduce the trained view dependence bit-for-bit. */
+export function gaussiansToPly(data, n, sh = null, shK = 0) {
+  const K = sh ? shK : 0;
   const props = [
     'x', 'y', 'z', 'nx', 'ny', 'nz',
     'f_dc_0', 'f_dc_1', 'f_dc_2',
+    // INRIA layout: f_rest is channel-major (all red band coeffs, then green,
+    // then blue) and sits between f_dc and opacity
+    ...Array.from({ length: 3 * K }, (_, k) => `f_rest_${k}`),
     'opacity',
     'scale_0', 'scale_1', 'scale_2',
     'rot_0', 'rot_1', 'rot_2', 'rot_3',
@@ -69,25 +77,29 @@ export function gaussiansToPly(data, n) {
     dv.setFloat32(o + 24, (sig(data[b + 10]) - 0.5) / SH_C0, true);
     dv.setFloat32(o + 28, (sig(data[b + 11]) - 0.5) / SH_C0, true);
     dv.setFloat32(o + 32, (sig(data[b + 12]) - 0.5) / SH_C0, true);
-    dv.setFloat32(o + 36, data[b + 13], true);          // logit opacity
-    dv.setFloat32(o + 40, data[b + 3], true);           // log scales
-    dv.setFloat32(o + 44, data[b + 4], true);
-    dv.setFloat32(o + 48, data[b + 5], true);
+    for (let k = 0; k < 3 * K; k++) {
+      dv.setFloat32(o + 36 + k * 4, sh[i * 3 * K + k], true);
+    }
+    const q = o + 36 + 3 * K * 4;
+    dv.setFloat32(q, data[b + 13], true);               // logit opacity
+    dv.setFloat32(q + 4, data[b + 3], true);            // log scales
+    dv.setFloat32(q + 8, data[b + 4], true);
+    dv.setFloat32(q + 12, data[b + 5], true);
     // normalized quaternion (w, x, y, z)
     let qw = data[b + 6], qx = data[b + 7], qy = data[b + 8], qz = data[b + 9];
     const ql = Math.hypot(qw, qx, qy, qz);
     if (ql < 1e-6) { qw = 1; qx = qy = qz = 0; }
     else { qw /= ql; qx /= ql; qy /= ql; qz /= ql; }
-    dv.setFloat32(o + 52, qw, true);
-    dv.setFloat32(o + 56, qx, true);
-    dv.setFloat32(o + 60, qy, true);
-    dv.setFloat32(o + 64, qz, true);
+    dv.setFloat32(q + 16, qw, true);
+    dv.setFloat32(q + 20, qx, true);
+    dv.setFloat32(q + 24, qy, true);
+    dv.setFloat32(q + 28, qz, true);
   }
   return new Blob([headerBytes, body], { type: 'application/octet-stream' });
 }
 
-export function downloadPly(data, n, filename = 'splat.ply') {
-  const blob = gaussiansToPly(data, n);
+export function downloadPly(data, n, filename = 'splat.ply', sh = null, shK = 0) {
+  const blob = gaussiansToPly(data, n, sh, shK);
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = filename;
