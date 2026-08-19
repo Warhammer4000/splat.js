@@ -240,7 +240,19 @@ async function startPrep() {
   dock('prep');
 
   try {
-    const session = createSession({ maxIters: MAX_ITERS, holdout: 'auto', evalHoldEvery: 2500 });
+    // size the trainer's view buffers for THIS device's full-retina screen
+    // (both orientations — the clamps below are pixel-count based)
+    const dpr = Math.min(3, devicePixelRatio || 1);
+    const mvW = Math.ceil((screen.width || 1280) * dpr);
+    const mvH = Math.ceil((screen.height || 800) * dpr);
+    S.viewPixBudget = Math.min(
+      mvW * mvH,
+      16000 * 256, // per-raster tile-grid cap (16k tiles of 16x16)
+    );
+    const session = createSession({
+      maxIters: MAX_ITERS, holdout: 'auto', evalHoldEvery: 2500,
+      maxViewW: mvW, maxViewH: mvH,
+    });
     S.session = session;
     session.on('stage', (e) => { if (S.gen === gen) onStage(e); });
     session.on('metrics', (e) => { if (S.gen === gen) onMetrics(e); });
@@ -787,15 +799,25 @@ function draw() {
   const onFrame = S.atFrame >= 0;
   const pose = vp.viewPose();
   if (gpuCanvas && S.session && S.session.trainer) {
-    // while training, every view render is a full raster pass stolen from
-    // the optimiser — cap it (except when the camera is actually moving)
     const now = performance.now();
-    const throttled = S.state === 'train' && S.session.training && !vp.dirty
-      && now - (S._lastViewAt || 0) < 400;
-    if (!throttled) {
+    if (vp.dirty) S._camMovedAt = now;
+    const training = S.state === 'train' && S.session.training;
+    const moving = vp.dirty || now - (S._camMovedAt || 0) < 250;
+    // progressive resolution: ~1.3MP while the camera moves or training runs
+    // (fluid), the FULL device-pixel canvas once it settles (true retina) —
+    // always inside the allocated view buffers / tile-grid budget
+    const budgetPx = Math.min(S.viewPixBudget || 2560 * 1440,
+      (training || moving) ? 1.3e6 : 1e9);
+    const sc = Math.min(1, Math.sqrt(budgetPx / (w * h)));
+    const gw = Math.max(2, Math.round(w * sc)), gh = Math.max(2, Math.round(h * sc));
+    const key = `${gw}x${gh}|${Math.round(pose.f)}|` +
+      pose.R.map((v) => Math.round(v * 8192)).join(',') + '|' +
+      pose.t.map((v) => Math.round(v * 8192)).join(',');
+    // re-render when the view actually changed; while training also every
+    // 400ms so the evolving model stays visible without stealing every frame
+    if (key !== S._viewKey || (training && now - (S._lastViewAt || 0) > 400)) {
+      S._viewKey = key;
       S._lastViewAt = now;
-      const sc = Math.min(1, 2560 / w, 1440 / h);
-      const gw = Math.max(2, Math.round(w * sc)), gh = Math.max(2, Math.round(h * sc));
       if (gpuCanvas.width !== gw || gpuCanvas.height !== gh) {
         gpuCanvas.width = gw; gpuCanvas.height = gh;
         S.session.view.attach(gpuCanvas);
