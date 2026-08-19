@@ -77,12 +77,9 @@ export async function recordCaptureVideo() {
   ui.className = 'camrec';
   ui.innerHTML = `
     <video id="cam-view" autoplay muted playsinline></video>
-    <div class="camrec-top">
-      <span class="chip" id="cam-status">settling …</span>
-      <div class="seg camrec-mode" id="cam-mode">
-        <button data-m="video" aria-pressed="true">Video</button>
-        <button data-m="photos" aria-pressed="false">Photos</button>
-      </div>
+    <div class="camrec-mode" id="cam-mode">
+      <button data-m="video" aria-pressed="true">Video</button>
+      <button data-m="photos" aria-pressed="false">Photos</button>
     </div>
     <div class="camrec-hint" id="cam-hint">Move <b>sideways</b>, slowly. Keep the subject in frame — a wide arc beats a spin.</div>
     <div class="camrec-row">
@@ -113,11 +110,8 @@ export async function recordCaptureVideo() {
     };
 
     // let auto-exposure settle on the scene for a moment, then freeze it
-    setTimeout(async () => {
-      const what = await lockExposure(track);
-      const st = el('cam-status');
-      if (st) st.textContent = what;
-    }, 1200);
+    // (silently — succeeds on Android, is refused on iOS)
+    setTimeout(() => { lockExposure(track).catch(() => {}); }, 1200);
 
     el('cam-mode').addEventListener('click', (e) => {
       const b = e.target.closest('button');

@@ -380,8 +380,17 @@ body {
 .upload-btns { display: flex; gap: 8px; align-items: center; }
 
 /* capture-mode toggle + photo-mode shutter */
-.camrec-top { display: flex; gap: 10px; align-items: center; }
-.camrec-mode button { min-width: 64px; }
+.camrec-mode {
+  position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+  display: flex; padding: 3px; gap: 2px;
+  background: rgba(7, 9, 9, .65); backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, .12); border-radius: var(--pill);
+}
+.camrec-mode button {
+  min-width: 78px; padding: 7px 16px; border-radius: var(--pill);
+  font: 500 13px var(--sans, system-ui); color: rgba(230, 236, 235, .65);
+}
+.camrec-mode button[aria-pressed="true"] { background: rgba(230, 236, 235, .92); color: #0b0e0e; }
 .camrec-btn[data-mode="photos"] { border-color: var(--accent); }
 .camrec-btn[data-mode="photos"]::after { background: var(--paper); }
 .camrec-done {
