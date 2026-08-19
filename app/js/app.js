@@ -9,6 +9,7 @@
 // splat.js Session — plus the trainer's rendered canvas.
 
 import { createSession, gaussiansToPly } from '../../src/index.js';
+import { handleOAuthCallback, sendToArrival } from './arrival.js';
 import { PRESETS, REPO, DATA, HOLD_HELP, ownSet } from './data.js';
 import { Viewport, camCentre } from './viewport.js';
 import { Developer, fitRect } from './develop.js';
@@ -48,7 +49,8 @@ const S = {
 let vp, dev, chart, dchart, dvp;
 let gpuCanvas = null;          // the trainer renders here; the stage blits it
 
-boot();
+// the OAuth popup lands back on this page with ?code= — report and close
+if (!handleOAuthCallback()) boot();
 
 // ── boot ────────────────────────────────────────────────────────────────────
 function boot() {
@@ -488,8 +490,8 @@ function buildExport() {
   wrap.innerHTML = `
     <button class="iconbtn" title="Export" aria-label="Export">${DL_ICON}</button>
     <div class="menu" hidden>
+      <button data-act="arr"><b>Send to Arrival.Space</b><span>Straight into a space of yours</span></button>
       <button data-act="ply"><b>Download .ply</b><span>Standard splat file · ${mb} MB</span></button>
-      <button data-act="arr"><b>Open arrival.space</b><span>Drop the .ply into one of your rooms</span></button>
     </div>`;
 
   const menu = wrap.querySelector('.menu');
@@ -508,9 +510,24 @@ function buildExport() {
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
     flash(`${fmt(S.splats)} splats on their way to your downloads.`, 3500);
   });
-  wrap.querySelector('[data-act="arr"]').addEventListener('click', () => {
+  wrap.querySelector('[data-act="arr"]').addEventListener('click', async () => {
     menu.hidden = true;
-    window.open('https://arrival.space', '_blank', 'noopener');
+    if (S.uploading) return;
+    S.uploading = true;
+    try {
+      const blob = await S.session.exportPlyBlob();
+      const url = await sendToArrival(blob, S.preset.name, {
+        onStatus: (m) => flash(m, 120000),
+        onProgress: (pct) => flash(`Uploading to Arrival.Space … ${pct}%`, 120000),
+      });
+      flash('Your space is ready — opening it.', 5000);
+      window.open(url, '_blank', 'noopener');
+    } catch (e) {
+      console.error(e);
+      flash(`Arrival.Space export failed: ${e.message}`, 8000);
+    } finally {
+      S.uploading = false;
+    }
   });
   return wrap;
 }
