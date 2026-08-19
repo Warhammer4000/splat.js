@@ -242,6 +242,16 @@ export class Session {
 
   pause() { this.training = false; }
 
+  /** End the run early with the model as it stands: final metrics, then the
+   *  same train-complete event an auto-stop emits. */
+  async finish() {
+    if (!this.trainer) return;
+    this.training = false;
+    this._log(`training finished early at ${this.trainer.iter} iterations`);
+    await this._emitMetrics(true);
+    this._em.emit('event', { kind: 'train-complete', iter: this.trainer.iter, splats: this.trainer.n });
+  }
+
   _maxIters() { return this.opts.maxIters ?? 60000; }
 
   _ensureScheduler() {

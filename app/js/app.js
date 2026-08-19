@@ -382,6 +382,8 @@ function toggleTrain() {
   const b = $('t-play');
   const on = S.session.training;
   if (b) { b.dataset.state = on ? 'pause' : 'play'; b.textContent = on ? '❚❚' : '▶'; }
+  const f = $('t-finish');
+  if (f) f.hidden = on;   // paused = the moment "stop here" makes sense
 }
 
 function onMetrics(m) {
@@ -421,7 +423,7 @@ function onTrainEvent(e) {
 
 async function finish() {
   S.state = 'done';
-  S.iter = MAX_ITERS;
+  S.iter = S.session.trainer.iter;   // honest count — the run may end early
   S.minutes = Math.max(1, Math.round((performance.now() - S.trainT0) / 60000));
   S.atFrame = -1; S.fadeTo = 0;
   vp.lock = null; vp.freeF = null;
@@ -677,6 +679,7 @@ function dock(kind) {
     d.innerHTML = `
       <div class="tcontrols">
         <button class="play" id="t-play" data-state="pause">❚❚</button>
+        <button class="tbtn-sm" id="t-finish" hidden title="Stop here and keep the model as it is">Finish</button>
         <div class="tmeta">
           <span class="tmeta-1"><span id="t-iter">0</span> <span class="tmeta-max">/ ${fmt(MAX_ITERS)}</span></span>
           <span class="tmeta-2"><span id="t-splats">—</span> splats · <span id="t-ips">—</span>/s</span>
@@ -688,6 +691,10 @@ function dock(kind) {
         <div class="score" data-tone="alt"><div class="score-v" id="t-phold">—</div><div class="score-k">hidden dB</div></div>
       </div>`;
     $('t-play').addEventListener('click', toggleTrain);
+    $('t-finish').addEventListener('click', async () => {
+      $('t-finish').disabled = true;
+      await S.session.finish();   // emits train-complete -> finish()
+    });
     chart = new Chart($('chart'), { onHover: chartTip });
     chart.maxIter = MAX_ITERS;
     chart.resize();
