@@ -102,7 +102,17 @@ export async function recordCaptureVideo() {
     let mode = 'video';
     let rec = null, chunks = [], t0 = 0, timer = 0;
     const photos = [];
+    // Space/Enter = the shutter (snap in photo mode, start/stop in video)
+    const onKey = (e) => {
+      if (e.code === 'Space' || e.code === 'Enter') {
+        e.preventDefault();
+        el('cam-rec').click();
+      }
+      if (e.code === 'Escape') el('cam-cancel').click();
+    };
+    addEventListener('keydown', onKey);
     const teardown = () => {
+      removeEventListener('keydown', onKey);
       clearInterval(timer);
       track.stop();
       stream.getTracks().forEach((t) => t.stop());
