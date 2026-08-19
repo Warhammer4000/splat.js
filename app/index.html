@@ -33,6 +33,12 @@
   <div class="card-start" id="start" hidden>
     <button class="card-x" id="card-x" hidden aria-label="Keep the current run">&times;</button>
 
+    <p class="eyebrow">In-browser 3D capture</p>
+    <h1>Turn photos into a splat</h1>
+    <p class="origin">Drop in 20–200 overlapping photos of one place, record a walk
+      with your camera, or pick a preset below. The camera solve, the training and
+      the export all run right here in this tab.</p>
+
     <div class="upload" id="upload">
       <div class="upload-btns"><label class="btn btn-accent">Choose photos or video<input type="file" id="file-input" multiple accept="image/*,video/*" hidden></label><button class="btn btn-outline" id="btn-record" hidden><i class="recdot"></i>Record</button></div>
     </div>
@@ -40,10 +46,7 @@
     <div class="orline"><span>Presets</span></div>
 
     <div class="setpick" id="setpick"></div>
-    <p class="eyebrow" id="start-kind">—</p>
-    <h1 id="start-title">—</h1>
-    <p class="origin" id="start-origin">—</p>
-    <p class="srclinks" id="start-links"></p>
+    <p class="setdesc" id="set-desc" hidden></p>
     <button class="btn btn-accent big" id="btn-go">Start training</button>
   </div>
 </main>

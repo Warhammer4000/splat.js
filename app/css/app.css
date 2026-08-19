@@ -452,3 +452,13 @@ body {
 }
 
 label.btn { cursor: pointer; }
+
+/* the selected set describes itself under the preset row */
+.setdesc {
+  margin: 2px 0 0; text-align: center;
+  font-size: 12.5px; line-height: 1.55; color: var(--muted);
+}
+.setdesc b { color: var(--paper); font-weight: 600; }
+.setdesc a { color: var(--accent); text-decoration: none; margin-left: 2px; }
+.setdesc a:hover { text-decoration: underline; }
+.setdesc .approx { color: var(--dim); margin-left: 8px; }

@@ -150,20 +150,13 @@ function boot() {
   requestAnimationFrame(loop);
 }
 
-/** the untouched start card: intro words where a set's description goes */
+/** the untouched start card: header static, no selection, no caption */
 function showIntro() {
   S.preset = null;
   S.photos = [];
   $('strip').innerHTML = '';
-  $('start-kind').textContent = 'In-browser 3D capture';
-  $('start-title').textContent = 'Turn photos into a splat';
-  $('start-origin').textContent =
-    'Drop in 20–200 overlapping photos of one place, record a walk with your ' +
-    'camera, or pick a test set below. The camera solve, the training and the ' +
-    'export all run right here in this tab.';
-  $('start-links').innerHTML = '';
+  $('set-desc').hidden = true;
   [...$('setpick').children].forEach((b) => b.setAttribute('aria-pressed', 'false'));
-  $('upload').classList.remove('is-current');
   $('btn-go').disabled = true;
   $('start').hidden = false;
 }
@@ -224,16 +217,17 @@ function presetUrl(p, i) {
 }
 
 function paintCard(preset) {
-  $('start-kind').textContent = preset.kind;
-  $('start-title').textContent = preset.name;
-  $('start-origin').textContent = preset.origin;
-  $('start-links').innerHTML = (preset.links || [])
-    .map((l) => `<a href="${l.url}" target="_blank" rel="noopener">${l.label}</a>`).join('')
-    + (preset.approx ? `<span class="approx">${preset.approx} on a fast GPU</span>` : '');
+  // the header stays the product's; the selection describes itself in a
+  // caption attached to the preset row
+  const links = (preset.links || [])
+    .map((l) => `<a href="${l.url}" target="_blank" rel="noopener">${l.label}</a>`).join(' · ');
+  $('set-desc').innerHTML = `<b>${preset.name}</b> — ${preset.origin}` +
+    (links ? ` ${links}` : '') +
+    (preset.approx ? `<span class="approx">${preset.approx} on a fast GPU</span>` : '');
+  $('set-desc').hidden = false;
   $('btn-go').textContent = 'Start training';
   [...$('setpick').children].forEach((b) =>
     b.setAttribute('aria-pressed', String(b.dataset.id === preset.id)));
-  $('upload').classList.toggle('is-current', preset.id === '__own');
 }
 
 function showPicker() {
