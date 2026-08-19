@@ -79,7 +79,7 @@ body {
 
 .upload {
   display: flex; align-items: center; gap: 18px; text-align: left;
-  padding: 4px 0 14px; margin-bottom: 16px;
+  padding: 18px 0 14px; margin-bottom: 16px;
   border: none; border-radius: 12px;
 }
 .upload-txt { flex: 1; }
