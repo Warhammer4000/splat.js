@@ -145,9 +145,27 @@ function boot() {
     if (S.state === 'train' || S.state === 'prep') { e.preventDefault(); e.returnValue = ''; }
   });
   window.__splat = S;          // console access
-  open(PRESETS[0]);
+  showIntro();                 // nothing preselected — the visitor chooses
   offerLastCapture();
   requestAnimationFrame(loop);
+}
+
+/** the untouched start card: intro words where a set's description goes */
+function showIntro() {
+  S.preset = null;
+  S.photos = [];
+  $('strip').innerHTML = '';
+  $('start-kind').textContent = 'In-browser 3D capture';
+  $('start-title').textContent = 'Turn photos into a splat';
+  $('start-origin').textContent =
+    'Drop in 20–200 overlapping photos of one place, record a walk with your ' +
+    'camera, or pick a test set below. The camera solve, the training and the ' +
+    'export all run right here in this tab.';
+  $('start-links').innerHTML = '';
+  [...$('setpick').children].forEach((b) => b.setAttribute('aria-pressed', 'false'));
+  $('upload').classList.remove('is-current');
+  $('btn-go').disabled = true;
+  $('start').hidden = false;
 }
 
 /** the previous own capture, restored from this device's storage */
@@ -318,6 +336,7 @@ async function open(preset, autostart = false) {
   S.growthStopped = false;
   gpuCanvas = null;
   $('btn-go').textContent = 'Start training';
+  $('btn-go').disabled = false;
   $('card-x').hidden = true;
   $('card-runs').hidden = false;
   $('start').hidden = true;
@@ -1114,7 +1133,8 @@ function draw() {
 function photoStage(ctx, w, h, dpr, marks = false) {
   ctx.fillStyle = '#070909';
   ctx.fillRect(0, 0, w, h);
-  const img = readyBmp(S.photos[S.sel] && S.photos[S.sel].url);
+  if (!S.photos.length || !S.photos[S.sel]) return; // intro: bare stage
+  const img = readyBmp(S.photos[S.sel].url);
   if (!img) return;
   const r = fitRect(img.width, img.height, w / dpr, h / dpr, 10);
   ctx.save(); ctx.scale(dpr, dpr);
