@@ -447,4 +447,8 @@ body {
   background: #e5484d; margin-right: 7px; vertical-align: 0;
 }
 
-#btn-go[disabled] { opacity: .38; cursor: default; }
+/* bright only when actually available — disabled reads as a quiet outline */
+#btn-go[disabled] {
+  background: transparent; color: var(--dim);
+  border: 1px solid var(--line); cursor: default;
+}
