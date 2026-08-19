@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Splatlab — UX mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700&family=Spline+Sans+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">◐</span>
+    <span class="brand-name">Splatlab <em>/ mockup</em></span>
+  </div>
+  <nav class="stepper" id="stepper" aria-label="Pipeline stages"></nav>
+  <div class="topbar-tools">
+    <button class="tbtn" id="btn-detail" aria-pressed="false" title="Show every number and control">Detail</button>
+    <button class="tbtn" id="btn-guide">Capture guide</button>
+    <button class="tbtn" id="btn-restart" hidden>New scene</button>
+  </div>
+</header>
+
+<!-- ── start screen ──────────────────────────────────────────────────────── -->
+<main class="screen is-active" id="screen-start">
+  <div class="start-wrap">
+    <div class="hero">
+      <p class="eyebrow">Photographs in, 3D out — in this tab</p>
+      <h1 class="hero-title">Watch a scene <em>develop</em></h1>
+      <p class="hero-sub">
+        A few dozen overlapping photos are enough to rebuild a place in 3D. Pick a set
+        and follow it the whole way: the landmarks the solver finds, the camera positions
+        it works out, and the cloud of soft blobs that slowly sharpens into the scene.
+      </p>
+    </div>
+
+    <div class="section-head">
+      <h2>Start with a ready set</h2>
+      <p>Nothing to download — these run start to finish in the browser</p>
+    </div>
+    <div class="gallery" id="gallery"></div>
+
+    <div class="section-head">
+      <h2>Or shoot your own</h2>
+      <p>20 photos is enough to see it work</p>
+    </div>
+    <div class="own">
+      <div class="dropzone" id="dropzone">
+        <h3>Drop your photos here</h3>
+        <p>
+          They stay on this machine — the whole pipeline runs in the browser, so nothing
+          is uploaded anywhere. JPEG or PNG, 20 to 200 of them.
+        </p>
+        <label class="btn btn-quiet">Choose photos<input type="file" id="file-input" multiple accept="image/*" hidden></label>
+      </div>
+      <div class="guide-teaser">
+        <h3>Shooting for 3D is not shooting a panorama</h3>
+        <p>
+          The most common mistake takes thirty seconds to explain and saves an entire
+          wasted capture: turning on the spot records no depth at all.
+        </p>
+        <button class="btn btn-quiet" id="btn-guide-2">Read the guide</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- ── lab screen ────────────────────────────────────────────────────────── -->
+<div class="screen" id="screen-lab" data-phase="frames">
+  <aside class="rail" id="rail"></aside>
+
+  <section class="stage">
+    <div class="stage-bar" id="stage-bar"></div>
+    <div class="stage-view" id="stage-view" data-cursor="grab">
+      <canvas id="stage-canvas"></canvas>
+      <div class="hud" id="hud"></div>
+    </div>
+    <div class="strip" id="strip"></div>
+  </section>
+
+  <aside class="inspector" id="inspector"></aside>
+  <footer class="transport" id="transport"></footer>
+</div>
+
+<!-- ── capture guide ─────────────────────────────────────────────────────── -->
+<dialog id="guide">
+  <div class="dlg-head">
+    <div>
+      <h2>How to shoot a scene</h2>
+      <p>Five rules. The first one is the one everybody gets wrong.</p>
+    </div>
+    <button class="tbtn" id="guide-close">Close</button>
+  </div>
+  <div class="dlg-body" id="guide-body"></div>
+</dialog>
+
+<div class="tip" id="tip" hidden></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

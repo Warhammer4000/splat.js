@@ -1,0 +1,238 @@
+# Research Prototype: Browser-Only Multi-Image Gaussian Splat Generation
+
+## Goal
+
+Build a research prototype that takes a set of overlapping images and reconstructs a Gaussian Splat **entirely in the browser**.
+
+Target:
+
+```text
+multi-image input
+→ camera/geometry reconstruction
+→ Gaussian initialization
+→ WebGPU optimization
+→ PLY/SPZ/other export
+```
+
+A pretrained model download of up to roughly **3 GB is acceptable**.
+
+The prototype should stay modular and compare multiple approaches rather than committing to one reconstruction method upfront.
+
+## 1. Camera and Geometry Reconstruction
+
+This is the main open architectural question.
+
+### A. Classical SfM
+
+Browser implementation or WASM/WebGPU port of:
+
+```text
+features
+→ matching
+→ geometric verification
+→ camera poses
+→ triangulation
+→ bundle adjustment
+```
+
+Possible advantage: no large model and well-understood geometry.
+
+Main question: how much work is required to make SfM robust and performant in-browser?
+
+### B. Neural Multi-View Reconstruction
+
+Evaluate models such as:
+
+* VGGT
+* DUSt3R / MASt3R family
+* newer multi-view geometry models
+
+Desired outputs:
+
+* camera intrinsics/extrinsics
+* depth or point maps
+* tracks/correspondences
+
+Potential browser runtimes:
+
+* ONNX Runtime Web / WebGPU
+* custom WebGPU implementation
+* WASM for unsupported operations
+
+Main questions:
+
+* Can a suitable model run efficiently in WebGPU?
+* What is peak RAM/VRAM usage?
+* Can weights fit within the ~3 GB budget?
+* How well does it scale from ~20 to 100+ images?
+
+### C. Hybrid Approach
+
+Examples:
+
+```text
+learned features/matching
+→ classical geometric verification
+→ bundle adjustment
+```
+
+or:
+
+```text
+neural camera initialization
+→ geometric refinement
+→ Gaussian optimization
+```
+
+This may be a better compromise than either full SfM or full neural reconstruction.
+
+## 2. Gaussian Initialization
+
+Possible sources:
+
+* sparse triangulated SfM points
+* neural depth maps
+* neural point maps
+* dense back-projected image samples
+
+Need to determine how strongly initialization quality affects browser training time and final quality.
+
+## 3. Browser Gaussian Optimization
+
+Implement or adapt a 3DGS training loop for WebGPU:
+
+```text
+Gaussians
+→ project/rasterize
+→ compare with source image
+→ gradients
+→ optimizer update
+→ densify/prune
+→ repeat
+```
+
+Likely required:
+
+* tiled rendering
+* GPU sorting/binning
+* differentiable alpha compositing
+* Adam or similar optimizer
+* position/scale/rotation/opacity/SH gradients
+* densification and pruning
+
+Existing WebGPU trainers such as WebDGS/Brush should be studied, but reuse should remain an open question.
+
+## 4. Memory Architecture
+
+Neural reconstruction and Gaussian training may not fit comfortably in GPU memory simultaneously.
+
+Potential pipeline:
+
+```text
+load reconstruction model
+→ infer cameras + geometry
+→ store compact result
+→ release model/activations
+→ allocate GS optimizer
+→ train splat
+```
+
+Input images should be downscaled initially and loaded into GPU memory only when needed.
+
+## 5. Prototype Scope
+
+Initial target:
+
+* Chrome/Chromium with WebGPU
+* desktop GPU
+* approximately 20–100 images
+* images downscaled to ~0.5–1 MP for initial tests
+* 0.5–3M final Gaussians
+* standard PLY output initially
+
+No requirement yet for mobile support, production UX, or very large datasets.
+
+## 6. Suggested Experiments
+
+### Experiment 1 — WebGPU GS training
+
+Use an existing dataset with known cameras and initial points.
+
+Compare:
+
+```text
+same images + cameras
+CUDA gsplat
+vs
+browser WebGPU implementation
+```
+
+Measure:
+
+* convergence
+* quality
+* training speed
+* memory
+* maximum Gaussian count
+
+### Experiment 2 — Camera reconstruction
+
+Run the same photo sets through:
+
+1. classical SfM
+2. neural multi-view reconstruction
+3. hybrid approach
+
+Compare:
+
+* pose accuracy
+* reconstruction failures
+* runtime
+* memory
+* model size
+* implementation complexity
+
+### Experiment 3 — End-to-End
+
+```text
+photos
+→ browser reconstruction
+→ Gaussian initialization
+→ WebGPU training
+→ export
+```
+
+Test on several types of captures:
+
+* object
+* indoor room
+* outdoor scene
+* building
+* difficult low-texture scene
+
+## Main Open Questions
+
+1. Is classical SfM, neural reconstruction, or a hybrid best suited to the browser?
+2. Can a VGGT-class model practically run with WebGPU under the ~3 GB download constraint?
+3. What is the actual peak GPU memory requirement?
+4. How many images can neural reconstruction process together?
+5. Can images be processed in chunks without losing global consistency?
+6. How accurate do initial camera poses need to be for GS optimization?
+7. Should camera poses also be optimized during splat training?
+8. Does dense depth/point-map initialization significantly improve convergence?
+9. How fast can WebGPU train 1–3M Gaussians?
+10. Which existing WebGPU GS components can be reused?
+11. How close can browser reconstruction get to a CUDA gsplat baseline?
+
+## Success Criterion
+
+A successful prototype is:
+
+```text
+drop ~50 overlapping photos into browser
+→ reconstruct cameras and geometry locally
+→ train Gaussian Splat with WebGPU
+→ export usable splat
+```
+
+The main research outcome should be a comparison of the viable browser-native approaches and an understanding of their quality, performance, memory requirements, and implementation complexity.

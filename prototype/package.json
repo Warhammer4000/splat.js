@@ -1,0 +1,8 @@
+{
+  "name": "browser-3dgs-prototype",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "serve": "npx serve -l 8734 ."
+  }
+}

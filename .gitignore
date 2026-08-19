@@ -1,0 +1,15 @@
+# large binaries / downloads
+tools/
+*.zip
+
+# datasets: images stay out of git, metadata/GT stays in
+data/downloads/
+data/**/*.jpg
+data/**/*.JPG
+data/**/*.jpeg
+
+# generated / working files
+scratch/
+node_modules/
+prototype_backup_isotropic/
+tmp/

@@ -1,0 +1,139 @@
+/* Splatlab v2 — the tech-demo cut. Same palette and type as v1
+   (imported), a much smaller frame around one stage. */
+
+@import url('../../css/app.css');
+
+body {
+  display: grid;
+  /* minmax(0,1fr), not 1fr: the filmstrip's row of thumbnails would otherwise
+     size the whole column to its own max-content width */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 52px minmax(0, 1fr) auto auto;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* ── bar ─────────────────────────────────────────────────────────────────── */
+
+.bar {
+  display: flex; align-items: center; gap: 16px; padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(var(--ink-2), var(--ink));
+}
+.bar .grow { flex: 1; }
+.tag { font: 400 12.5px var(--mono); color: var(--dim); }
+.pick { display: flex; align-items: center; gap: 7px; font: 400 12px var(--mono); color: var(--dim); }
+.pick .sel { max-width: 210px; }
+
+/* ── stage ───────────────────────────────────────────────────────────────── */
+
+/* v1 places .stage / .strip inside a named-area grid; v2 owns its own layout */
+.stage, .strip, .dock { grid-area: auto; }
+
+.stage {
+  position: relative; display: block; overflow: hidden;
+  background: var(--stage); min-height: 0;
+}
+.stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.stage[data-cursor="loupe"] { cursor: none; }
+.stage[data-cursor="grab"] { cursor: grab; }
+.stage[data-cursor="grab"]:active { cursor: grabbing; }
+
+.controls {
+  position: absolute; z-index: 3; right: 14px; top: 12px;
+  display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end;
+}
+.controls .seg { background: rgba(10, 8, 7, .82); backdrop-filter: blur(4px); }
+
+/* start card, centred on the frames it is about to chew through */
+.card-start {
+  position: absolute; z-index: 4; inset: 0; margin: auto;
+  width: min(520px, calc(100% - 48px)); height: max-content;
+  padding: 30px 32px 26px; text-align: center;
+  background: rgba(20, 16, 14, .88); backdrop-filter: blur(10px);
+  border: 1px solid var(--line-2); border-radius: var(--r);
+  box-shadow: var(--shadow);
+}
+.card-start h1 { font: 700 30px/1.1 var(--display); letter-spacing: -.02em; margin-bottom: 10px; }
+.card-start p { margin: 0 0 20px; color: var(--muted); font-size: 14px; line-height: 1.55; }
+.card-start .fine { margin: 14px 0 0; font-size: 12.5px; color: var(--dim); }
+.btn.big { padding: 12px 22px; font-size: 15px; }
+.linkish { color: var(--amber); text-decoration: underline; text-underline-offset: 2px; padding: 0; font: inherit; }
+
+/* ── filmstrip ───────────────────────────────────────────────────────────── */
+
+.strip { display: block; border-top: 1px solid var(--line); background: var(--ink-2); }
+.strip:empty { display: none; }
+.strip-scroll { display: flex; gap: 4px; padding: 7px 12px; overflow-x: auto; scrollbar-width: thin; }
+.strip-scroll::-webkit-scrollbar { height: 5px; }
+.strip-scroll::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 3px; }
+.strip .frame { width: 62px; }
+
+/* ── dock ────────────────────────────────────────────────────────────────── */
+
+.dock {
+  border-top: 1px solid var(--line); background: var(--panel);
+  padding: 10px 16px 12px; min-height: 0;
+}
+.dock:empty { display: none; }
+
+.dock-train {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 18px; align-items: center;
+}
+.dock-prep { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: center; }
+.dock-done { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.dock-done h2 { font: 600 20px var(--display); letter-spacing: -.01em; }
+.dock-done p { margin: 0; color: var(--dim); font-size: 13px; }
+.dock-done .grow { flex: 1; }
+.dock-actions { display: flex; gap: 8px; }
+
+.prep-label { font: 500 15px var(--ui); margin-bottom: 3px; }
+.prep-sub { font: 400 12px var(--mono); color: var(--dim); }
+.prep-meter { height: 4px; background: var(--panel-2); border-radius: 2px; overflow: hidden; margin-top: 9px; }
+.prep-meter i { display: block; height: 100%; background: var(--amber); transition: width .12s linear; }
+.prep-steps { display: flex; gap: 14px; font: 400 11px var(--mono); color: var(--dim); }
+.prep-steps b { font-weight: 500; }
+.prep-steps [data-on="1"] { color: var(--amber); }
+.prep-steps [data-on="done"] { color: var(--teal); }
+
+/* ── details sheet ───────────────────────────────────────────────────────── */
+
+.sheet {
+  position: fixed; inset: 0; z-index: 30; overflow-y: auto;
+  background: var(--ink); animation: rise .18s ease-out;
+}
+@keyframes rise { from { transform: translateY(14px); opacity: 0; } }
+.sheet[hidden] { display: none; }
+.sheet-head {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 20px;
+  padding: 22px 28px 16px; border-bottom: 1px solid var(--line);
+  background: linear-gradient(var(--ink) 70%, transparent);
+}
+.sheet-head h2 { font: 700 26px var(--display); letter-spacing: -.02em; }
+.sheet-head p { margin: 5px 0 0; color: var(--dim); font: 400 13px var(--mono); }
+.sheet-body { padding: 8px 28px 48px; max-width: 1180px; margin: 0 auto; }
+
+.sheet-row {
+  display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 30px; padding: 26px 0; border-bottom: 1px solid var(--line);
+}
+.sheet-row:last-child { border-bottom: 0; }
+.sheet-vis { min-width: 0; }
+.sheet-vis canvas {
+  display: block; width: 100%; aspect-ratio: 16 / 9;
+  background: var(--stage); border: 1px solid var(--line); border-radius: var(--r);
+}
+.seg-title, .sheet-vis .seg { margin-bottom: 10px; }
+.seg-title { font: 500 10.5px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+.sheet-vis .seg { display: inline-flex; }
+.cap { margin: 9px 0 0; font-size: 12.5px; color: var(--dim); line-height: 1.5; }
+
+.sheet-txt h3 { font: 600 18px var(--display); margin-bottom: 8px; }
+.sheet-txt p { margin: 0 0 12px; color: var(--muted); font-size: 13.5px; line-height: 1.6; }
+.sheet-txt .grp { padding: 6px 0 0; }
+
+@media (max-width: 900px) {
+  .sheet-row { grid-template-columns: minmax(0, 1fr); }
+  .tag { display: none; }
+}

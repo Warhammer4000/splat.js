@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Browser 3DGS — research prototype</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header>
+    <h1>Browser 3DGS</h1>
+    <span class="sub">multi-image &rarr; SfM &rarr; Gaussian Splat, fully in-browser (research prototype)</span>
+  </header>
+
+  <div class="layout">
+    <aside class="panel">
+      <section>
+        <h2>1 &middot; Input</h2>
+        <div id="dropzone">
+          drop overlapping photos here<br>
+          <label class="filebtn">or browse<input id="file-input" type="file" multiple accept="image/*"></label>
+        </div>
+        <div class="row">
+          <select id="dataset-select">
+            <option value="">load test scene &hellip;</option>
+            <option value="__demo">synthetic test scene (generated)</option>
+          </select>
+        </div>
+      </section>
+
+      <section>
+        <h2>2 &middot; Pipeline</h2>
+        <div class="col">
+          <button id="btn-sfm" disabled>Run SfM (cameras + points)</button>
+          <button id="btn-gtposes" disabled>Use ground-truth poses (COLMAP)</button>
+          <button id="btn-init" disabled>Init Gaussians + WebGPU</button>
+          <button id="btn-train" disabled>Start training</button>
+          <button id="btn-export" disabled>Export PLY</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Stats</h2>
+        <table class="stats">
+          <tr><td>images</td><td id="stat-images">0</td></tr>
+          <tr><td>cameras</td><td id="stat-cams">&ndash;</td></tr>
+          <tr><td>SfM points</td><td id="stat-points">&ndash;</td></tr>
+          <tr><td>Gaussians</td><td id="stat-gauss">&ndash;</td></tr>
+          <tr><td>iteration</td><td id="stat-iter">0</td></tr>
+          <tr><td>iters/s</td><td id="stat-ips">&ndash;</td></tr>
+          <tr><td>train PSNR</td><td id="stat-psnr">&ndash;</td></tr>
+        </table>
+      </section>
+
+      <section class="grow">
+        <h2>Log</h2>
+        <div id="log"></div>
+      </section>
+    </aside>
+
+    <main>
+      <section>
+        <h2>Images</h2>
+        <div id="thumbs"></div>
+      </section>
+
+      <section>
+        <h2>Training preview
+          <button id="btn-cam" class="mini" disabled>next camera</button>
+          <span class="sub" id="stat-prevcam"></span>
+        </h2>
+        <div class="preview-pair">
+          <figure><canvas id="preview-canvas" width="4" height="4"></canvas><figcaption>rendered</figcaption></figure>
+          <figure><canvas id="target-canvas" width="4" height="4"></canvas><figcaption>target</figcaption></figure>
+        </div>
+      </section>
+
+      <section>
+        <h2>Interactive view (trainer renderer, per-tile sorted)
+          <button id="btn-snap" class="mini">snap to preview camera</button>
+          <span class="sub">drag = orbit &middot; shift/right-drag = pan &middot; wheel = zoom</span>
+        </h2>
+        <canvas id="view-canvas" width="640" height="480"></canvas>
+      </section>
+
+      <section>
+        <h2>PlayCanvas view (sorted, standard 3DGS = what the PLY export looks like)
+          <button id="btn-pcsync" class="mini" disabled>sync from trainer</button>
+          <button id="btn-frustums" class="mini">hide cameras</button>
+        </h2>
+        <canvas id="pc-canvas" width="640" height="480"></canvas>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Splatlab v2 — tech demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700&family=Spline+Sans+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/v2.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">◐</span>
+    <span class="brand-name">Splatlab <em>/ tech demo</em></span>
+  </div>
+  <span class="tag">Gaussian splat training, in this browser tab</span>
+  <span class="grow"></span>
+  <label class="pick">Set <select id="scene-pick" class="sel"></select></label>
+  <button class="tbtn" id="btn-details" disabled>Details</button>
+</header>
+
+<main class="stage" id="stage" data-cursor="grab">
+  <canvas id="cv"></canvas>
+
+  <div class="hud" id="hud"></div>
+
+  <div class="controls" id="controls" hidden></div>
+
+  <div class="card-start" id="start" hidden>
+    <h1 id="start-title">—</h1>
+    <p id="start-sub">—</p>
+    <button class="btn btn-amber big" id="btn-go">Start training</button>
+    <p class="fine">Nothing is uploaded. <button class="linkish" id="btn-own">Use your own photos</button></p>
+  </div>
+</main>
+
+<div class="strip" id="strip"></div>
+<footer class="dock" id="dock"></footer>
+
+<section class="sheet" id="details" hidden>
+  <div class="sheet-head">
+    <div>
+      <h2>What just happened</h2>
+      <p id="d-sub">—</p>
+    </div>
+    <button class="tbtn" id="d-close">Close</button>
+  </div>
+  <div class="sheet-body">
+    <div class="sheet-row">
+      <div class="sheet-vis">
+        <div class="seg" id="d-seg"></div>
+        <canvas id="d-cv"></canvas>
+        <p class="cap" id="d-cap">—</p>
+      </div>
+      <div class="sheet-txt" id="d-txt"></div>
+    </div>
+    <div class="sheet-row">
+      <div class="sheet-vis">
+        <div class="seg-title">Score over the run</div>
+        <canvas id="d-chart"></canvas>
+        <p class="cap">Amber: the photos it trained on. Teal: one photo it never saw.</p>
+      </div>
+      <div class="sheet-txt" id="d-txt2"></div>
+    </div>
+  </div>
+</section>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
