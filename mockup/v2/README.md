@@ -82,10 +82,23 @@ it can be:
 The reveal controls only exist while the camera is on a frame, so there is never a
 control that does nothing.
 
-*Mockup detail:* at a frame the "render" is `develop.js`'s photo-derived field
-rather than the 3D cloud, because a sparse stand-in cloud would make the
-comparison meaningless. The two cross-fade. Wired to the real trainer there is
-nothing to cross-fade — it renders the actual model from any pose.
+*Mockup detail:* what the reveal uncovers should be — and in the wired-up version
+will be — the live render, because there is only ever one render. Here it is
+`develop.js`'s photo-derived field instead, because this mockup's "model" is a 26k
+sparse SfM cloud: revealing it next to a photograph reads as a broken
+reconstruction while the score bar claims 25 dB. Open **`?reveal=model`** to see
+the honest version — same code path, `base:false` passed to `Developer.render`,
+nothing underneath but the 3D view. That is the one line to delete when the real
+rasterizer is behind it.
+
+## Which way is up
+
+A COLMAP-style world has **+Y pointing down**, so a staged scene arrives on its
+head. `scene.js` asks the cameras — each one's world-space up is minus its second
+row — and if they disagree with the viewer it rotates the whole scene 180° about
+X. That is a real rotation, so nothing mirrors, and applying R·F to the poses
+leaves every projection identical: a frame still lines up with its photograph to
+the pixel. Procedurally posed scenes already agree and are left alone.
 
 ## Words
 

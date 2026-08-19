@@ -158,6 +158,25 @@ export async function loadScene(preset) {
     ({ xyz, rgb, poses } = simulate(preset));
   }
 
+  // Which way is up? A COLMAP-style world has +Y pointing DOWN, the viewer treats
+  // +Y as up, and the scene arrives on its head. The cameras know the answer: the
+  // world-space up of each one is minus its second row. If they disagree with the
+  // viewer, rotate the whole scene 180° about X — a real rotation, so nothing
+  // mirrors, and R·F applied to the poses leaves every projection untouched.
+  {
+    const placed = poses.filter(Boolean);
+    let upY = 0;
+    for (const p of placed) upY -= p.R[4];
+    if (placed.length && upY < 0) {
+      for (let i = 0; i < xyz.length; i += 3) { xyz[i + 1] = -xyz[i + 1]; xyz[i + 2] = -xyz[i + 2]; }
+      for (const p of placed) {
+        const R = p.R;
+        R[1] = -R[1]; R[4] = -R[4]; R[7] = -R[7];   // negate the y column
+        R[2] = -R[2]; R[5] = -R[5]; R[8] = -R[8];   // negate the z column
+      }
+    }
+  }
+
   // Extent comes from where the photographer stood, not from the point cloud:
   // outdoor sets carry background points hundreds of metres away that would
   // otherwise frame the whole view around empty sky.

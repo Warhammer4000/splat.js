@@ -266,7 +266,9 @@ export class GSTrainer {
       // risk is handled by anisoReg (ratio bound), not this absolute floor.
       // zero-width needle axes the optimizer happily saturated)
       Math.log(r * (this.opts.minScale ?? 1e-4)), Math.log(r * 0.05), 8.0, this.n * STRIDE,
-      this.opts.opacityReg ?? 0.05, 0, 0, 0,
+      // 0.01 (was 0.05): matches standard 3DGS-MCMC; the strong early-era pull
+      // kept splats semi-transparent and layered ("milky")
+      this.opts.opacityReg ?? 0.01, 0, 0, 0,
     ], 16);
     this.lastRefine = 0;
     this.rand = () => Math.random();

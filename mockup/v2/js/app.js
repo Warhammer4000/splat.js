@@ -13,6 +13,10 @@ import { drawMarks, drawMatches } from '../../js/marks.js';
 import { bmp, readyBmp } from '../../js/img.js';
 
 const $ = (id) => document.getElementById(id);
+
+// ?reveal=model — the slider reveals the live 3D render instead of the stand-in.
+// This is what the wired-up version does; here it shows the sparse mock cloud.
+const TRUE_RENDER = new URLSearchParams(location.search).get('reveal') === 'model';
 const fmt = (n) => Math.round(n).toLocaleString('en-US');
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -626,8 +630,9 @@ function draw() {
   vp.draw({
     mode: 'blobs', progress: prog,
     cams: S.scene.cams,
-    showCams: S.state === 'train' && !onFrame,
+    showCams: S.state === 'train' || onFrame,
     showPath: S.state === 'train' && !onFrame,
+    faint: onFrame, skip: S.atFrame,
     active: S.training ? S.active : -1, sel: S.sel,
     dimOthers: S.training,
   });
@@ -638,7 +643,8 @@ function draw() {
     ctx.scale(dpr, dpr);
     ctx.globalAlpha = S.fade;
     S.rect = dev.render(ctx, w / dpr, h / dpr, {
-      progress: prog, mode: S.compare, loupe: S.loupe, swipe: S.swipe, clear: false,
+      progress: prog, mode: S.compare, loupe: S.loupe, swipe: S.swipe,
+      clear: false, base: !TRUE_RENDER,
     });
     ctx.restore();
   }

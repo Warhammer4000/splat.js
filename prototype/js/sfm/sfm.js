@@ -334,7 +334,7 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
         // to 8.5% ATE; firstOctave 0 + 1800 feats = 0.04% on truck AND train
         wk.postMessage({
           id, gray: images[id].gray, w: images[id].fw, h: images[id].fh,
-          maxFeats: opts.siftFeats || 1800, firstOctave: opts.siftFirstOctave ?? 0,
+          maxFeats: opts.siftFeats || 2000, firstOctave: opts.siftFirstOctave ?? 0,
         });
       };
       workers.forEach(feed);
@@ -356,7 +356,7 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
       // features:'sift' = real scale-space SIFT (COLMAP-grade, validated at
       // 82.5% keypoint recall vs COLMAP's own extraction; slower).
       const f = useSift
-        ? detectSift(images[i].gray, images[i].fw, images[i].fh, opts.siftFeats || 1800, opts.siftFirstOctave ?? 0)
+        ? detectSift(images[i].gray, images[i].fw, images[i].fh, opts.siftFeats || 2000, opts.siftFirstOctave ?? 0)
         : opts.msFeatures
           ? detectAndDescribeMS(images[i].gray, images[i].fw, images[i].fh, 1500)
           : detectAndDescribe(images[i].gray, images[i].fw, images[i].fh, 1500);

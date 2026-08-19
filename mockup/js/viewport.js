@@ -1,10 +1,18 @@
-// viewport.js — the 3D stage. A small painter's-algorithm renderer on a 2D canvas:
-// enough to show a sparse cloud, a blob field that sharpens, and where every
-// photograph was taken. Real poses in, real projection out — so the locked view
-// lines up with the photograph it is being compared against.
+// viewport.js — the 3D stage, and the only renderer in the app.
+//
+// A painter's-algorithm splat renderer on a 2D canvas: project, bucket-sort by
+// depth, composite soft sprites back to front. It draws the same picture whether
+// the camera sits on a photograph's pose or floats free, which is what lets a
+// photograph be laid over it and wiped away again.
+//
+// Quality is a function of training progress, the way the real model's is:
+// capacity grows, positions settle, colours resolve, splats shrink and firm up.
 
 const SPRITE = 34;
-const LEVELS = 5;               // per channel -> 125 pre-tinted blob sprites
+const LEVELS = 5;               // per channel -> 125 pre-tinted sprites
+
+const DRAW_MOVING = 18000;      // while the camera moves, keep it interactive
+const DRAW_SETTLED = 46000;     // once it stops, one full-quality pass
 
 /** world position of a camera from its world-to-camera pose */
 const camCentre = ({ R, t }) => [
@@ -44,6 +52,7 @@ export class Viewport {
     this.enabled = true;
     this.freeF = null;            // focal carried over when leaving a frame pose
     this.onLeave = null;          // called when a drag pulls off a frame pose
+    this._cloud = document.createElement('canvas');
     this._bind();
   }
 
@@ -56,7 +65,7 @@ export class Viewport {
       // dragging off a frame is not a mode change, it is just movement
       if (this.lock) this.onLeave?.();
       drag = { x: e.clientX, y: e.clientY, pan: e.shiftKey || e.button === 2 || e.button === 1 };
-      cv.setPointerCapture(e.pointerId);
+      try { cv.setPointerCapture(e.pointerId); } catch { /* synthetic events have no capture */ }
     });
     cv.addEventListener('pointermove', (e) => {
       if (!drag) return;
@@ -70,7 +79,7 @@ export class Viewport {
         this.target[1] += dy * s;
       } else {
         this.yaw -= dx * 0.006;
-        this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch + dy * 0.005));
+        this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch - dy * 0.005));
       }
       this.dirty = true;
     });
@@ -98,7 +107,7 @@ export class Viewport {
   setScene(scene) {
     this.scene = scene;
     this.n = scene.xyz.length / 3;
-    this.order = null;
+    this._cloudKey = null;
     this.frameScene();
   }
 
@@ -106,21 +115,15 @@ export class Viewport {
     if (!this.scene) return;
     this.target = [...this.scene.center];
     this.dist = this.scene.radius * 2.5;
-    this.yaw = 0.7; this.pitch = 0.42;
+    this.yaw = 0.7; this.pitch = -0.32;   // a little above the scene, looking down
     this.dirty = true;
   }
 
   /** orbit around a training camera's position without snapping to its pose */
   syncTo(cam) {
-    const s = this.scene;
-    const R = cam.R, t = cam.t;
-    const C = [
-      -(R[0] * t[0] + R[3] * t[1] + R[6] * t[2]),
-      -(R[1] * t[0] + R[4] * t[1] + R[7] * t[2]),
-      -(R[2] * t[0] + R[5] * t[1] + R[8] * t[2]),
-    ];
-    const fwd = [R[6], R[7], R[8]];
-    const d = s.radius * 0.9;
+    const C = camCentre(cam);
+    const fwd = [cam.R[6], cam.R[7], cam.R[8]];
+    const d = this.scene.radius * 0.9;
     this.target = [C[0] + fwd[0] * d, C[1] + fwd[1] * d, C[2] + fwd[2] * d];
     this.dist = d;
     this.yaw = Math.atan2(-fwd[0], -fwd[2]);
@@ -164,7 +167,6 @@ export class Viewport {
       R: c.R, t: c.t, f: c.f * s,
       cx: this.w / 2 + (c.cx - c.w / 2) * s,
       cy: this.h / 2 + (c.cy - c.h / 2) * s,
-      letterbox: [c.w * s, c.h * s],
     };
   }
 
@@ -172,87 +174,160 @@ export class Viewport {
 
   /**
    * @param {object} o
-   *   mode      'points' | 'blobs'
-   *   progress  0..1 training progress (blob size / density / opacity)
+   *   mode      'points' (the sparse solve) | 'splats' (the model)
+   *   progress  0..1 training progress: capacity, sharpness, colour, opacity
    *   cams      camera list to draw (or null)
    *   reveal    draw only the first N cameras (registration animation)
    *   active    index of the camera being trained on right now
    *   sel       index of the selected camera
-   *   showCams  bool
-   *   showPath  bool
-   *   fade      0..1 global fade of the cloud
+   *   skip      index whose frustum to omit (the one being looked through)
+   *   faint     draw the frustums as context rather than as subject
    */
   draw(o = {}) {
     const { ctx, w, h } = this;
-    ctx.fillStyle = '#070909';
-    ctx.fillRect(0, 0, w, h);
-    if (!this.scene) return;
+    if (!this.scene) { ctx.fillStyle = '#070909'; ctx.fillRect(0, 0, w, h); return; }
 
     const P = this.viewPose();
-    const { R, t, f, cx, cy } = P;
-    const dpr = this.dpr || 1;
-
-    const { xyz, rgb } = this.scene;
-    const mode = o.mode || 'points';
-    const prog = o.progress ?? 0;
-
-    // how many points to draw, and how big
-    const budget = mode === 'blobs' ? 16000 : 22000;
-    const step = Math.max(1, Math.floor(this.n / budget));
-    const count = Math.floor(this.n / step);
-    if (!this.depth || this.depth.length !== count) {
-      this.depth = new Float32Array(count);
-      this.sx = new Float32Array(count);
-      this.sy = new Float32Array(count);
-      this.idx = new Uint32Array(count);
-    }
-    const { depth, sx, sy, idx } = this;
-
-    let vis = 0;
-    for (let k = 0; k < count; k++) {
-      const i = k * step, o3 = i * 3;
-      const X = xyz[o3], Y = xyz[o3 + 1], Z = xyz[o3 + 2];
-      const zc = R[6] * X + R[7] * Y + R[8] * Z + t[2];
-      if (zc <= 0.05) continue;
-      const xc = R[0] * X + R[1] * Y + R[2] * Z + t[0];
-      const yc = R[3] * X + R[4] * Y + R[5] * Z + t[1];
-      const px = f * xc / zc + cx, py = f * yc / zc + cy;
-      if (px < -60 || py < -60 || px > w + 60 || py > h + 60) continue;
-      idx[vis] = i; depth[vis] = zc; sx[vis] = px; sy[vis] = py; vis++;
-    }
-
-    if (mode === 'blobs') {
-      if (!this.sprites) this.sprites = buildSprites();
-      const ord = Array.from({ length: vis }, (_, i) => i).sort((a, b) => depth[b] - depth[a]);
-      // blobs start fat and translucent, end small and solid — the visual signature
-      // of a splat model resolving
-      // back-to-front alpha compositing, the same order a real splat renderer
-      // sorts in — additive blending would just blow out wherever blobs pile up
-      const rw = this.scene.radius * (0.016 * (1 - prog) + 0.008);
-      const a = 0.40 + 0.42 * prog;
-      for (let n = 0; n < vis; n++) {
-        const k = ord[n], i = idx[k];
-        const rpx = Math.max(1.6 * dpr, rw * f / depth[k]);
-        const c3 = i * 3;
-        const q = (Math.min(4, rgb[c3] * LEVELS >> 8) * LEVELS + Math.min(4, rgb[c3 + 1] * LEVELS >> 8)) * LEVELS
-                + Math.min(4, rgb[c3 + 2] * LEVELS >> 8);
-        ctx.globalAlpha = a * (o.fade ?? 1);
-        ctx.drawImage(this.sprites[q], sx[k] - rpx, sy[k] - rpx, rpx * 2, rpx * 2);
-      }
-      ctx.globalAlpha = 1;
-    } else {
-      const s = Math.max(1, 1.35 * dpr);
-      ctx.globalAlpha = (o.fade ?? 1) * 0.92;
-      for (let n = 0; n < vis; n++) {
-        const i = idx[n], c3 = i * 3;
-        ctx.fillStyle = `rgb(${rgb[c3]},${rgb[c3 + 1]},${rgb[c3 + 2]})`;
-        ctx.fillRect(sx[n] - s / 2, sy[n] - s / 2, s, s);
-      }
-      ctx.globalAlpha = 1;
-    }
+    if ((o.mode || 'points') === 'points') this._points(P);
+    else this._splats(P, o.progress ?? 0);
 
     if (o.showCams && o.cams) this._drawCams(o, P);
     this.dirty = false;
+  }
+
+  /** the sparse solve: one dot per triangulated landmark, no model yet */
+  _points(P) {
+    const { ctx, w, h } = this;
+    ctx.fillStyle = '#070909';
+    ctx.fillRect(0, 0, w, h);
+    const { xyz, rgb } = this.scene;
+    const { R, t, f, cx, cy } = P;
+    const s = Math.max(1, 1.35 * (this.dpr || 1));
+    const step = Math.max(1, Math.floor(this.n / 22000));
+    for (let i = 0; i < this.n; i += step) {
+      const o3 = i * 3;
+      const X = xyz[o3], Y = xyz[o3 + 1], Z = xyz[o3 + 2];
+      const zc = R[6] * X + R[7] * Y + R[8] * Z + t[2];
+      if (zc <= 0.05) continue;
+      const px = f * (R[0] * X + R[1] * Y + R[2] * Z + t[0]) / zc + cx;
+      const py = f * (R[3] * X + R[4] * Y + R[5] * Z + t[1]) / zc + cy;
+      if (px < 0 || py < 0 || px > w || py > h) continue;
+      ctx.fillStyle = `rgb(${rgb[o3]},${rgb[o3 + 1]},${rgb[o3 + 2]})`;
+      ctx.fillRect(px - s / 2, py - s / 2, s, s);
+    }
+  }
+
+  /**
+   * The model. Re-rasterised only when the camera or the training state moves,
+   * and at reduced capacity while the camera is actually moving — the same
+   * progressive trick every splat viewer uses.
+   */
+  _splats(P, prog) {
+    const key = this._key(P, prog);
+    const now = performance.now();
+    if (key !== this._lastKey) { this._lastKey = key; this._keyAt = now; this._hiDone = false; }
+    const settled = now - this._keyAt > 150;
+
+    if (key !== this._cloudKey || (settled && !this._hiDone)) {
+      this._raster(P, prog, settled ? DRAW_SETTLED : DRAW_MOVING);
+      this._cloudKey = key;
+      if (settled) this._hiDone = true;
+    }
+    this.ctx.drawImage(this._cloud, 0, 0);
+  }
+
+  _key(P, prog) {
+    const q = (v) => Math.round(v * 800);
+    return `${q(P.f)},${q(P.cx)},${q(P.cy)},${P.R.map(q)},${P.t.map(q)}` +
+           `|${Math.round(prog * 90)}|${this.w}x${this.h}`;
+  }
+
+  _raster(P, prog, budget) {
+    if (!this.sprites) this.sprites = buildSprites();
+    const w = this.w, h = this.h;
+    if (this._cloud.width !== w || this._cloud.height !== h) {
+      this._cloud.width = w; this._cloud.height = h;
+    }
+    const ctx = this._cloud.getContext('2d');
+    ctx.fillStyle = '#070909';
+    ctx.fillRect(0, 0, w, h);
+
+    const S = this.scene;
+    const xyz = S.sxyz, rgb = S.srgb, jit = S.sjit, N = S.sn;
+    const { R, t, f, cx, cy } = P;
+
+    // capacity grows the way the optimiser grows it; what gets drawn is a stride
+    // through the set, so growth reads as the scene filling in
+    const grown = 0.28 + 0.72 * Math.min(1, prog / .62);
+    const step = Math.max(1, Math.ceil(N / Math.min(N * grown, budget)));
+    const count = Math.ceil(N / step);
+
+    if (!this._depth || this._depth.length < count) {
+      this._depth = new Float32Array(count);
+      this._sx = new Float32Array(count);
+      this._sy = new Float32Array(count);
+      this._sr = new Float32Array(count);
+      this._sq = new Uint16Array(count);
+      this._bucket = new Uint16Array(count);
+      this._order = new Uint32Array(count);
+    }
+    const depth = this._depth, sx = this._sx, sy = this._sy, sr = this._sr, sq = this._sq;
+
+    // early: fat, translucent, mislocated, washed out. late: small, firm, exact.
+    const wobble = S.radius * .05 * (1 - prog) * (1 - prog);
+    const rw = S.radius * (0.016 * (1 - prog) + 0.0075);
+    const alpha = 0.34 + 0.5 * prog;
+    const wash = (1 - prog) * 0.7;               // colour has not resolved yet
+    const cull = prog > .45;                     // dead splats get recycled away
+    const minR = 1.1 * (this.dpr || 1);
+    const L = LEVELS - 1;
+
+    let vis = 0, zmin = 1e30, zmax = -1e30;
+    for (let i = 0; i < N; i += step) {
+      const o3 = i * 3;
+      const jx = jit[o3], jy = jit[o3 + 1], jz = jit[o3 + 2];
+      if (cull && jx * jx + jy * jy + jz * jz > 2.2) continue;   // a floater, relocated
+      const X = xyz[o3] + jx * wobble, Y = xyz[o3 + 1] + jy * wobble, Z = xyz[o3 + 2] + jz * wobble;
+      const zc = R[6] * X + R[7] * Y + R[8] * Z + t[2];
+      if (zc <= 0.05) continue;
+      const px = f * (R[0] * X + R[1] * Y + R[2] * Z + t[0]) / zc + cx;
+      const py = f * (R[3] * X + R[4] * Y + R[5] * Z + t[1]) / zc + cy;
+      const rad = Math.max(minR, rw * f / zc);
+      if (px < -rad || py < -rad || px > w + rad || py > h + rad) continue;
+
+      const r0 = rgb[o3], g0 = rgb[o3 + 1], b0 = rgb[o3 + 2];
+      const lum = (r0 * 77 + g0 * 150 + b0 * 29) >> 8;
+      const cr = r0 + (lum - r0) * wash, cg = g0 + (lum - g0) * wash, cb = b0 + (lum - b0) * wash;
+      sq[vis] = (Math.min(L, cr * LEVELS >> 8) * LEVELS + Math.min(L, cg * LEVELS >> 8)) * LEVELS
+              + Math.min(L, cb * LEVELS >> 8);
+      depth[vis] = zc; sx[vis] = px; sy[vis] = py; sr[vis] = rad;
+      if (zc < zmin) zmin = zc;
+      if (zc > zmax) zmax = zc;
+      vis++;
+    }
+    if (!vis) return;
+
+    // bucket sort, back to front — a comparison sort of 40k entries would cost
+    // more than the rasterisation itself
+    const NB = 1024;
+    if (!this._cnt) this._cnt = new Uint32Array(NB + 1);
+    const cnt = this._cnt, bucket = this._bucket, order = this._order;
+    cnt.fill(0);
+    const span = Math.max(1e-6, zmax - zmin);
+    for (let k = 0; k < vis; k++) {
+      const b = NB - 1 - Math.min(NB - 1, ((depth[k] - zmin) / span * (NB - 1)) | 0);
+      bucket[k] = b; cnt[b + 1]++;
+    }
+    for (let b = 0; b < NB; b++) cnt[b + 1] += cnt[b];
+    for (let k = 0; k < vis; k++) order[cnt[bucket[k]]++] = k;
+
+    const sp = this.sprites;
+    ctx.globalAlpha = alpha;
+    for (let n = 0; n < vis; n++) {
+      const k = order[n], rad = sr[k];
+      ctx.drawImage(sp[sq[k]], sx[k] - rad, sy[k] - rad, rad * 2, rad * 2);
+    }
+    ctx.globalAlpha = 1;
   }
 
   _project(P, X, Y, Z) {
@@ -267,6 +342,8 @@ export class Viewport {
 
   _drawCams(o, P) {
     const ctx = this.ctx, dpr = this.dpr || 1;
+    // faint: these are context, not subject
+    if (o.faint) ctx.globalAlpha = 0.4;
     const s = this.scene.radius * 0.075;
     const list = o.cams;
     const upto = o.reveal ?? list.length;
@@ -278,17 +355,12 @@ export class Viewport {
 
     for (let i = 0; i < list.length && i < upto; i++) {
       const c = list[i];
-      if (!c.R || c.state === 'unplaced') continue;
+      if (!c.R || c.state === 'unplaced' || i === o.skip) continue;
       const keep = i % stride === 0 || i === o.active || i === o.sel || c.state === 'holdout';
       if (!keep) { const p = this._project(P, ...camCentre(c)); if (p) path.push(p); continue; }
-      if (this.lock && i === o.active && o.hideActive) continue;
 
-      const R = c.R, t = c.t;
-      const C = [
-        -(R[0] * t[0] + R[3] * t[1] + R[6] * t[2]),
-        -(R[1] * t[0] + R[4] * t[1] + R[7] * t[2]),
-        -(R[2] * t[0] + R[5] * t[1] + R[8] * t[2]),
-      ];
+      const R = c.R;
+      const C = camCentre(c);
       const pc = this._project(P, C[0], C[1], C[2]);
       if (pc) path.push(pc);
 
@@ -334,5 +406,6 @@ export class Viewport {
       ctx.stroke();
       ctx.setLineDash([]);
     }
+    ctx.globalAlpha = 1;
   }
 }

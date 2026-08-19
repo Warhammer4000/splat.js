@@ -161,7 +161,9 @@ export class Developer {
 
     if (o.mode === 'photo') { drawPhoto(); return r; }
     if (o.mode === 'error') { drawErr(); return r; }
-    drawDev();
+    // base:false leaves whatever is already on the canvas as the render layer —
+    // which is what the real trainer does: there is only ever one render
+    if (o.base !== false) drawDev();
     if (o.mode === 'render') return r;
 
     // From here on the photograph is the top layer and the render is underneath.
