@@ -400,6 +400,7 @@ function onMetrics(m) {
     if (el) {
       el.textContent = fmt(S.iter);
       $('t-splats').textContent = fmt(S.splats);
+      $('t-ips').textContent = fmt(S.itersPerSec);
       $('t-ptrain').textContent = S.psnrTrain != null ? S.psnrTrain.toFixed(2) : '—';
       $('t-phold').textContent = S.psnrHold != null ? S.psnrHold.toFixed(2) : '—';
     }
@@ -678,7 +679,7 @@ function dock(kind) {
         <button class="play" id="t-play" data-state="pause">❚❚</button>
         <div class="tmeta">
           <span class="tmeta-1" id="t-iter">0</span>
-          <span class="tmeta-2">of ${fmt(MAX_ITERS)} cycles · <span id="t-splats">—</span> splats</span>
+          <span class="tmeta-2">of ${fmt(MAX_ITERS)} cycles · <span id="t-splats">—</span> splats · <span id="t-ips">—</span>/s</span>
         </div>
       </div>
       <div class="chartwrap"><canvas id="chart"></canvas><div class="chart-tip" id="chart-tip" hidden></div></div>
