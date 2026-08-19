@@ -15,3 +15,9 @@ prototype_backup_isotropic/
 tmp/
 dist/
 mockup/
+REFACTOR.md
+browser_gs.txt
+examples/
+scripts/
+data/*
+!data/synthetic

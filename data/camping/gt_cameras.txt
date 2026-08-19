@@ -1,2 +1,0 @@
-# Camera list: CAMERA_ID, MODEL, WIDTH, HEIGHT, PARAMS[] (f is NOMINAL — source file had no intrinsics)
-1 PINHOLE 960 540 705 705 480 270

@@ -18,14 +18,18 @@ pipeline is vanilla ES modules on WebGPU, running in a tab.
 
 ## Try it
 
+Live: **https://nightly.arrival.space/splatjs/index.html**
+
+Or locally:
+
 ```
 node serve.mjs 8734
-# the app:          http://localhost:8734/app/
-# the dev harness:  http://localhost:8734/examples/dev/
+# http://localhost:8734/app/
 ```
 
 Needs a browser with WebGPU (current Chrome or Edge). Drop 20–200 overlapping
-photos of one place into the app, or start from a bundled test set.
+photos of one place into the app, or start from a test set (a clone bundles the
+synthetic set; the photo sets are served on the hosted demo).
 
 ## Use the library
 
@@ -90,12 +94,14 @@ src/          the library — no UI, no globals
   gs/         WebGPU trainer, WGSL shaders, gradcheck harness
   gpu/        one shared device
   io/         frame decoding, PLY export
-app/          the Splat.js demo UI (a layer-2 consumer)
-examples/dev/ the research harness (a layer-1 consumer; PlayCanvas verification viewer)
+app/          the Splat.js app (a Session consumer — the UI never touches internals)
 tests/unit/   node tests for the maths (geometry, BA, rotation averaging, SIFT)
 tests/quality/ end-to-end accuracy gates in headless Chrome
-data/         test datasets + ground truth (not all tracked; see data/index.json)
+data/synthetic/ the bundled test set (known ground-truth cameras)
 ```
+
+The Tanks & Temples / video datasets behind the other quality gates are not
+tracked; the gates skip automatically when they are absent.
 
 ## License
 
