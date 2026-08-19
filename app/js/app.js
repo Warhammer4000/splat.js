@@ -81,7 +81,7 @@ function boot() {
   $('d-close').addEventListener('click', () => { $('details').hidden = true; });
 
   addEventListener('resize', () => { vp.resize(); chart?.resize(); dchart?.resize(); dvp?.resize(); });
-  const WASD = ['KeyW', 'KeyA', 'KeyS', 'KeyD'];
+  const WASD = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'ShiftLeft', 'ShiftRight'];
   addEventListener('keydown', (e) => {
     if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
     if (!$('about').hidden) { if (e.key === 'Escape') $('about').hidden = true; return; }
@@ -790,14 +790,18 @@ function flyStep(dt) {
   if (S.state !== 'train' && S.state !== 'done') return;
   if (S.picking || !$('details').hidden) return;
   if (S.atFrame >= 0) leaveFrame();   // like a drag, movement leaves the photo
-  const { fwd, right } = vp._basis();
-  const sp = S.scene.radius * 0.7 * dt;
-  const move = (v, f) => { for (let i = 0; i < 3; i++) vp.target[i] += v[i] * f; };
+  const { fwd, right, down } = vp._basis();
+  const boost = (S.keys.has('ShiftLeft') || S.keys.has('ShiftRight')) ? 3 : 1;
+  const sp = S.scene.radius * 0.7 * dt * boost;
+  let any = false;
+  const move = (v, f) => { for (let i = 0; i < 3; i++) vp.target[i] += v[i] * f; any = true; };
   if (S.keys.has('KeyW')) move(fwd, sp);
   if (S.keys.has('KeyS')) move(fwd, -sp);
   if (S.keys.has('KeyA')) move(right, -sp);
   if (S.keys.has('KeyD')) move(right, sp);
-  vp.dirty = true;
+  if (S.keys.has('KeyE')) move(down, -sp);   // up
+  if (S.keys.has('KeyQ')) move(down, sp);    // down
+  if (any) vp.dirty = true;
 }
 
 function loop() {
