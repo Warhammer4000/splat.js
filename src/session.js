@@ -299,10 +299,13 @@ export class Session {
     }
 
     if (this.training) {
-      // batch enough iterations per frame to keep the GPU busy (raw kernel
-      // throughput is ~2x what small batches achieve); the UI stays smooth
-      // because each frame awaits the queue anyway
-      const batch = this.opts.itersPerFrame ?? 15;
+      // Batch enough iterations per frame to keep the GPU busy. The batch
+      // adapts to the device: ~120ms of GPU work per frame keeps a desktop
+      // GPU saturated with few submits AND keeps metrics/UI alive on a phone
+      // where the same 15 iterations could take seconds.
+      const batch = this.opts.itersPerFrame ??
+        Math.max(4, Math.min(64, Math.round(this._batch ?? 15)));
+      const t0 = performance.now();
       for (let k = 0; k < batch; k++) trainer.stepOnce();
 
       // periodic refinement: relocate dead splats + grow capacity (MCMC-lite)
@@ -318,11 +321,25 @@ export class Session {
 
       const now = performance.now();
       if (now - this._lastStats > 2000) await this._emitMetrics();
+
+      // Pipelined completion: await the PREVIOUS batch's fence, not this
+      // one's — the GPU always has a queued batch and never idles on the
+      // fence round-trip (Safari's completion latency is large; awaiting the
+      // current batch left its GPU idle between frames).
+      this.view._tick(this._frameCount, this.training);
+      const fence = trainer.device.queue.onSubmittedWorkDone();
+      if (this._prevFence) await this._prevFence;
+      this._prevFence = fence;
+      // adapt the batch to the measured cadence (steady-state ~= GPU time of
+      // one batch); damped so it settles instead of oscillating
+      const dt = Math.max(5, performance.now() - t0);
+      const ideal = batch * (120 / dt);
+      this._batch = Math.max(4, Math.min(64, (this._batch ?? 15) * 0.7 + ideal * 0.3));
+    } else {
+      this.view._tick(this._frameCount, this.training);
+      await trainer.device.queue.onSubmittedWorkDone();
+      this._prevFence = null;
     }
-
-    this.view._tick(this._frameCount, this.training);
-
-    await trainer.device.queue.onSubmittedWorkDone();
     if (this.training || this.view._dirty) this._scheduleFrame();
   }
 
@@ -451,7 +468,13 @@ class SessionView {
 
   _tick(frameCount, training) {
     if (!this.ctx || !this.camera) return;
-    if (this._dirty || (training && frameCount % 6 === 0)) this.renderNow();
+    if (this._dirty) { this.renderNow(); return; }
+    // during training, refresh the (unchanged-camera) view at most ~2.5x/s —
+    // every extra render is a full raster pass stolen from the optimiser
+    if (training && performance.now() - (this._lastAuto || 0) > 400) {
+      this._lastAuto = performance.now();
+      this.renderNow();
+    }
   }
 }
 

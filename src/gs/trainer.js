@@ -94,11 +94,15 @@ export class GSTrainer {
     this.cams = cams;
     this.sceneRadius = sceneRadius;
 
-    let total = 0;
+    // Targets are packed RGBA8 (one u32 per pixel; alpha 0 marks pixels the
+    // undistortion resampled out of frame). The source photographs are 8-bit,
+    // so this is lossless vs f32 — and 4x less GPU memory and loss-read
+    // bandwidth, which is what lets full sets fit on phones.
+    let total = 0; // in PIXELS
     this.camMeta = cams.map((c) => {
       const im = images[c.imgIdx];
       const meta = { ...c, w: im.tw, h: im.th, offset: total };
-      total += im.tw * im.th * 3;
+      total += im.tw * im.th;
       return meta;
     });
     const limit = this.device.limits.maxStorageBufferBindingSize;
@@ -106,9 +110,18 @@ export class GSTrainer {
       throw new Error(`training targets (${(total * 4 / 1e6).toFixed(0)}MB) exceed the device ` +
         `binding limit (${(limit / 1e6).toFixed(0)}MB) — reduce image count or resolution`);
     }
-    const targetData = new Float32Array(total);
+    const targetData = new Uint32Array(total);
     for (const meta of this.camMeta) {
-      targetData.set(images[meta.imgIdx].rgb, meta.offset);
+      const rgb = images[meta.imgIdx].rgb;
+      const np = meta.w * meta.h;
+      for (let p = 0; p < np; p++) {
+        const r = rgb[p * 3];
+        if (r < 0) { targetData[meta.offset + p] = 0; continue; } // invalid sentinel
+        targetData[meta.offset + p] = (255 << 24)
+          | (Math.min(255, Math.round(rgb[p * 3 + 2] * 255)) << 16)
+          | (Math.min(255, Math.round(rgb[p * 3 + 1] * 255)) << 8)
+          | Math.min(255, Math.round(r * 255));
+      }
     }
 
     const maxPix = Math.max(maxViewW * maxViewH,

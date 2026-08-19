@@ -787,17 +787,25 @@ function draw() {
   const onFrame = S.atFrame >= 0;
   const pose = vp.viewPose();
   if (gpuCanvas && S.session && S.session.trainer) {
-    const sc = Math.min(1, 2560 / w, 1440 / h);
-    const gw = Math.max(2, Math.round(w * sc)), gh = Math.max(2, Math.round(h * sc));
-    if (gpuCanvas.width !== gw || gpuCanvas.height !== gh) {
-      gpuCanvas.width = gw; gpuCanvas.height = gh;
-      S.session.view.attach(gpuCanvas);
+    // while training, every view render is a full raster pass stolen from
+    // the optimiser — cap it (except when the camera is actually moving)
+    const now = performance.now();
+    const throttled = S.state === 'train' && S.session.training && !vp.dirty
+      && now - (S._lastViewAt || 0) < 400;
+    if (!throttled) {
+      S._lastViewAt = now;
+      const sc = Math.min(1, 2560 / w, 1440 / h);
+      const gw = Math.max(2, Math.round(w * sc)), gh = Math.max(2, Math.round(h * sc));
+      if (gpuCanvas.width !== gw || gpuCanvas.height !== gh) {
+        gpuCanvas.width = gw; gpuCanvas.height = gh;
+        S.session.view.attach(gpuCanvas);
+      }
+      S.session.view.setCamera({
+        R: pose.R, t: pose.t,
+        f: pose.f * sc, cx: pose.cx * sc, cy: pose.cy * sc, w: gw, h: gh,
+      });
+      S.session.view.renderNow();
     }
-    S.session.view.setCamera({
-      R: pose.R, t: pose.t,
-      f: pose.f * sc, cx: pose.cx * sc, cy: pose.cy * sc, w: gw, h: gh,
-    });
-    S.session.view.renderNow();
   }
 
   vp.draw({

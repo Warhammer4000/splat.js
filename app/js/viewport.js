@@ -240,8 +240,10 @@ export class Viewport {
       if (isActive) { col = 'rgba(47,212,193,1)'; lw = 1.8 * dpr; }
       if (!isActive && !isSel && o.dimOthers) col = 'rgba(147,161,160,.2)';
 
-      const k = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([ax, ay]) => {
-        const dx = (ax * c.w / 2 - c.cx) / c.f * s, dy = (ay * c.h / 2 - c.cy) / c.f * s, dz = s;
+      // image corners are at pixel (0|w, 0|h); camera-space direction is
+      // (px - cx)/f — works for any principal point, not just centred ones
+      const k = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([ax, ay]) => {
+        const dx = (ax * c.w - c.cx) / c.f * s, dy = (ay * c.h - c.cy) / c.f * s, dz = s;
         return this._project(P,
           C[0] + R[0] * dx + R[3] * dy + R[6] * dz,
           C[1] + R[1] * dx + R[4] * dy + R[7] * dz,

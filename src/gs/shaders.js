@@ -504,7 +504,7 @@ export const makeRenderSrc = (E = DEFAULT_E_CUT, A = DEFAULT_A_MIN) =>
 @group(0) @binding(1) var<storage, read> proj: array<f32>;
 @group(0) @binding(2) var<storage, read> tileStart: array<u32>;
 @group(0) @binding(3) var<storage, read> entries: array<u32>;
-@group(0) @binding(4) var<storage, read> tgtImg: array<f32>;
+@group(0) @binding(4) var<storage, read> tgtImg: array<u32>; // packed RGBA8, alpha 0 = invalid
 @group(0) @binding(5) var<storage, read_write> outImg: array<f32>;
 @group(0) @binding(6) var<storage, read_write> gradP: array<atomic<i32>>;
 @group(0) @binding(7) var<storage, read_write> stats: array<atomic<u32>>;
@@ -560,9 +560,10 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
   if (cam.misc2.x < 0.5) { return; }
 
   // ---- loss ----
-  let off = bitcast<u32>(cam.misc.w); // raw u32 offset (f32 exact only to 2^24)
-  let tcol = vec3f(tgtImg[off + pi * 3u], tgtImg[off + pi * 3u + 1u], tgtImg[off + pi * 3u + 2u]);
-  if (tcol.r < 0.0) { return; } // invalid pixel (undistortion out-of-frame sentinel)
+  let off = bitcast<u32>(cam.misc.w); // raw u32 PIXEL offset (f32 exact only to 2^24)
+  let packed = tgtImg[off + pi];
+  if ((packed >> 24u) == 0u) { return; } // invalid pixel (undistortion out-of-frame sentinel)
+  let tcol = unpack4x8unorm(packed).rgb;
   atomicAdd(&stats[2], 1u); // valid-pixel count (PSNR denominator)
   // per-image exposure compensation (gain = cam.proj.w, bias = cam.misc2.w)
   let gain = cam.proj.w;
