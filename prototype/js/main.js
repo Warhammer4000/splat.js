@@ -265,7 +265,7 @@ $('btn-init').addEventListener('click', async () => {
     // init target (grows further during training via MCMC-lite refinement);
     // moderate default — capacity A/B on synthetic showed 163k splats cost
     // 1.9dB holdout vs 50k while gaining only 0.8dB train
-    const target = (window.__trainerOpts && window.__trainerOpts.initTarget) || 30000;
+    const target = (window.__trainerOpts && window.__trainerOpts.initTarget) || 60000;
     const clones = Math.min(24, Math.max(2, Math.round(target / state.sfm.points.length) - 1));
     state.gaussians = initGaussians(state.sfm.points, clones);
     log(`initialized ${state.gaussians.n} Gaussians ` +

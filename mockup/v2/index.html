@@ -18,7 +18,8 @@
   </div>
   <span class="tag">Gaussian splat training, in this browser tab</span>
   <span class="grow"></span>
-  <label class="pick">Set <select id="scene-pick" class="sel"></select></label>
+  <span class="set-name" id="set-name" hidden></span>
+  <button class="tbtn" id="btn-new" hidden>Another set</button>
   <button class="tbtn" id="btn-details" disabled>Details</button>
 </header>
 
@@ -30,10 +31,15 @@
   <div class="controls" id="controls" hidden></div>
 
   <div class="card-start" id="start" hidden>
+    <div class="setpick" id="setpick"></div>
+    <p class="eyebrow" id="start-kind">—</p>
     <h1 id="start-title">—</h1>
-    <p id="start-sub">—</p>
+    <p class="origin" id="start-origin">—</p>
+    <p class="srclinks" id="start-links"></p>
+    <p class="runs">Landmarks, camera solve and splat training all run here, in this tab.
+      No upload, no download, no server.</p>
     <button class="btn btn-amber big" id="btn-go">Start training</button>
-    <p class="fine">Nothing is uploaded. <button class="linkish" id="btn-own">Use your own photos</button></p>
+    <p class="fine"><button class="linkish" id="btn-own">Or use your own photos</button></p>
   </div>
 </main>
 

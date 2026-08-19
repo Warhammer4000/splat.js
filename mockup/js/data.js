@@ -5,6 +5,12 @@
 export const PRESETS = [
   {
     id: 'truck', name: 'Truck', where: 'Tanks & Temples',
+    kind: 'Standard test set',
+    origin: '42 photos of the Truck sequence from the Tanks & Temples reconstruction benchmark.',
+    links: [
+      { label: 'Tanks & Temples', url: 'https://www.tanksandtemples.org/' },
+      { label: 'image set', url: 'https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/' },
+    ],
     dir: 'truck', pattern: '{i:6}.jpg', start: 1, count: 42,
     mockPoses: 'file',                    // MOCKUP ONLY: real poses+cloud on disk drive the visuals
     capture: 'orbit',
@@ -18,6 +24,12 @@ export const PRESETS = [
   },
   {
     id: 'train', name: 'Train', where: 'Tanks & Temples',
+    kind: 'Standard test set',
+    origin: '84 photos of the Train sequence from the Tanks & Temples reconstruction benchmark.',
+    links: [
+      { label: 'Tanks & Temples', url: 'https://www.tanksandtemples.org/' },
+      { label: 'image set', url: 'https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/' },
+    ],
     dir: 'train', pattern: '{i:5}.jpg', start: 1, count: 84,
     mockPoses: 'file',
     capture: 'orbit',
@@ -31,6 +43,9 @@ export const PRESETS = [
   },
   {
     id: 'camping', name: 'Camping', where: 'Handheld video',
+    kind: 'Handheld phone video',
+    origin: '113 frames pulled from a phone video. Not a benchmark — an ordinary capture, with everything that goes wrong in one.',
+    links: [],
     dir: 'camping', pattern: 'frame_{i:5}.jpg', start: 1, count: 113,
     mockPoses: 'sim', simPath: 'walk',
     capture: 'walk',
@@ -44,6 +59,9 @@ export const PRESETS = [
   },
   {
     id: 'synthetic', name: 'Room corner', where: 'Rendered',
+    kind: 'Generated on this page',
+    origin: '12 views rendered here on the fly, with exact camera positions. The clean case, for comparison.',
+    links: [],
     dir: 'synthetic', pattern: 'synthetic_{i:2}.png', start: 0, count: 12,
     mockPoses: 'sim', simPath: 'arc',
     capture: 'orbit',
@@ -57,6 +75,9 @@ export const PRESETS = [
   },
   {
     id: 'bicycle', name: 'Bicycle', where: 'Mip-NeRF 360',
+    kind: 'Standard test set',
+    origin: '42 photos of the Bicycle scene from the Mip-NeRF 360 dataset.',
+    links: [{ label: 'Mip-NeRF 360', url: 'https://jonbarron.info/mipnerf360/' }],
     dir: 'bicycle', files: 'files.json', count: 42,
     mockPoses: 'sim', simPath: 'sphere',
     capture: 'orbit',

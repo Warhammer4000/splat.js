@@ -57,7 +57,10 @@ export class GSTrainer {
     });
     this.pipeChain = d.createComputePipeline({
       label: 'chain', layout: 'auto',
-      compute: { module: mk(makeChainSrc(this.opts.anisoReg), 'chain'), entryPoint: 'main' },
+      // anisoReg default 0.005 (was 0.02): with SIFT-grade poses the needle
+      // pathology is gone (camping p99 ratio 42:1) and the stronger pull
+      // toward isotropy measurably blurs edges (-0.8dB holdout on train-84)
+      compute: { module: mk(makeChainSrc(this.opts.anisoReg ?? 0.005), 'chain'), entryPoint: 'main' },
     });
     this.pipeAdam = d.createComputePipeline({
       label: 'adam', layout: 'auto',
@@ -84,7 +87,7 @@ export class GSTrainer {
     // count (MCMC-style) without reallocating
     this.cap = Math.min(
       Math.max(Math.floor(gaussians.n * (this.opts.capMult ?? 4)), gaussians.n),
-      this.opts.maxSplats ?? 250000);
+      this.opts.maxSplats ?? 600000);
     this.cams = cams;
     this.sceneRadius = sceneRadius;
 
@@ -256,9 +259,13 @@ export class GSTrainer {
     this.adamData.set(lrs, 0);
     this.adamData.set([
       0.9, 0.999, 1e-15, 1,                          // beta1, beta2, eps, t
-      // min scale 1e-3*r (1e-4*r projected to ~0.05px, i.e. effectively
+      // min scale default 1e-4*r: the old 1e-3*r floor is a WORLD-space size
+      // and projects inversely with depth — close surfaces hit a 2-5px floor
+      // ("inverted depth of field", user-diagnosed) while far ones stay
+      // sub-pixel. Dropping it: truck +2.9dB train / +1.6dB holdout. Needle
+      // risk is handled by anisoReg (ratio bound), not this absolute floor.
       // zero-width needle axes the optimizer happily saturated)
-      Math.log(r * (this.opts.minScale ?? 1e-3)), Math.log(r * 0.05), 8.0, this.n * STRIDE,
+      Math.log(r * (this.opts.minScale ?? 1e-4)), Math.log(r * 0.05), 8.0, this.n * STRIDE,
       this.opts.opacityReg ?? 0.05, 0, 0, 0,
     ], 16);
     this.lastRefine = 0;
@@ -586,27 +593,56 @@ export class GSTrainer {
       const u = Math.max(1e-9, rng()), w = rng();
       return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * w);
     };
-    const spawnAt = (bi) => {
-      const don = donors[(rng() * donors.length) | 0];
+    // Blur is carried by LARGE well-supported splats (typically background —
+    // SfM points cluster on foreground, and uniform cloning compounds that
+    // imbalance: measured 5x capacity = +0.4dB only). Growth therefore
+    // prefers SPLITTING the biggest donors, classic-3DGS style: both halves
+    // shrink /1.6 so the footprint is conserved and each half can sharpen.
+    const meanLogScale = (i) =>
+      (params[i * STRIDE + 3] + params[i * STRIDE + 4] + params[i * STRIDE + 5]) / 3;
+    const bigDonors = [...donors]
+      .sort((a, b) => meanLogScale(b) - meanLogScale(a))
+      .slice(0, Math.max(16, donors.length >> 2));
+    const spawnAt = (bi, allowSplit) => {
+      const doSplit = allowSplit && bigDonors.length > 16 && rng() < 0.7;
+      let don;
+      if (doSplit) {
+        const di = (rng() * bigDonors.length) | 0;
+        don = bigDonors[di];
+        bigDonors[di] = bigDonors[bigDonors.length - 1];
+        bigDonors.pop(); // a splat splits at most once per refine call
+      } else {
+        don = donors[(rng() * donors.length) | 0];
+      }
       const bd = don * STRIDE;
-      const s = Math.exp((params[bd + 3] + params[bd + 4] + params[bd + 5]) / 3);
+      const s = Math.exp(meanLogScale(don));
       params[bi] = params[bd] + gauss() * s * 0.7;
       params[bi + 1] = params[bd + 1] + gauss() * s * 0.7;
       params[bi + 2] = params[bd + 2] + gauss() * s * 0.7;
       for (let k = 3; k <= 12; k++) params[bi + k] = params[bd + k];
-      params[bi + 3] += Math.log(0.85);
-      params[bi + 4] += Math.log(0.85);
-      params[bi + 5] += Math.log(0.85);
-      params[bi + 13] = Math.log(0.25 / 0.75);
+      if (doSplit) {
+        const shrink = Math.log(1 / 1.6);
+        for (let k = 3; k <= 5; k++) { params[bi + k] += shrink; params[bd + k] += shrink; }
+        params[bi + 13] = params[bd + 13]; // split keeps the donor's opacity
+        for (let k = 0; k < STRIDE; k++) { m[bd + k] = 0; v[bd + k] = 0; } // donor changed shape: reset its moments
+      } else {
+        params[bi + 3] += Math.log(0.85);
+        params[bi + 4] += Math.log(0.85);
+        params[bi + 5] += Math.log(0.85);
+        params[bi + 13] = Math.log(0.25 / 0.75);
+      }
       params[bi + 14] = 0; params[bi + 15] = 0;
       for (let k = 0; k < STRIDE; k++) { m[bi + k] = 0; v[bi + k] = 0; }
     };
-    for (const i of dead) spawnAt(i * STRIDE);
+    for (const i of dead) spawnAt(i * STRIDE, false); // relocation: to mass, as before
     // growth: new capacity where mass already is (stop late in training so
     // the last iterations refine a stable population)
+    // 0.15/step with the 1e-4 minScale floor: capacity converts to real
+    // sharpness now (truck 52k -> 235k splats = +0.84dB holdout); the old
+    // timid 0.05 predates the floor fix, when extra splats bought nothing
     const grown = this.iter < (this.opts.growUntil ?? 30000)
-      ? Math.min(Math.ceil(this.n * (this.opts.growRate ?? 0.05)), this.cap - this.n) : 0;
-    for (let k = 0; k < grown; k++) spawnAt((this.n + k) * STRIDE);
+      ? Math.min(Math.ceil(this.n * (this.opts.growRate ?? 0.15)), this.cap - this.n) : 0;
+    for (let k = 0; k < grown; k++) spawnAt((this.n + k) * STRIDE, true);
     if (grown > 0) {
       this.n += grown;
       this.adamData[23] = this.n * STRIDE;

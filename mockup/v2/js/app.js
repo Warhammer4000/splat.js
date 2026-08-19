@@ -5,7 +5,7 @@
 // Details sheet that only exists once there is something to explain.
 
 import { PRESETS, EVENTS, HELP } from '../../js/data.js';
-import { loadScene } from '../../js/scene.js';
+import { loadScene, DATA } from '../../js/scene.js';
 import { Viewport } from '../../js/viewport.js';
 import { Developer, fitRect } from '../../js/develop.js';
 import { Chart } from '../../js/chart.js';
@@ -42,19 +42,13 @@ boot();
 
 // ── boot ────────────────────────────────────────────────────────────────────
 function boot() {
-  const sel = $('scene-pick');
-  PRESETS.forEach((p, i) => {
-    const o = document.createElement('option');
-    o.value = p.id;
-    o.textContent = `${p.name} — ${p.count} frames`;
-    sel.appendChild(o);
-  });
-  sel.addEventListener('change', () => open(PRESETS.find((p) => p.id === sel.value)));
+  buildSetPicker();
 
   vp = new Viewport($('cv'));
   dev = new Developer();
 
   $('btn-go').addEventListener('click', startPrep);
+  $('btn-new').addEventListener('click', () => open(S.preset));
   $('btn-own').addEventListener('click', () =>
     flash('In the real thing this is where your own photos go. The demo ships the ready sets.', 5000));
   $('btn-details').addEventListener('click', openDetails);
@@ -74,14 +68,45 @@ function boot() {
   requestAnimationFrame(loop);
 }
 
+/** the five sets, as five thumbnails — no menu to open, no page to go back to */
+function buildSetPicker() {
+  const host = $('setpick');
+  host.innerHTML = '';
+  for (const p of PRESETS) {
+    const b = document.createElement('button');
+    b.dataset.id = p.id;
+    b.innerHTML = `<div class="ph"></div><span>${p.name}</span>`;
+    b.addEventListener('click', () => { if (p !== S.preset) open(p); });
+    host.appendChild(b);
+    heroUrl(p).then((url) => {
+      if (!url) return;
+      const img = Object.assign(new Image(), { src: url, alt: '' });
+      b.querySelector('.ph')?.replaceWith(img);
+    });
+  }
+}
+
+/** first frame of a set, without loading the whole thing */
+async function heroUrl(p) {
+  if (!p.files) {
+    return `${DATA}${p.dir}/` +
+      p.pattern.replace(/\{i:(\d+)\}/, (_, w) => String(p.start).padStart(+w, '0'));
+  }
+  try {
+    const t = await (await fetch(`${DATA}${p.dir}/${p.files}`)).text();
+    return `${DATA}${p.dir}/${JSON.parse(t.replace(/^﻿/, ''))[0]}`;
+  } catch { return null; }
+}
+
 async function open(preset) {
   S.preset = preset;
   S.state = 'ready';
   S.scene = null;
-  $('scene-pick').value = preset.id;
   $('start').hidden = true;
   $('controls').hidden = true;
   $('btn-details').disabled = true;
+  $('btn-new').hidden = true;
+  $('set-name').hidden = true;
   $('strip').innerHTML = '';
   dock('');
 
@@ -94,8 +119,14 @@ async function open(preset) {
   vp.setScene(S.scene);
   buildStrip();
 
-  $('start-title').textContent = `${S.scene.cams.length} photographs, no 3D yet`;
-  $('start-sub').textContent = preset.blurb;
+  $('start-kind').textContent = preset.kind;
+  $('start-title').textContent = preset.name;
+  $('start-origin').textContent = preset.origin;
+  $('start-links').innerHTML = preset.links
+    .map((l) => `<a href="${l.url}" target="_blank" rel="noopener">${l.label}</a>`).join('');
+  $('set-name').textContent = `${preset.name} · ${preset.count} frames`;
+  [...$('setpick').children].forEach((b) =>
+    b.setAttribute('aria-pressed', String(b.dataset.id === preset.id)));
   $('start').hidden = false;
   bmp(S.scene.cams[0].url);
 }
@@ -103,6 +134,8 @@ async function open(preset) {
 // ── prep ────────────────────────────────────────────────────────────────────
 function startPrep() {
   $('start').hidden = true;
+  $('btn-new').hidden = false;
+  $('set-name').hidden = false;
   S.state = 'prep';
   S.prepAt = performance.now();
   dock('prep');
@@ -532,7 +565,7 @@ function photoStage(ctx, w, h, dpr, reveal) {
   if (!img) return;
   const r = fitRect(img.width, img.height, w / dpr, h / dpr, 10);
   ctx.save(); ctx.scale(dpr, dpr);
-  ctx.globalAlpha = S.state === 'ready' ? .55 : 1;   // the start card sits on top
+  ctx.globalAlpha = S.state === 'ready' ? .42 : 1;   // the start card sits on top
   ctx.drawImage(img, r.x, r.y, r.w, r.h);
   ctx.globalAlpha = 1;
   if (reveal > 0) drawMarks(ctx, img, r, `k${S.sel}`, reveal);

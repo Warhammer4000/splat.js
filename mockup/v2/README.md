@@ -17,9 +17,13 @@ is a toy you press play on.
 ready  →  prep  →  train  →  done        (+ Details, on demand, once done)
 ```
 
-- **ready** — the set is already loaded. The frames sit in the strip along the
-  bottom, the first photo fills the stage, and one card asks for one click:
-  *Start training*. Scene picker in the header, nothing else.
+- **ready** — the set is already loaded: frames in the strip, first photo filling
+  the stage. One card sits on top of it carrying the five sets as five
+  thumbnails (click one, it loads immediately), what this set is, where it comes
+  from with links to the paper and the image set, the fact that everything runs
+  in this tab, and *Start training*. No description of the scene — the button
+  already says there is no 3D yet. Once a run starts the header keeps the set
+  name and an **Another set** button.
 - **prep** — the solve runs itself. Four beats, about eight seconds, each one
   visible on the big stage: landmarks appearing on a photo → two frames with the
   matches that survived → cameras dropping into place around the cloud → points
