@@ -242,6 +242,18 @@ export class Session {
 
   pause() { this.training = false; }
 
+  /** Raise the training horizon by `moreIters` and resume. The trainer's
+   *  schedules (pos-lr decay, growth stop) are horizon-relative and stretch
+   *  with it — this is a real continued run, not idling at floor lr. */
+  continueFor(moreIters) {
+    if (!this.trainer) throw new Error('seed() first');
+    this.opts.maxIters = (this.opts.maxIters ?? 60000) + moreIters;
+    this.trainer.opts.maxIters = this.opts.maxIters;
+    this.trainer.horizon = this.opts.maxIters;
+    this.start();
+    return this.opts.maxIters;
+  }
+
   /** End the run early with the model as it stands: final metrics, then the
    *  same train-complete event an auto-stop emits. */
   async finish() {

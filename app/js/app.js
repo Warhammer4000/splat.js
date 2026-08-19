@@ -22,7 +22,10 @@ const $ = (id) => document.getElementById(id);
 const fmt = (n) => Math.round(n).toLocaleString('en-US');
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-const MAX_ITERS = 40000;
+// short first run (phones especially) — the done screen offers "+10k cycles"
+// which stretches the trainer's schedules and resumes
+const INITIAL_ITERS = 10000;
+const MORE_ITERS = 10000;
 
 const S = {
   state: 'ready',              // ready | prep | train | done
@@ -46,6 +49,7 @@ const S = {
   flash: null,
   detailTab: 'marks',
   keys: new Set(),             // held WASD keys (camera-relative fly)
+  maxIters: INITIAL_ITERS,     // grows when the user continues training
   gen: 0,                      // run generation — stale async work checks it
 };
 
@@ -260,6 +264,9 @@ async function open(preset, autostart = false) {
   S.prep = null; S.feats = new Map(); S.lastPairEv = null; S.regCams = [];
   S.solveStats = { pairsChecked: 0, pairsUsable: 0, solveSec: 0 };
   S.chartEvents = [];
+  S.maxIters = INITIAL_ITERS;
+  S.holdHist = [];
+  S.growthStopped = false;
   gpuCanvas = null;
   $('btn-go').textContent = 'Start training';
   $('card-x').hidden = true;
@@ -317,7 +324,7 @@ async function startPrep() {
       16000 * 256, // per-raster tile-grid cap (16k tiles of 16x16)
     );
     const session = createSession({
-      maxIters: MAX_ITERS, holdout: 'auto', evalHoldEvery: 2500,
+      maxIters: INITIAL_ITERS, holdout: 'auto', evalHoldEvery: 2500,
       maxViewW: mvW, maxViewH: mvH,
     });
     S.session = session;
@@ -460,9 +467,11 @@ function onMetrics(m) {
   S.itersPerSec = m.itersPerSec;
   if (m.psnrTrain != null) S.psnrTrain = m.psnrTrain;
   if (m.psnrHold != null) S.psnrHold = m.psnrHold;
+  if (m.psnrHold != null) (S.holdHist ??= []).push([m.iter, m.psnrHold]);
   if (chart && m.psnrTrain != null) {
     chart.push(m.iter, m.psnrTrain, m.psnrHold ?? null);
-    chart.events = S.chartEvents;
+    chart.maxIter = S.maxIters;
+    chart.events = S.chartEvents.map((e) => ({ ...e, at: e.iter / S.maxIters }));
     chart.draw();
   }
   if (S.state === 'train') {
@@ -479,12 +488,12 @@ function onMetrics(m) {
 
 function onTrainEvent(e) {
   if (e.kind === 'refine' && e.grown > 0) {
-    S.chartEvents.push({ at: e.iter / MAX_ITERS, kind: 'grow', label: `Capacity +${fmt(e.grown)}` });
+    S.chartEvents.push({ iter: e.iter, kind: 'grow', label: `Capacity +${fmt(e.grown)}` });
     flash(`Capacity grows → ${fmt(e.n)} splats`, 2200);
   }
-  if (e.kind === 'refine' && e.grown === 0 && !S.growthStopped && e.iter > MAX_ITERS * 0.7) {
+  if (e.kind === 'refine' && e.grown === 0 && !S.growthStopped && e.iter > S.maxIters * 0.7) {
     S.growthStopped = true;
-    S.chartEvents.push({ at: e.iter / MAX_ITERS, kind: 'stop', label: 'Growth stops' });
+    S.chartEvents.push({ iter: e.iter, kind: 'stop', label: 'Growth stops' });
   }
   if (e.kind === 'train-complete') finish();
 }
@@ -565,7 +574,34 @@ function renderControls() {
     `<span><b>${S.minutes}</b> min</span><i>Details ›</i>`;
   stats.addEventListener('click', openDetails);
   c.appendChild(stats);
+  const more = document.createElement('button');
+  more.className = 'btn btn-quiet';
+  more.textContent = `Train +${fmt(MORE_ITERS / 1000)}k`;
+  more.title = 'Continue training — the schedules stretch to the longer run';
+  more.addEventListener('click', continueTraining);
+  c.appendChild(more);
   c.appendChild(buildExport());
+}
+
+/** Resume from done: raise the horizon, restore the curve, back to train. */
+function continueTraining() {
+  if (!S.session || S.state !== 'done') return;
+  S.maxIters = S.session.continueFor(MORE_ITERS);
+  S.state = 'train';
+  S.trainT0 = performance.now() - S.minutes * 60000;   // minutes stay cumulative
+  S.growthStopped = false;
+  S.atFrame = -1; S.fadeTo = 0;
+  vp.lock = null;
+  $('stage').dataset.cursor = 'grab';
+  renderControls();
+  dock('train');
+  if (chart) {
+    chart.train = S.session.lossHistory.map(([i, v]) => [i, v]);
+    chart.hold = (S.holdHist || []).slice();
+    chart.maxIter = S.maxIters;
+    chart.draw();
+  }
+  paintStrip();
 }
 
 const DL_ICON = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true" class="dl">' +
@@ -797,7 +833,7 @@ function dock(kind) {
         <button class="play" id="t-play" data-state="pause">❚❚</button>
         <button class="tbtn-sm" id="t-finish" hidden title="Stop here and keep the model as it is">Finish</button>
         <div class="tmeta">
-          <span class="tmeta-1"><span id="t-iter">0</span> <span class="tmeta-max">/ ${fmt(MAX_ITERS)}</span></span>
+          <span class="tmeta-1"><span id="t-iter">0</span> <span class="tmeta-max">/ <span id="t-max">${fmt(S.maxIters)}</span></span></span>
           <span class="tmeta-2"><span id="t-splats">—</span> splats · <span id="t-ips">—</span>/s</span>
         </div>
       </div>
@@ -812,7 +848,7 @@ function dock(kind) {
       await S.session.finish();   // emits train-complete -> finish()
     });
     chart = new Chart($('chart'), { onHover: chartTip });
-    chart.maxIter = MAX_ITERS;
+    chart.maxIter = S.maxIters;
     chart.resize();
   }
 }
@@ -1082,10 +1118,10 @@ function openDetails() {
   $('d-export').replaceChildren(buildExport());
   renderDetails();
   if (!dchart) dchart = new Chart($('d-chart'), {});
-  dchart.maxIter = MAX_ITERS;
+  dchart.maxIter = S.maxIters;
   dchart.train = S.session.lossHistory.map(([i, v]) => [i, v]);
   dchart.hold = chart ? chart.hold : [];
-  dchart.events = S.chartEvents;
+  dchart.events = S.chartEvents.map((e) => ({ ...e, at: e.iter / S.maxIters }));
   dchart.resize();
 }
 
