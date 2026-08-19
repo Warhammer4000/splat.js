@@ -174,7 +174,7 @@ async function offerLastCapture() {
   const rec = await loadLastCapture();
   if (!rec || !rec.files || rec.files.length < 2) return;
   const b = document.createElement('button');
-  b.className = 'btn btn-outline lastcap';
+  b.className = 'lastcap';
   b.title = `${rec.files.length} frames, saved on this device`;
   b.innerHTML = `<img alt=""><span>Last capture</span>`;
   b.querySelector('img').src = URL.createObjectURL(rec.files[0].blob);

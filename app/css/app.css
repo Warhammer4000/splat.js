@@ -404,9 +404,24 @@ body {
 .runs a { color: var(--accent); text-decoration: none; }
 .runs a:hover { text-decoration: underline; }
 
-/* the restored capture, compact inside the own-photos box */
-.lastcap { display: inline-flex; align-items: center; gap: 8px; padding-left: 6px; }
-.lastcap img { width: 32px; height: 22px; object-fit: cover; border-radius: 6px; display: block; }
+/* the restored capture: a small tile like the test sets, no pill */
+.lastcap {
+  padding: 4px 4px 5px; border: 1px solid transparent; border-radius: 12px;
+  overflow: hidden; text-align: center; cursor: pointer;
+  transition: border-color .14s, background .14s;
+}
+.lastcap img {
+  display: block; width: 74px; aspect-ratio: 16 / 10; object-fit: cover;
+  background: var(--panel-2); opacity: .75; transition: opacity .14s;
+  border-radius: 8px;
+}
+.lastcap span {
+  display: block; margin-top: 5px;
+  font: 500 11px var(--mono); color: var(--dim); letter-spacing: .02em;
+  white-space: nowrap;
+}
+.lastcap:hover { background: var(--panel-2); }
+.lastcap:hover img { opacity: 1; }
 
 /* breathing room above Start training (the removed paragraph used to provide it) */
 #btn-go { margin-top: 18px; }
