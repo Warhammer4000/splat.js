@@ -733,7 +733,8 @@ function loop() {
   requestAnimationFrame(loop);
   const now = performance.now();
   if (S.flash && now > S.flash.until) S.flash = null;
-  S.fade += (S.fadeTo - S.fade) * 0.16;
+  // no fade on the photo overlay — it reads as lag on slow devices
+  S.fade = S.fadeTo;
 
   if (S.state === 'prep') paintPrepDock();
 
