@@ -499,7 +499,16 @@ fn main(@builtin(workgroup_id) wg: vec3u,
 }
 `;
 
-export const makeRenderSrc = (E = DEFAULT_E_CUT, A = DEFAULT_A_MIN) =>
+// The render pass comes in two gradient-accumulation flavours:
+//   tileGrad=false  every pixel atomicAdds its 10 gradient slots straight to
+//                   global memory — fastest on desktop GPUs (L2-side atomics)
+//   tileGrad=true   the whole tile walks entries in lockstep, sums each
+//                   entry's gradients in on-chip workgroup memory and flushes
+//                   ONE global atomicAdd per slot per splat per tile. Apple
+//                   (TBDR) GPUs pay dearly for contended global atomics —
+//                   this is the difference between ~12 it/s and usable on an
+//                   M1. Integer sums commute, so results are bit-identical.
+export const makeRenderSrc = (E = DEFAULT_E_CUT, A = DEFAULT_A_MIN, tileGrad = false) =>
   CAM_STRUCT + cutConsts(E, A) + /* wgsl */ `
 @group(0) @binding(1) var<storage, read> proj: array<f32>;
 @group(0) @binding(2) var<storage, read> tileStart: array<u32>;
@@ -510,23 +519,37 @@ export const makeRenderSrc = (E = DEFAULT_E_CUT, A = DEFAULT_A_MIN) =>
 @group(0) @binding(7) var<storage, read_write> stats: array<atomic<u32>>;
 @group(0) @binding(8) var<storage, read_write> gradCam: array<atomic<i32>>;
 
+fn camAdd(idx: u32, v: f32) {
+  atomicAdd(&gradCam[idx], i32(clamp(v * FIXCAM, -1.0e9, 1.0e9)));
+}
+` + (tileGrad ? /* wgsl */ `
+var<workgroup> wgEnd: atomic<u32>;
+var<workgroup> wgEndU: u32;
+var<workgroup> sg: array<atomic<i32>, 10>;
+fn atomAdd(slot: u32, v: f32) {
+  atomicAdd(&sg[slot], i32(clamp(v * FIXED, -1.0e9, 1.0e9)));
+}
+fn atomAddC(slot: u32, v: f32) {
+  atomicAdd(&sg[slot], i32(clamp(v * FIXEDC, -1.0e9, 1.0e9)));
+}
+` : /* wgsl */ `
 fn atomAdd(idx: u32, v: f32) {
   atomicAdd(&gradP[idx], i32(clamp(v * FIXED, -1.0e9, 1.0e9)));
 }
 fn atomAddC(idx: u32, v: f32) {
   atomicAdd(&gradP[idx], i32(clamp(v * FIXEDC, -1.0e9, 1.0e9)));
 }
-fn camAdd(idx: u32, v: f32) {
-  atomicAdd(&gradCam[idx], i32(clamp(v * FIXCAM, -1.0e9, 1.0e9)));
-}
+`) + /* wgsl */ `
 
 @compute @workgroup_size(16, 16)
-fn main(@builtin(global_invocation_id) g: vec3u) {
+fn main(@builtin(global_invocation_id) g: vec3u,
+        @builtin(workgroup_id) wid: vec3u,
+        @builtin(local_invocation_index) li: u32) {
   let W = u32(cam.size.x);
   let H = u32(cam.size.y);
-  if (g.x >= W || g.y >= H) { return; }
+${tileGrad ? '  let pxOk = g.x < W && g.y < H;' : '  if (g.x >= W || g.y >= H) { return; }'}
   let px = vec2f(f32(g.x) + 0.5, f32(g.y) + 0.5);
-  let tile = (g.y / ${TILE}u) * u32(cam.size.z) + (g.x / ${TILE}u);
+  let tile = wid.y * u32(cam.size.z) + wid.x;
   let segS = tileStart[tile];
   let segE = tileStart[tile + 1u];
 
@@ -534,6 +557,7 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
   var T = 1.0;
   var Crgb = vec3f(0.0);
   var end = segS; // one past the last processed entry
+${tileGrad ? '  if (pxOk) {' : '  {'}
   for (var k = segS; k < segE; k++) {
     if (entries[2u * k] == 0xFFFFFFFFu) { break; } // segment padding
     end = k + 1u;
@@ -549,60 +573,84 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
     T *= 1.0 - alpha;
     if (T < 1e-4) { break; }
   }
+  }
   let bg = cam.misc.xyz;
   let C = Crgb + T * bg;
   let pi = g.y * W + g.x;
+${tileGrad ? '  if (pxOk) {' : '  {'}
   outImg[pi * 4u]      = C.r;
   outImg[pi * 4u + 1u] = C.g;
   outImg[pi * 4u + 2u] = C.b;
   outImg[pi * 4u + 3u] = 1.0 - T;
+  }
 
-  if (cam.misc2.x < 0.5) { return; }
+  if (cam.misc2.x < 0.5) { return; } // uniform: view render, no gradients
 
   // ---- loss ----
   let off = bitcast<u32>(cam.misc.w); // raw u32 PIXEL offset (f32 exact only to 2^24)
-  let packed = tgtImg[off + pi];
-  if ((packed >> 24u) == 0u) { return; } // invalid pixel (undistortion out-of-frame sentinel)
-  let tcol = unpack4x8unorm(packed).rgb;
-  atomicAdd(&stats[2], 1u); // valid-pixel count (PSNR denominator)
-  // per-image exposure compensation (gain = cam.proj.w, bias = cam.misc2.w)
-  let gain = cam.proj.w;
-  let err = (gain * C + vec3f(cam.misc2.w)) - tcol;
-  // squared error for the PSNR metric, DITHERED before quantization: plain
-  // truncation zeroes sub-quantum pixels and inflates PSNR above ~40dB
-  let dith = fract(sin(f32(pi) * 12.9898) * 43758.5453);
-  atomicAdd(&stats[0], u32(dot(err, err) * 16.0 + dith));
-  // Charbonnier (smooth L1); gC = dL/dC up to a constant (Adam is scale-invariant)
-  const DELTA = 0.03;
-  let root = sqrt(err * err + vec3f(DELTA * DELTA));
-  let eg = err / root;         // dL / d(exposure-adjusted color)
-  let gC = gain * eg;          // dL / d(rendered color)
-  let lossv = (root.x + root.y + root.z) - 3.0 * DELTA;
-  atomicAdd(&stats[1], u32(lossv * 32768.0)); // training loss (grad-check)
-  let ci8 = u32(cam.misc2.y) * 8u;
-  camAdd(ci8 + 6u, dot(eg, C) * gain); // d/d(log gain)
-  camAdd(ci8 + 7u, eg.x + eg.y + eg.z); // d/d(bias)
+${tileGrad ? '  var lossOk = pxOk;' : '  var lossOk = true;'}
+  var gC = vec3f(0.0);
+  if (lossOk) {
+    let packed = tgtImg[off + pi];
+    if ((packed >> 24u) == 0u) {
+      lossOk = false; // invalid pixel (undistortion out-of-frame sentinel)
+    } else {
+      let tcol = unpack4x8unorm(packed).rgb;
+      atomicAdd(&stats[2], 1u); // valid-pixel count (PSNR denominator)
+      // per-image exposure compensation (gain = cam.proj.w, bias = cam.misc2.w)
+      let gain = cam.proj.w;
+      let err = (gain * C + vec3f(cam.misc2.w)) - tcol;
+      // squared error for the PSNR metric, DITHERED before quantization: plain
+      // truncation zeroes sub-quantum pixels and inflates PSNR above ~40dB
+      let dith = fract(sin(f32(pi) * 12.9898) * 43758.5453);
+      atomicAdd(&stats[0], u32(dot(err, err) * 16.0 + dith));
+      // Charbonnier (smooth L1); gC = dL/dC up to a constant
+      const DELTA = 0.03;
+      let root = sqrt(err * err + vec3f(DELTA * DELTA));
+      let eg = err / root;         // dL / d(exposure-adjusted color)
+      gC = gain * eg;              // dL / d(rendered color)
+      let lossv = (root.x + root.y + root.z) - 3.0 * DELTA;
+      atomicAdd(&stats[1], u32(lossv * 32768.0)); // training loss (grad-check)
+      let ci8 = u32(cam.misc2.y) * 8u;
+      camAdd(ci8 + 6u, dot(eg, C) * gain); // d/d(log gain)
+      camAdd(ci8 + 7u, eg.x + eg.y + eg.z); // d/d(bias)
+    }
+  }
+${tileGrad ? '' : '  if (!lossOk) { return; }'}
 
   // ---- backward: back-to-front transmittance recursion ----
   // dC/da_i = c_i T_i - S_i / (1 - a_i),
   // S_i = sum_{k>i} c_k a_k T_k + bg T_N   (everything behind splat i)
+${tileGrad ? /* wgsl */ `
+  // the whole tile walks the same entries so per-entry sums can live in
+  // workgroup memory; pixels beyond their own 'end' simply contribute zero
+  atomicMax(&wgEnd, end);
+  workgroupBarrier();
+  if (li == 0u) { wgEndU = atomicLoad(&wgEnd); }
+  let endMax = workgroupUniformLoad(&wgEndU);
+` : '  let endMax = end;'}
   var S = bg * T;
   var Ta = T;
-  for (var kk = end; kk > segS; kk--) {
+  for (var kk = endMax; kk > segS; kk--) {
+${tileGrad ? /* wgsl */ `
+    if (li < 10u) { atomicStore(&sg[li], 0); }
+    workgroupBarrier();
+` : ''}
     let i = entries[2u * (kk - 1u) + 1u];
     let b = i * 16u;
+${tileGrad ? '    if (lossOk && kk <= end) {' : '    {'}
     let d = px - vec2f(proj[b], proj[b + 1u]);
     let cA = proj[b + 3u];
     let cB = proj[b + 4u];
     let cC = proj[b + 5u];
     let e = max(0.5 * (cA * d.x * d.x + cC * d.y * d.y) + cB * d.x * d.y, 0.0);
-    if (e > E_CUT) { continue; }
+    if (e <= E_CUT) {
     let comp = proj[b + 6u];
     let opa = proj[b + 7u];
     let G = exp(-e);
     let araw = opa * comp * G;
     let alpha = min(0.99, araw);
-    if (alpha < A_MIN) { continue; }
+    if (alpha >= A_MIN) {
     let c = vec3f(proj[b + 8u], proj[b + 9u], proj[b + 10u]);
 
     let Tb = Ta / (1.0 - alpha); // transmittance in front of this splat
@@ -614,8 +662,8 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
 
     let ga = galpha * araw;
     let gmean = ga * vec2f(cA * d.x + cB * d.y, cB * d.x + cC * d.y);
-    atomAdd(b,      gmean.x);
-    atomAdd(b + 1u, gmean.y);
+    atomAdd(${tileGrad ? '0u' : 'b'},      gmean.x);
+    atomAdd(${tileGrad ? '1u' : 'b + 1u'}, gmean.y);
     // conic grads scale with d^2 (px^2): measured at native res, big-splat
     // accumulators hit the i32 ceiling and silently wrapped (max 2.14e9 with
     // FIXEDC 4096). Normalize per splat by (1 + lambda_max) of the dilated 2D
@@ -628,17 +676,27 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
     let cmid = 0.5 * (cva + cvc);
     let lmax = cmid + sqrt(max(cmid * cmid - (cva * cvc - proj[b + 13u] * proj[b + 13u]), 0.0));
     let cnorm = 1.0 / (1.0 + lmax);
-    atomAddC(b + 2u, -ga * 0.5 * d.x * d.x * cnorm);
-    atomAddC(b + 3u, -ga * d.x * d.y * cnorm);
-    atomAddC(b + 4u, -ga * 0.5 * d.y * d.y * cnorm);
-    atomAdd(b + 5u, galpha * opa * G);          // d/dcomp
-    atomAdd(b + 6u, ga * (1.0 - opa));          // d/dlogitOpacity
-    atomAdd(b + 7u, gcv.r);
-    atomAdd(b + 8u, gcv.g);
-    atomAdd(b + 9u, gcv.b);
+    atomAddC(${tileGrad ? '2u' : 'b + 2u'}, -ga * 0.5 * d.x * d.x * cnorm);
+    atomAddC(${tileGrad ? '3u' : 'b + 3u'}, -ga * d.x * d.y * cnorm);
+    atomAddC(${tileGrad ? '4u' : 'b + 4u'}, -ga * 0.5 * d.y * d.y * cnorm);
+    atomAdd(${tileGrad ? '5u' : 'b + 5u'}, galpha * opa * G);          // d/dcomp
+    atomAdd(${tileGrad ? '6u' : 'b + 6u'}, ga * (1.0 - opa));          // d/dlogitOpacity
+    atomAdd(${tileGrad ? '7u' : 'b + 7u'}, gcv.r);
+    atomAdd(${tileGrad ? '8u' : 'b + 8u'}, gcv.g);
+    atomAdd(${tileGrad ? '9u' : 'b + 9u'}, gcv.b);
 
     S += c * alpha * Tb;
     Ta = Tb;
+    }
+    }
+    }
+${tileGrad ? /* wgsl */ `
+    workgroupBarrier();
+    if (li < 10u) {
+      let v = atomicLoad(&sg[li]);
+      if (v != 0) { atomicAdd(&gradP[b + li], v); }
+    }
+` : ''}
   }
 }
 `;

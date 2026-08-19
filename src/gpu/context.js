@@ -18,7 +18,7 @@
  */
 export async function createGpu(opts = {}) {
   if (opts.device) {
-    return { device: opts.device, adapter: null, owned: false, dispose() {} };
+    return { device: opts.device, adapter: null, info: opts.info || {}, owned: false, dispose() {} };
   }
   if (typeof navigator === 'undefined' || !navigator.gpu) {
     throw new Error('WebGPU not available in this environment');
@@ -36,5 +36,6 @@ export async function createGpu(opts = {}) {
       maxBufferSize: Math.min(adapter.limits.maxBufferSize, want),
     },
   });
-  return { device, adapter, owned: true, dispose() { device.destroy(); } };
+  const info = adapter.info || {};
+  return { device, adapter, info, owned: true, dispose() { device.destroy(); } };
 }

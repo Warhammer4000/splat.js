@@ -12,12 +12,18 @@ export class GSTrainer {
    *  trainer and the SIFT matcher. When omitted, a private one is created. */
   static async create(opts = {}) {
     const gpu = opts.gpu || await createGpu(opts);
-    return new GSTrainer(gpu.device, opts);
+    return new GSTrainer(gpu.device, opts, gpu.info || {});
   }
 
-  constructor(device, opts = {}) {
+  constructor(device, opts = {}, gpuInfo = {}) {
     this.device = device;
     this.opts = opts; // { eCut, aMin, opacityReg } — gradcheck uses strict cutoffs
+    this.gpuInfo = gpuInfo;
+    // Tile-shared gradient accumulation (see makeRenderSrc): built for Apple
+    // (TBDR) GPUs where contended global atomics are ruinous, but measured
+    // FASTER on desktop NVIDIA too (+11% synthetic it/s) — default ON
+    // everywhere; opts.tileGrad = false restores the direct path.
+    this.tileGrad = opts.tileGrad ?? true;
     this.iter = 0;
     this.pixelsSeen = 0;
     this.stride = STRIDE;
@@ -50,7 +56,7 @@ export class GSTrainer {
     });
     this.pipeRender = d.createComputePipeline({
       label: 'render', layout: 'auto',
-      compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin), 'render'), entryPoint: 'main' },
+      compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad), 'render'), entryPoint: 'main' },
     });
     this.pipeChain = d.createComputePipeline({
       label: 'chain', layout: 'auto',

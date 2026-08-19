@@ -139,8 +139,11 @@ async function makeRig(extraOpts = {}) {
 export async function gradCheckSmall(opts = {}) {
   const { GSTrainer } = await import('./trainer.js');
   // strict cutoffs: boundary discontinuities become ~A_MIN-sized, so finite
-  // differences measure the smooth gradient
-  const trainer = await GSTrainer.create({ eCut: 9, aMin: 1e-4, radClamp: 10, anisoReg: 0 });
+  // differences measure the smooth gradient. opts.trainer forwards extra
+  // trainer options (e.g. { tileGrad: true } to validate that shader variant)
+  const trainer = await GSTrainer.create({
+    eCut: 9, aMin: 1e-4, radClamp: 10, anisoReg: 0, ...(opts.trainer || {}),
+  });
   const n = 160;
   const stride = 16;
   let s = 123456789 >>> 0;

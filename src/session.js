@@ -178,12 +178,15 @@ export class Session {
     this._log(`initialized ${this.model.n} Gaussians (scene radius ${this.model.radius.toFixed(2)})`);
 
     if (!this.gpu) this.gpu = await createGpu({ device: this.opts.device });
+    const gi = this.gpu.info || {};
     const trainerOpts = {
       maxIters: this.opts.maxIters ?? 60000,
       ...this.opts.trainer, ...extra.trainer,
       gpu: this.gpu,
     };
     this.trainer = await GSTrainer.create(trainerOpts);
+    this._log(`GPU: ${gi.vendor || 'unknown'} ${gi.architecture || ''} — ` +
+      `${this.trainer.tileGrad ? 'tile-shared' : 'direct'} gradient accumulation`);
 
     // training-resolution intrinsics (recon poses live at feature scale)
     const cams = this.recon.cams.map((c) => {
@@ -384,6 +387,7 @@ export class Session {
     this._itersAtStats = trainer.iter;
     this._lastStats = now;
     const m = { iter: trainer.iter, splats: trainer.n, itersPerSec: Math.round(itersPerSec) };
+    this._lastIps = m.itersPerSec;
     const mse = await trainer.readLoss();
     if (mse != null && mse > 0) {
       m.psnrTrain = -10 * Math.log10(mse);
@@ -491,9 +495,13 @@ class SessionView {
   _tick(frameCount, training) {
     if (!this.ctx || !this.camera) return;
     if (this._dirty) { this.renderNow(); return; }
-    // during training, refresh the (unchanged-camera) view at most ~2.5x/s —
-    // every extra render is a full raster pass stolen from the optimiser
-    if (training && performance.now() - (this._lastAuto || 0) > 400) {
+    // during training, refresh the (unchanged-camera) view sparingly — every
+    // render is a full raster pass stolen from the optimiser, so the interval
+    // scales with measured speed (~25 iterations between refreshes)
+    const ips = this.s._itersAtStats && this.s._lastStats
+      ? Math.max(1, this.s._lastIps || 100) : 100;
+    const interval = Math.max(400, 25000 / ips);
+    if (training && performance.now() - (this._lastAuto || 0) > interval) {
       this._lastAuto = performance.now();
       this.renderNow();
     }
