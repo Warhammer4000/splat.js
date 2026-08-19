@@ -268,7 +268,7 @@ export class Session {
     this._sched = {
       runFrame, tickWorker,
       raf: typeof requestAnimationFrame === 'function'
-        ? requestAnimationFrame : (fn) => setTimeout(fn, 16),
+        ? (fn) => requestAnimationFrame(fn) : (fn) => setTimeout(fn, 16),
     };
     this._frameCount = 0;
     this._lastStats = performance.now();
@@ -290,8 +290,10 @@ export class Session {
     if (this.training && trainer.iter >= this._maxIters()) {
       this.training = false;
       this._log(`training complete at ${trainer.iter} iterations`);
-      this._em.emit('event', { kind: 'train-complete', iter: trainer.iter, splats: trainer.n });
       await this._emitMetrics(true);
+      // emitted AFTER the final readback: listeners typically call metrics()
+      // right away, which must not interleave with ours on the staging buffer
+      this._em.emit('event', { kind: 'train-complete', iter: trainer.iter, splats: trainer.n });
     }
 
     if (this.training) {
@@ -322,7 +324,19 @@ export class Session {
     if (this.training || this.view._dirty) this._scheduleFrame();
   }
 
-  async _emitMetrics(final = false) {
+  /** serialize every metric readback: they share the trainer's staging
+   *  buffers, and two in flight = "outstanding map pending" */
+  _locked(fn) {
+    const run = (this._metricsLock || Promise.resolve()).then(fn, fn);
+    this._metricsLock = run.catch(() => {});
+    return run;
+  }
+
+  _emitMetrics(final = false) {
+    return this._locked(() => this._emitMetricsInner(final));
+  }
+
+  async _emitMetricsInner(final = false) {
     const trainer = this.trainer;
     const now = performance.now();
     const itersPerSec = (trainer.iter - this._itersAtStats) / Math.max(1, now - this._lastStats) * 1000;
@@ -348,14 +362,16 @@ export class Session {
   }
 
   /** One-shot quality readout (used by tests and the done screen). */
-  async metrics({ refined = false } = {}) {
-    const trainer = this.trainer;
-    const out = { iter: trainer.iter, splats: trainer.n };
-    if (this.holdout >= 0) {
-      out.psnrHold = await trainer.evalCamPsnr(this.holdout);
-      if (refined) out.psnrHoldRefined = await trainer.evalCamPsnrRefined(this.holdout);
-    }
-    return out;
+  metrics({ refined = false } = {}) {
+    return this._locked(async () => {
+      const trainer = this.trainer;
+      const out = { iter: trainer.iter, splats: trainer.n };
+      if (this.holdout >= 0) {
+        out.psnrHold = await trainer.evalCamPsnr(this.holdout);
+        if (refined) out.psnrHoldRefined = await trainer.evalCamPsnrRefined(this.holdout);
+      }
+      return out;
+    });
   }
 
   /** Standard 3DGS .ply with Mip opacity compensation baked (what external
