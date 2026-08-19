@@ -401,8 +401,8 @@ async function frameLoop() {
   frameCount++;
 
   if (state.training) {
-    // auto-stop: schedules are exhausted well before this (pos-lr decay ends
-    // at 30k, growth at 50k) — beyond it the model only polishes
+    // auto-stop; the trainer scales its schedules (pos-lr decay, growth stop)
+    // to this same horizon via opts.maxIters
     const maxIters = (window.__trainerOpts && window.__trainerOpts.maxIters) || 60000;
     if (trainer.iter >= maxIters) {
       state.training = false;

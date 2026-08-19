@@ -247,6 +247,10 @@ export class GSTrainer {
     this.camV = new Float64Array((cams.length + 1) * 8);
 
     // hyperparameters loosely following LichtFeld/3DGS conventions
+    // schedule horizon: pos-lr decay and growth scale with the intended
+    // training length (default matches main.js auto-stop) instead of a
+    // hardcoded 30k that predates the longer default runs
+    this.horizon = this.opts.maxIters ?? 60000;
     this.adamData = new Float32Array(28);
     const r = sceneRadius;
     this.basePosLr = 3e-4 * r;
@@ -339,8 +343,11 @@ export class GSTrainer {
     this.iter++;
     this.pixelsSeen += meta.w * meta.h;
     this.adamData[19] = this.iter;
-    // exponential position-lr decay to 1% over 30k iterations
-    const posLr = this.basePosLr * Math.pow(0.01, Math.min(1, this.iter / 30000));
+    // exponential position-lr decay to 1% at 75% of the horizon, then a
+    // floor-lr polish phase. A/B'd vs INRIA-style full-length decay on
+    // camping @40k: full-length gains +0.18 train but LOSES 0.15dB holdout
+    // (positions moving late = overfit); the polish phase wins.
+    const posLr = this.basePosLr * Math.pow(0.01, Math.min(1, this.iter / (0.75 * this.horizon)));
     this.adamData[0] = this.adamData[1] = this.adamData[2] = posLr;
     d.queue.writeBuffer(this.uniAdam, 0, this.adamData);
 
@@ -389,7 +396,7 @@ export class GSTrainer {
 
       this.camStep++;
       const t = this.camStep;
-      const decay = Math.pow(0.02, Math.min(1, this.iter / 30000));
+      const decay = Math.pow(0.02, Math.min(1, this.iter / (0.75 * this.horizon)));
       const rotLr = 2e-4 * decay;
       const trnLr = 2e-4 * this.sceneRadius * decay;
       const focLr = 1e-4 * decay;
@@ -642,7 +649,7 @@ export class GSTrainer {
     // 0.15/step with the 1e-4 minScale floor: capacity converts to real
     // sharpness now (truck 52k -> 235k splats = +0.84dB holdout); the old
     // timid 0.05 predates the floor fix, when extra splats bought nothing
-    const grown = this.iter < (this.opts.growUntil ?? 30000)
+    const grown = this.iter < (this.opts.growUntil ?? 0.75 * this.horizon)
       ? Math.min(Math.ceil(this.n * (this.opts.growRate ?? 0.15)), this.cap - this.n) : 0;
     for (let k = 0; k < grown; k++) spawnAt((this.n + k) * STRIDE, true);
     if (grown > 0) {
