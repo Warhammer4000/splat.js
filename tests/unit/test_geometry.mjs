@@ -3,7 +3,7 @@ import {
   jacobiEigen, rodrigues, so3Log, m3mulv, m3t, m3mul, m3det,
   estimateE, ransacE, decomposeE, selectPose, triangulateN,
   dltPnP, pnpRansac, refinePose, reprojError, makeRng, solveLinear,
-} from 'file:///C:/Dev/arrival.space/Browser_3DGS/prototype/js/sfm/geometry.js';
+} from '../../src/sfm/geometry.js';
 
 let failures = 0;
 const check = (name, cond, detail = '') => {

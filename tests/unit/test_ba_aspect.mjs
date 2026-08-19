@@ -1,7 +1,7 @@
 // Validate refineAspect: GT has fy = fx * 0.994 (non-square pixels).
-import { bundleAdjust } from 'file:///C:/Dev/arrival.space/Browser_3DGS/prototype/js/sfm/ba.js';
+import { bundleAdjust } from '../../src/sfm/ba.js';
 import { rodrigues, m3mul, m3mulv, makeRng }
-  from 'file:///C:/Dev/arrival.space/Browser_3DGS/prototype/js/sfm/geometry.js';
+  from '../../src/sfm/geometry.js';
 
 const rng = makeRng(777);
 const gauss = () => {

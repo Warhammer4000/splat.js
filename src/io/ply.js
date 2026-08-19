@@ -98,11 +98,3 @@ export function gaussiansToPly(data, n, sh = null, shK = 0) {
   return new Blob([headerBytes, body], { type: 'application/octet-stream' });
 }
 
-export function downloadPly(data, n, filename = 'splat.ply', sh = null, shK = 0) {
-  const blob = gaussiansToPly(data, n, sh, shK);
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-}

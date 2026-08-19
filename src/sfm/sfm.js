@@ -294,11 +294,15 @@ function extendTracks(feats, tracks, poses, K, regList, k1, k2, im0, vlog) {
  * Returns { cams, points }.
  */
 export async function runSfM(images, log, sampleColor, opts = {}) {
-  // window.__sfmOpts is the experiment override channel; explicit opts win
-  if (typeof window !== 'undefined' && window.__sfmOpts)
-    opts = { ...window.__sfmOpts, ...opts };
   const n = images.length;
   if (n < 2) throw new Error('need at least 2 images');
+  const signal = opts.signal;
+  const checkAbort = () => {
+    if (signal && signal.aborted) throw new DOMException('SfM aborted', 'AbortError');
+  };
+  // structured progress alongside log(): { stage, done, total, detail }
+  // stages: 'features' | 'matching' | 'focal' | 'register' | 'ba'
+  const ev = opts.onEvent || (() => {});
 
   // ---- features ----
   // SIFT is the DEFAULT since 2026-08-19: it beat or tied oriented-BRIEF on
@@ -308,7 +312,7 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
   const useSift = opts.features !== 'brief';
   log(`detecting features in ${n} images ...`);
   const feats = [];
-  if (useSift && typeof Worker !== 'undefined' && typeof window !== 'undefined') {
+  if (useSift && typeof Worker !== 'undefined' && opts.workers !== false) {
     // SIFT extraction is ~1s/image of pure CPU — run it on a worker pool
     const t0f = performance.now();
     const nW = Math.min(8, Math.max(2, (navigator.hardwareConcurrency || 4) - 2));
@@ -324,6 +328,7 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
         wk.onmessage = (e) => {
           results[e.data.id] = e.data;
           doneF++;
+          ev({ stage: 'features', done: doneF, total: n });
           if (doneF % 16 === 0) log(`  features: ${doneF}/${n}`);
           if (doneF === n) resolve();
           else feed(wk);
@@ -367,9 +372,11 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
       f.xn = new Float32Array(f.n);
       f.yn = new Float32Array(f.n);
       feats.push(f);
-      if (i % 8 === 7) { log(`  features: ${i + 1}/${n}`); await tick(); }
+      ev({ stage: 'features', done: i + 1, total: n });
+      if (i % 8 === 7) { log(`  features: ${i + 1}/${n}`); await tick(); checkAbort(); }
     }
   }
+  checkAbort();
   log(`  avg features/image: ${Math.round(feats.reduce((s, f) => s + f.n, 0) / n)}`);
   await tick();
 
@@ -397,7 +404,7 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
   let gpuAll = null;
   if (useSift && typeof navigator !== 'undefined' && navigator.gpu) {
     try {
-      gpuAll = await gpuMatchAll(feats, pairs, 0.8, log);
+      gpuAll = await gpuMatchAll(feats, pairs, 0.8, log, opts.gpu && opts.gpu.device);
     } catch (e) {
       log(`  GPU matcher unavailable (${e.message}) — CPU fallback`);
     }
@@ -428,8 +435,10 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
         failedRich.push({ i, j, matches });
       }
     }
-    if (done % 40 === 0) { log(`  pairs: ${done}/${pairs.length} (${pairInfo.length} usable)`); await tick(); }
+    ev({ stage: 'matching', done, total: pairs.length, detail: { usable: pairInfo.length } });
+    if (done % 40 === 0) { log(`  pairs: ${done}/${pairs.length} (${pairInfo.length} usable)`); await tick(); checkAbort(); }
   }
+  checkAbort();
   log(`  usable pairs: ${pairInfo.length} (${filtered} E-filtered, rest raw)`);
   if (pairInfo.length === 0) throw new Error('no image pair with enough matches');
   await tick();
@@ -594,8 +603,8 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
       return false;
     }
 
-    const sfmOpts = (typeof window !== 'undefined' && window.__sfmOpts) || {};
-    const useGlobal = !!(sfmOpts.globalInit ?? opts.globalInit);
+    const sfmOpts = opts;
+    const useGlobal = !!opts.globalInit;
 
     // ---- initialization pair: ranked by shared tracks ----
     const candPairs = [...sharedCount.entries()]
@@ -992,6 +1001,7 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
           if (triangulateTrack(tracks[tid])) newPts++;
         }
         vlog(`registered image ${bestImg} (${reg.inliers}/${bestCount} inliers, +${newPts} points)`);
+        if (withBA) ev({ stage: 'register', done: registered.size, total: n, detail: { image: bestImg } });
 
         if (++sinceRefine >= 3) { globalRefine(1); sinceRefine = 0; }
         // periodic joint BA so the growing chain never drifts into a bent
@@ -1002,6 +1012,7 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
           sinceBA = 0;
         }
         await tick();
+        checkAbort();
       }
       if (registered.size === n) break;
       globalRefine(1);
@@ -1017,6 +1028,7 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
     // and radial distortion) can — this is what makes COLMAP paths clean.
     let baResult = null;
     if (withBA && sfmOpts.ba !== false && registered.size >= 3) {
+      ev({ stage: 'ba', done: 0, total: 1 });
       if (sfmOpts.lkRefine !== false) { refineObsLK(images, feats, tracks, poses, vlog); refreshNorm(); }
       baResult = runGlobalBA('pass 1', { verbose: true });
       if (baResult && sfmOpts.obsFilter !== false) {
@@ -1082,8 +1094,8 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
     }
     cams.sort((a, b) => a.imgIdx - b.imgIdx);
 
-    if (typeof window !== 'undefined')
-      window.__sfmDebug = { feats, tracks, poses, K, registered, corrsFor, thN };
+    // internals hook for dev tooling / UI beats (feature marks, match lines)
+    if (opts.debug) opts.debug({ feats, tracks, poses, K, registered, corrsFor, thN });
 
     return {
       cams, points, medErr, fScale,
@@ -1105,10 +1117,12 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
   // divides by f) — measured: it picked 1.56x over the true 0.78x and BA
   // invented k1=0.70 to cope. There the PIXEL median is the right metric
   // (detector noise is in pixels; model misfit adds to it).
-  const useGlobalSearch =
-    !!((((typeof window !== 'undefined' && window.__sfmOpts) || {}).globalInit) ?? opts.globalInit);
+  const useGlobalSearch = !!opts.globalInit;
   const candidates = [];
+  let fi = 0;
   for (const s of FOCAL_SCALES) {
+    ev({ stage: 'focal', done: fi++, total: FOCAL_SCALES.length, detail: { fScale: s * 1.2 } });
+    checkAbort();
     const res = await runGeometry(s, false);
     const fEff = (s * 1.2).toFixed(2);
     if (!res) {

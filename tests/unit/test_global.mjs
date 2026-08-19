@@ -1,9 +1,9 @@
 // Validate global.js: rotation averaging + global positioning on a noisy
 // synthetic orbit (ground truth known).
 import { rotationAveraging, globalPositions, projectSO3 }
-  from 'file:///C:/Dev/arrival.space/Browser_3DGS/prototype/js/sfm/global.js';
+  from '../../src/sfm/global.js';
 import { rodrigues, m3mul, m3t, m3mulv, so3Log, makeRng }
-  from 'file:///C:/Dev/arrival.space/Browser_3DGS/prototype/js/sfm/geometry.js';
+  from '../../src/sfm/geometry.js';
 
 const rng = makeRng(1234);
 const gauss = () => {

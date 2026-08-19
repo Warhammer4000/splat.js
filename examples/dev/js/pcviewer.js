@@ -6,7 +6,7 @@
 // exported splat looks like in a real sorted alpha-compositing renderer —
 // unlike the trainer's own order-independent view.
 
-import { gaussiansToPly } from './ply.js';
+import { gaussiansToPly } from '../../../src/io/ply.js';
 
 export class PCViewer {
   static async create(canvas) {

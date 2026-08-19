@@ -5,21 +5,14 @@ import {
   SCAN_SRC, SCATTER_SRC, SORT_SRC, ADAM_SRC, SH_ADAM_SRC, BLIT_SRC, shRestCoefs,
 } from './shaders.js';
 import { rodrigues, m3mul } from '../sfm/geometry.js';
+import { createGpu } from '../gpu/context.js';
 
 export class GSTrainer {
+  /** opts.gpu: a GpuContext from createGpu() — share ONE device between the
+   *  trainer and the SIFT matcher. When omitted, a private one is created. */
   static async create(opts = {}) {
-    if (!navigator.gpu) throw new Error('WebGPU not available in this browser');
-    const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
-    if (!adapter) throw new Error('no WebGPU adapter');
-    // full-res target buffers can exceed the 128MB default binding limit
-    const want = 1 << 30;
-    const device = await adapter.requestDevice({
-      requiredLimits: {
-        maxStorageBufferBindingSize: Math.min(adapter.limits.maxStorageBufferBindingSize, want),
-        maxBufferSize: Math.min(adapter.limits.maxBufferSize, want),
-      },
-    });
-    return new GSTrainer(device, opts);
+    const gpu = opts.gpu || await createGpu(opts);
+    return new GSTrainer(gpu.device, opts);
   }
 
   constructor(device, opts = {}) {

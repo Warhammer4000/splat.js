@@ -12,7 +12,7 @@
 //      last, front-facing faces only (visible faces of a convex solid never
 //      overlap in projection)
 
-import { processSource } from './imageio.js';
+import { processSource } from './io/frames.js';
 import { makeRng } from './sfm/geometry.js';
 
 const W = 640, H = 480, F = 620;

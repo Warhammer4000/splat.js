@@ -64,28 +64,38 @@ fn main(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_id) li: 
 }
 `;
 
-let cached = null;
+// pipeline cache per injected device (a host page owns ONE device shared by
+// the matcher and the trainer; a second device would double descriptor VRAM)
+const pipelines = new WeakMap();
 
-async function getDevice() {
-  if (cached) return cached;
-  const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
-  if (!adapter) throw new Error('no WebGPU adapter');
-  const device = await adapter.requestDevice();
-  const module = device.createShaderModule({ code: WGSL });
-  const pipeline = device.createComputePipeline({
-    layout: 'auto',
-    compute: { module, entryPoint: 'main' },
-  });
-  cached = { device, pipeline };
-  return cached;
+function getPipeline(device) {
+  let p = pipelines.get(device);
+  if (!p) {
+    const module = device.createShaderModule({ code: WGSL });
+    p = device.createComputePipeline({
+      layout: 'auto',
+      compute: { module, entryPoint: 'main' },
+    });
+    pipelines.set(device, p);
+  }
+  return p;
 }
 
 /** Match all pairs on GPU. feats: array of { n, desc: Uint8Array(n*128) }.
  *  pairs: [[i, j], ...]. Returns Array (parallel to pairs) of flat match
- *  arrays [ia0, ib0, ia1, ib1, ...]. */
-export async function gpuMatchAll(feats, pairs, ratio = 0.8, log = () => {}) {
+ *  arrays [ia0, ib0, ia1, ib1, ...].
+ *  extDevice: a caller-owned GPUDevice (recommended — share it with the
+ *  trainer); when omitted a temporary device is created and destroyed. */
+export async function gpuMatchAll(feats, pairs, ratio = 0.8, log = () => {}, extDevice = null) {
   const t0 = performance.now();
-  const { device, pipeline } = await getDevice();
+  let device = extDevice, ownDevice = false;
+  if (!device) {
+    const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+    if (!adapter) throw new Error('no WebGPU adapter');
+    device = await adapter.requestDevice();
+    ownDevice = true;
+  }
+  const pipeline = getPipeline(device);
 
   // upload all descriptors once (concatenated, u32 view of the uint8 data)
   const offsets = new Array(feats.length);
@@ -182,6 +192,8 @@ export async function gpuMatchAll(feats, pairs, ratio = 0.8, log = () => {}) {
     }
     jStart = jEnd;
   }
+  descBuf.destroy();
+  if (ownDevice) device.destroy();
   log(`  GPU matching: ${pairs.length} pairs in ${((performance.now() - t0) / 1000).toFixed(1)}s`);
   return results;
 }

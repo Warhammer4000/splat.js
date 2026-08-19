@@ -1,70 +1,26 @@
-// main.js — UI + pipeline orchestration:
+// main.js — the DEV harness UI on top of the splat.js library (src/).
 // images -> SfM -> Gaussian init -> WebGPU training -> viewer/export.
+//
+// This page deliberately uses the layer-1 API (runSfM/GSTrainer directly)
+// and keeps the window.__sfmOpts / __trainerOpts / __featMaxDim /
+// __trainMaxDim bridges so console-driven experiments and the measurement
+// automation keep working. The library itself reads none of them.
 
-import { loadImageFiles, processSource, adaptiveTrainCap } from './imageio.js';
-import { generateSyntheticDataset } from './synthetic.js';
-import { runSfM } from './sfm/sfm.js';
-import { initGaussians } from './gs/init.js';
-import { GSTrainer } from './gs/trainer.js';
+import {
+  decodeFrames, processSource, adaptiveTrainCap,
+  runSfM, initGaussians, GSTrainer,
+  bakeOpacityCompensation, undistortFrames, camPosition,
+} from '../../../src/index.js';
+import { downloadPly } from './download.js';
+import { generateSyntheticDataset } from '../../../src/synthetic.js';
 import { OrbitCamera } from './viewer.js';
-import { downloadPly, bakeOpacityCompensation } from './ply.js';
 import { PCViewer } from './pcviewer.js';
 
-/** Undistort training images in place (bilinear resample) so the pinhole
- *  trainer matches BA's distortion-corrected geometry. The undistorted image
- *  at pinhole pixel u samples the source at distort(u) — direct forward
- *  application, no iteration needed. k applies to normalized coords, so the
- *  same coefficients hold at any resolution. */
-function undistortImages(images, sfm) {
-  const { k1, k2 } = sfm;
-  // below ~0.01 the estimated distortion is noise (synthetic GT k1=0 comes
-  // back as ~0.005) and resampling would only soften the targets
-  if (Math.abs(k1) < 0.01 && Math.abs(k2) < 0.01) return false;
-  for (const im of images) {
-    const f = sfm.fFeat * (im.tw / im.fw);
-    const cx = im.tw / 2, cy = im.th / 2;
-    const src = im.rgb;
-    const dst = new Float32Array(src.length);
-    for (let y = 0; y < im.th; y++) {
-      for (let x = 0; x < im.tw; x++) {
-        const xp = (x + 0.5 - cx) / f, yp = (y + 0.5 - cy) / f;
-        const r2 = xp * xp + yp * yp;
-        const D = 1 + k1 * r2 + k2 * r2 * r2;
-        const rx = f * xp * D + cx - 0.5;
-        const ry = f * yp * D + cy - 0.5;
-        const o = (y * im.tw + x) * 3;
-        if (rx < 0 || ry < 0 || rx > im.tw - 1.001 || ry > im.th - 1.001) {
-          // sample falls outside the source frame: mark invalid (sentinel)
-          // so the trainer excludes this pixel from the loss instead of
-          // learning an edge-clamp smear
-          dst[o] = -1; dst[o + 1] = -1; dst[o + 2] = -1;
-          continue;
-        }
-        const sx = rx, sy = ry;
-        const x0 = sx | 0, y0 = sy | 0;
-        const fx = sx - x0, fy = sy - y0;
-        const i00 = (y0 * im.tw + x0) * 3, i01 = i00 + 3;
-        const i10 = i00 + im.tw * 3, i11 = i10 + 3;
-        for (let c = 0; c < 3; c++) {
-          dst[o + c] =
-            src[i00 + c] * (1 - fx) * (1 - fy) + src[i01 + c] * fx * (1 - fy) +
-            src[i10 + c] * (1 - fx) * fy + src[i11 + c] * fx * fy;
-        }
-      }
-    }
-    im.rgb = dst;
-  }
-  return true;
-}
-
-/** world-space position of a camera pose {R, t} */
-function camPosition({ R, t }) {
-  return [
-    -(R[0] * t[0] + R[3] * t[1] + R[6] * t[2]),
-    -(R[1] * t[0] + R[4] * t[1] + R[7] * t[2]),
-    -(R[2] * t[0] + R[5] * t[1] + R[8] * t[2]),
-  ];
-}
+// experiment overrides (set from the console / automation)
+const frameOpts = () => ({
+  featMaxDim: window.__featMaxDim || undefined,
+  trainMaxDim: window.__trainMaxDim || undefined,
+});
 
 const $ = (id) => document.getElementById(id);
 const logEl = $('log');
@@ -98,15 +54,19 @@ function showThumbs() {
   const c = $('thumbs');
   c.innerHTML = '';
   for (const im of state.images) {
-    im.thumb.title = im.name;
-    c.appendChild(im.thumb);
+    // frame thumbs are OffscreenCanvas (the library is DOM-free) — blit them
+    const cv = document.createElement('canvas');
+    cv.width = im.thumb.width; cv.height = im.thumb.height;
+    cv.getContext('2d').drawImage(im.thumb, 0, 0);
+    cv.title = im.name;
+    c.appendChild(cv);
   }
   $('stat-images').textContent = state.images.length;
   $('btn-sfm').disabled = state.images.length < 2;
 }
 
 async function addFiles(files) {
-  const imgs = await loadImageFiles(files, log);
+  const imgs = await decodeFrames(files, { log, ...frameOpts() });
   state.images.push(...imgs);
   log(`loaded ${imgs.length} images (${state.images.length} total)`);
   showThumbs();
@@ -137,7 +97,7 @@ async function loadScene(sc) {
   log(`fetching ${sc.name} (stride ${sc.stride}, max ${sc.max}) ...`);
   let names = [];
   if (sc.files) {
-    const all = await (await fetch(`../data/${sc.dir}/${sc.files}`)).json();
+    const all = await (await fetch(`../../data/${sc.dir}/${sc.files}`)).json();
     for (let i = 0; i < all.length; i += sc.stride) names.push(all[i]);
   } else {
     for (let i = sc.start; i <= sc.end; i += sc.stride) {
@@ -148,16 +108,17 @@ async function loadScene(sc) {
   const imgs = [];
   for (const name of names) {
     try {
-      const resp = await fetch(`../data/${sc.dir}/${name}`);
+      const resp = await fetch(`../../data/${sc.dir}/${name}`);
       if (!resp.ok) break;
       const bmp = await createImageBitmap(await resp.blob());
       // train at the provided resolution, shrunk only if the full set would
       // blow the GPU target budget (decided once, from the first image)
       if (!imgs.trainCap) {
-        imgs.trainCap = adaptiveTrainCap(names.length, bmp.width, bmp.height);
+        imgs.trainCap = window.__trainMaxDim ||
+          adaptiveTrainCap(names.length, bmp.width, bmp.height);
         log(`training resolution: ${imgs.trainCap}px max dim (${names.length} images)`);
       }
-      imgs.push(processSource(bmp, bmp.width, bmp.height, name, imgs.trainCap));
+      imgs.push(processSource(bmp, bmp.width, bmp.height, name, imgs.trainCap, frameOpts()));
       bmp.close();
     } catch { break; }
   }
@@ -177,8 +138,8 @@ $('btn-gtposes').addEventListener('click', async () => {
     $('btn-gtposes').disabled = true;
     const sc = state.scene;
     log('loading ground-truth cameras + points (COLMAP) ...');
-    const gt = await (await fetch(`../data/${sc.dir}/gt_cameras.json`)).json();
-    const gtPts = await (await fetch(`../data/${sc.dir}/gt_points.json`)).json();
+    const gt = await (await fetch(`../../data/${sc.dir}/gt_cameras.json`)).json();
+    const gtPts = await (await fetch(`../../data/${sc.dir}/gt_points.json`)).json();
     const f0 = Math.sqrt(gt.fx * gt.fy); // single-f model: split fx/fy difference
     const cams = [];
     state.images.forEach((im, idx) => {
@@ -208,7 +169,7 @@ $('btn-gtposes').addEventListener('click', async () => {
   const sel = $('dataset-select');
   let scenes = [];
   try {
-    scenes = await (await fetch('../data/index.json')).json();
+    scenes = await (await fetch('../../data/index.json')).json();
     for (const sc of scenes) {
       const o = document.createElement('option');
       o.value = sc.name;
@@ -238,11 +199,11 @@ $('btn-sfm').addEventListener('click', async () => {
     state.sfm = await runSfM(state.images, log,
       (imgIdx, x, y) => state.images[imgIdx].sampleColor(x, y),
       { graph: (state.scene && state.scene.graph) || undefined, // scene may declare; else feature-based default
-        msFeatures: !!(window.__sfmOpts && window.__sfmOpts.msFeatures),
-        features: (window.__sfmOpts && window.__sfmOpts.features) || undefined });
+        ...(window.__sfmOpts || {}), // console experiment channel (dev harness only)
+        debug: (d) => { window.__sfmDebug = d; } });
     const dt = ((performance.now() - t0) / 1000).toFixed(1);
     log(`SfM took ${dt}s`);
-    if (undistortImages(state.images, state.sfm)) {
+    if (undistortFrames(state.images, state.sfm)) {
       log(`undistorted training images (k1 ${state.sfm.k1.toFixed(4)}, k2 ${state.sfm.k2.toFixed(4)})`);
     }
     $('stat-cams').textContent = state.sfm.cams.length;

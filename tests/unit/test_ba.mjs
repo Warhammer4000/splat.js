@@ -1,7 +1,7 @@
 // Validate the bundle adjuster on a synthetic drifted-chain problem.
-import { bundleAdjust } from 'file:///C:/Dev/arrival.space/Browser_3DGS/prototype/js/sfm/ba.js';
+import { bundleAdjust } from '../../src/sfm/ba.js';
 import { rodrigues, m3mul, m3t, m3mulv, so3Log, makeRng }
-  from 'file:///C:/Dev/arrival.space/Browser_3DGS/prototype/js/sfm/geometry.js';
+  from '../../src/sfm/geometry.js';
 
 const rng = makeRng(4242);
 const gauss = () => {

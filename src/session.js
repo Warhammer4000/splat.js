@@ -1,0 +1,432 @@
+// session.js — layer 2: the one object a UI talks to.
+//
+//   const s = createSession();
+//   s.on('stage',   e => ...)   // { stage, done, total, detail }
+//   s.on('metrics', e => ...)   // { iter, splats, itersPerSec, psnrTrain, psnrHold }
+//   s.on('event',   e => ...)   // { kind: 'refine' | 'train-complete', ... }
+//   s.on('log',     m => ...)   // prose, for consoles
+//
+//   await s.load(files);        // File[] / Blob[] -> Frames
+//   await s.solve();            // SfM: cameras + sparse points
+//   await s.seed();             // Gaussians + WebGPU trainer
+//   s.start(); s.pause();       // the training loop (policy lives HERE)
+//
+//   s.view.attach(canvas);      // render target
+//   s.view.lookThrough(i);      // camera = training frame i
+//   s.view.setCamera(pose);     // free camera
+//   await s.exportPlyBlob();    // standard 3DGS .ply (opacity comp baked)
+//
+// All numeric policy that used to live in the demo page is here: iteration
+// batching, auto-stop, refine cadence, blur exclusion, holdout choice, PSNR
+// conversion, and the hidden-tab watchdog.
+
+import { decodeFrames } from './io/frames.js';
+import { runSfM } from './sfm/sfm.js';
+import { initGaussians } from './gs/init.js';
+import { GSTrainer } from './gs/trainer.js';
+import { createGpu } from './gpu/context.js';
+import { gaussiansToPly, bakeOpacityCompensation } from './io/ply.js';
+
+/** world-space position of a camera pose {R, t} */
+export function camPosition({ R, t }) {
+  return [
+    -(R[0] * t[0] + R[3] * t[1] + R[6] * t[2]),
+    -(R[1] * t[0] + R[4] * t[1] + R[7] * t[2]),
+    -(R[2] * t[0] + R[5] * t[1] + R[8] * t[2]),
+  ];
+}
+
+/** Undistort training images in place (bilinear resample) so the pinhole
+ *  trainer matches BA's distortion-corrected geometry. Returns true when a
+ *  resample actually happened (|k| above the noise floor). Out-of-frame
+ *  samples get a -1 sentinel the trainer excludes from the loss. */
+export function undistortFrames(frames, recon) {
+  const { k1, k2 } = recon;
+  // below ~0.01 the estimated distortion is noise (synthetic GT k1=0 comes
+  // back as ~0.005) and resampling would only soften the targets
+  if (Math.abs(k1) < 0.01 && Math.abs(k2) < 0.01) return false;
+  for (const im of frames) {
+    const f = recon.fFeat * (im.tw / im.fw);
+    const cx = im.tw / 2, cy = im.th / 2;
+    const src = im.rgb;
+    const dst = new Float32Array(src.length);
+    for (let y = 0; y < im.th; y++) {
+      for (let x = 0; x < im.tw; x++) {
+        const xp = (x + 0.5 - cx) / f, yp = (y + 0.5 - cy) / f;
+        const r2 = xp * xp + yp * yp;
+        const D = 1 + k1 * r2 + k2 * r2 * r2;
+        const rx = f * xp * D + cx - 0.5;
+        const ry = f * yp * D + cy - 0.5;
+        const o = (y * im.tw + x) * 3;
+        if (rx < 0 || ry < 0 || rx > im.tw - 1.001 || ry > im.th - 1.001) {
+          dst[o] = -1; dst[o + 1] = -1; dst[o + 2] = -1;
+          continue;
+        }
+        const x0 = rx | 0, y0 = ry | 0;
+        const fx = rx - x0, fy = ry - y0;
+        const i00 = (y0 * im.tw + x0) * 3, i01 = i00 + 3;
+        const i10 = i00 + im.tw * 3, i11 = i10 + 3;
+        for (let c = 0; c < 3; c++) {
+          dst[o + c] =
+            src[i00 + c] * (1 - fx) * (1 - fy) + src[i01 + c] * fx * (1 - fy) +
+            src[i10 + c] * (1 - fx) * fy + src[i11 + c] * fx * fy;
+        }
+      }
+    }
+    im.rgb = dst;
+  }
+  return true;
+}
+
+/**
+ * @typedef {object} SessionOptions
+ * @property {GPUDevice} [device]        host-owned WebGPU device to share
+ * @property {number} [maxIters=60000]   auto-stop; trainer schedules scale to it
+ * @property {number} [itersPerFrame=15] training batch per animation frame
+ * @property {number} [initTarget=60000] initial Gaussian count (grows during training)
+ * @property {number|'auto'|null} [holdout='auto']  frame excluded from training
+ *   and scored as the novel-view metric; 'auto' picks a sharp mid-sequence frame
+ * @property {number} [evalHoldEvery=4000]  holdout PSNR cadence (iterations)
+ * @property {object} [sfm]              SfmOptions passed to solve()
+ * @property {object} [trainer]          extra GSTrainer options (shDeg, ...)
+ * @property {object} [frames]           FrameOptions passed to load()
+ */
+
+class Emitter {
+  constructor() { this.map = new Map(); }
+  on(type, fn) {
+    if (!this.map.has(type)) this.map.set(type, new Set());
+    this.map.get(type).add(fn);
+    return () => this.map.get(type).delete(fn);
+  }
+  emit(type, e) {
+    const s = this.map.get(type);
+    if (s) for (const fn of s) fn(e);
+  }
+}
+
+export class Session {
+  /** @param {SessionOptions} [opts] */
+  constructor(opts = {}) {
+    this.opts = opts;
+    this.frames = [];
+    this.recon = null;      // solve() result: { cams, points, k1, k2, ... }
+    this.model = null;      // seed() result: { data, n, center, radius }
+    this.trainer = null;
+    this.gpu = null;
+    this.holdout = -1;
+    this.training = false;
+    this.lossHistory = [];  // [iter, psnrTrain]
+    this._em = new Emitter();
+    this._debug = null;     // solver internals (feats/tracks) for UI beats
+    this.view = new SessionView(this);
+  }
+
+  on(type, fn) { return this._em.on(type, fn); }
+  _log(m) { this._em.emit('log', m); }
+  _stage(e) { this._em.emit('stage', e); }
+
+  /** Decode photographs into Frames. files: File[]/Blob[]/{source,name}[] */
+  async load(files) {
+    this._stage({ stage: 'decode', done: 0, total: files.length });
+    this.frames = await decodeFrames(files, {
+      ...this.opts.frames, log: (m) => this._log(m),
+    });
+    this._stage({ stage: 'decode', done: this.frames.length, total: files.length });
+    if (this.frames.length < 2) throw new Error('need at least 2 decodable images');
+    return this.frames;
+  }
+
+  /** Use frames prepared elsewhere (e.g. processSource on fetched bitmaps). */
+  useFrames(frames) { this.frames = frames; return frames; }
+
+  /** Structure from motion: camera poses + sparse points from the frames. */
+  async solve(extra = {}) {
+    const opts = { ...this.opts.sfm, ...extra };
+    this.recon = await runSfM(
+      this.frames,
+      (m) => this._log(m),
+      (imgIdx, x, y) => this.frames[imgIdx].sampleColor(x, y),
+      {
+        ...opts,
+        onEvent: (e) => { this._stage(e); if (opts.onEvent) opts.onEvent(e); },
+        debug: (d) => { this._debug = d; if (opts.debug) opts.debug(d); },
+      });
+    if (undistortFrames(this.frames, this.recon)) {
+      this._log(`undistorted training images (k1 ${this.recon.k1.toFixed(4)}, k2 ${this.recon.k2.toFixed(4)})`);
+    }
+    this._stage({ stage: 'solved', done: 1, total: 1, detail: {
+      cams: this.recon.cams.length, points: this.recon.points.length,
+      rms: this.recon.rmsBA,
+    } });
+    return this.recon;
+  }
+
+  /** Load a reconstruction obtained elsewhere ({ cams, points, ... }). */
+  useReconstruction(recon) {
+    this.recon = { k1: 0, k2: 0, fScale: 1, medErr: 0, rmsBA: null, ...recon };
+    return this.recon;
+  }
+
+  /** Seed Gaussians from the sparse cloud and set up the WebGPU trainer. */
+  async seed(extra = {}) {
+    if (!this.recon) throw new Error('solve() first');
+    this._stage({ stage: 'seed', done: 0, total: 1 });
+    const target = extra.initTarget || this.opts.initTarget || 60000;
+    const clones = Math.min(24, Math.max(2, Math.round(target / this.recon.points.length) - 1));
+    this.model = initGaussians(this.recon.points, clones);
+    this._log(`initialized ${this.model.n} Gaussians (scene radius ${this.model.radius.toFixed(2)})`);
+
+    if (!this.gpu) this.gpu = await createGpu({ device: this.opts.device });
+    const trainerOpts = {
+      maxIters: this.opts.maxIters ?? 60000,
+      ...this.opts.trainer, ...extra.trainer,
+      gpu: this.gpu,
+    };
+    this.trainer = await GSTrainer.create(trainerOpts);
+
+    // training-resolution intrinsics (recon poses live at feature scale)
+    const cams = this.recon.cams.map((c) => {
+      const im = this.frames[c.imgIdx];
+      const s = im.tw / im.fw;
+      return { ...c, f: c.f * s, cx: im.tw / 2, cy: im.th / 2, w: im.tw, h: im.th };
+    });
+    const maxW = Math.max(...cams.map((c) => c.w));
+    const maxH = Math.max(...cams.map((c) => c.h));
+    this.trainer.setup(this.model, cams, this.frames, maxW, maxH, this.model.radius);
+
+    // blur-aware training: the blurriest frames stay registered (their poses
+    // hold the chain together) but are excluded from the loss so the model
+    // doesn't learn their motion blur
+    const sh = this.trainer.camMeta.map((m) => this.frames[m.imgIdx].sharpness);
+    const med = [...sh].sort((a, b) => a - b)[sh.length >> 1];
+    this.trainer.excluded = new Set();
+    this.trainer.camMeta.forEach((m, i) => {
+      if (sh[i] < med * 0.45) this.trainer.excluded.add(i);
+    });
+    if (this.trainer.excluded.size) {
+      this._log(`excluding ${this.trainer.excluded.size} blurry cameras from the training loss ` +
+        `(sharpness < 45% of median; poses kept)`);
+    }
+
+    // holdout: one sharp mid-sequence frame excluded from training and scored
+    // as the honest novel-view metric
+    const want = extra.holdout ?? this.opts.holdout ?? 'auto';
+    if (want === 'auto') {
+      let hi = this.trainer.camMeta.length >> 1;
+      for (let k = 0; k < this.trainer.camMeta.length && this.trainer.excluded.has(hi); k++) {
+        hi = (hi + 1) % this.trainer.camMeta.length;
+      }
+      this.holdout = hi;
+    } else {
+      this.holdout = (want == null || want < 0) ? -1 : want;
+    }
+    this.trainer.holdout = this.holdout;
+
+    this._stage({ stage: 'seed', done: 1, total: 1, detail: { splats: this.model.n } });
+    return this.model;
+  }
+
+  // ---- the training loop (policy that used to live in the demo page) ----
+
+  start() {
+    if (!this.trainer) throw new Error('seed() first');
+    if (this.training) return;
+    this.training = true;
+    this._stage({ stage: 'train', done: this.trainer.iter, total: this._maxIters() });
+    this._ensureScheduler();
+    this._scheduleFrame();
+  }
+
+  pause() { this.training = false; }
+
+  _maxIters() { return this.opts.maxIters ?? 60000; }
+
+  _ensureScheduler() {
+    if (this._sched) return;
+    // Hidden tabs AND occluded windows get their rAF throttled; worker
+    // messages are not. The worker tick drives the loop whenever a scheduled
+    // frame is >150ms late.
+    let tickWorker = null;
+    try {
+      const src = 'setInterval(() => postMessage(0), 33);';
+      tickWorker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+    } catch { /* no Worker: rAF only */ }
+    this._framePending = false;
+    this._frameScheduledAt = 0;
+    const runFrame = () => {
+      if (!this._framePending) return;
+      this._framePending = false;
+      this._frameLoop();
+    };
+    if (tickWorker) {
+      tickWorker.onmessage = () => {
+        if (this._framePending && this.training &&
+            performance.now() - this._frameScheduledAt > 150) runFrame();
+      };
+    }
+    this._sched = {
+      runFrame, tickWorker,
+      raf: typeof requestAnimationFrame === 'function'
+        ? requestAnimationFrame : (fn) => setTimeout(fn, 16),
+    };
+    this._frameCount = 0;
+    this._lastStats = performance.now();
+    this._itersAtStats = 0;
+    this._lastHoldEval = 0;
+  }
+
+  _scheduleFrame() {
+    this._framePending = true;
+    this._frameScheduledAt = performance.now();
+    this._sched.raf(this._sched.runFrame);
+  }
+
+  async _frameLoop() {
+    const trainer = this.trainer;
+    if (!trainer || !trainer.camMeta) return;
+    this._frameCount++;
+
+    if (this.training && trainer.iter >= this._maxIters()) {
+      this.training = false;
+      this._log(`training complete at ${trainer.iter} iterations`);
+      this._em.emit('event', { kind: 'train-complete', iter: trainer.iter, splats: trainer.n });
+      await this._emitMetrics(true);
+    }
+
+    if (this.training) {
+      // batch enough iterations per frame to keep the GPU busy (raw kernel
+      // throughput is ~2x what small batches achieve); the UI stays smooth
+      // because each frame awaits the queue anyway
+      const batch = this.opts.itersPerFrame ?? 15;
+      for (let k = 0; k < batch; k++) trainer.stepOnce();
+
+      // periodic refinement: relocate dead splats + grow capacity (MCMC-lite)
+      if (trainer.iter > 1500 && trainer.iter - (trainer.lastRefine || 0) >= 2500) {
+        trainer.lastRefine = trainer.iter;
+        trainer.refine().then((r) => {
+          if (r.moved || r.grown) {
+            this._log(`refine @${trainer.iter}: relocated ${r.moved}, grew +${r.grown} -> ${r.n} splats`);
+            this._em.emit('event', { kind: 'refine', iter: trainer.iter, ...r });
+          }
+        });
+      }
+
+      const now = performance.now();
+      if (now - this._lastStats > 2000) await this._emitMetrics();
+    }
+
+    this.view._tick(this._frameCount, this.training);
+
+    await trainer.device.queue.onSubmittedWorkDone();
+    if (this.training || this.view._dirty) this._scheduleFrame();
+  }
+
+  async _emitMetrics(final = false) {
+    const trainer = this.trainer;
+    const now = performance.now();
+    const itersPerSec = (trainer.iter - this._itersAtStats) / Math.max(1, now - this._lastStats) * 1000;
+    this._itersAtStats = trainer.iter;
+    this._lastStats = now;
+    const m = { iter: trainer.iter, splats: trainer.n, itersPerSec: Math.round(itersPerSec) };
+    const mse = await trainer.readLoss();
+    if (mse != null && mse > 0) {
+      m.psnrTrain = -10 * Math.log10(mse);
+      this.lossHistory.push([trainer.iter, m.psnrTrain]);
+    }
+    const holdEvery = this.opts.evalHoldEvery ?? 4000;
+    if (this.holdout >= 0 &&
+        (final || trainer.iter - this._lastHoldEval >= holdEvery)) {
+      this._lastHoldEval = trainer.iter;
+      m.psnrHold = await trainer.evalCamPsnr(this.holdout);
+      this._lastHold = m.psnrHold;
+    } else if (this._lastHold != null) {
+      m.psnrHold = this._lastHold;
+    }
+    this._em.emit('metrics', m);
+    return m;
+  }
+
+  /** One-shot quality readout (used by tests and the done screen). */
+  async metrics({ refined = false } = {}) {
+    const trainer = this.trainer;
+    const out = { iter: trainer.iter, splats: trainer.n };
+    if (this.holdout >= 0) {
+      out.psnrHold = await trainer.evalCamPsnr(this.holdout);
+      if (refined) out.psnrHoldRefined = await trainer.evalCamPsnrRefined(this.holdout);
+    }
+    return out;
+  }
+
+  /** Standard 3DGS .ply with Mip opacity compensation baked (what external
+   *  sorted viewers expect). */
+  async exportPlyBlob() {
+    const { data, n, sh, shK } = await this.trainer.readGaussians();
+    const meta = this.trainer.camMeta[0];
+    const camPos = Float32Array.from(this.trainer.camMeta.flatMap(camPosition));
+    const baked = bakeOpacityCompensation(data, n, meta.f, camPos);
+    return gaussiansToPly(baked, n, sh, shK);
+  }
+
+  dispose() {
+    this.training = false;
+    if (this._sched && this._sched.tickWorker) this._sched.tickWorker.terminate();
+    if (this.gpu && this.gpu.owned) this.gpu.dispose();
+    this.trainer = null;
+  }
+}
+
+/** The session's render target: one canvas, one camera. */
+class SessionView {
+  constructor(session) {
+    this.s = session;
+    this.canvas = null;
+    this.ctx = null;
+    this.camera = null;   // { R, t, f, cx, cy, w, h } at canvas resolution
+    this._dirty = false;
+    this._offset = 0;     // training-target offset when looking through a frame
+  }
+
+  attach(canvas) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('webgpu');
+    this.ctx.configure({
+      device: this.s.trainer.device,
+      format: this.s.trainer.canvasFormat,
+      alphaMode: 'opaque',
+    });
+    this._dirty = true;
+    if (!this.s.training) this.s._ensureScheduler(), this.s._scheduleFrame();
+  }
+
+  /** Point the camera at training frame i (exact pose + intrinsics). Returns
+   *  the camera meta so the UI can overlay the photograph. */
+  lookThrough(i) {
+    const meta = this.s.trainer.camMeta[i];
+    this.setCamera({ ...meta });
+    this._offset = meta.offset;
+    return meta;
+  }
+
+  /** Free camera: { R, t, f, cx, cy, w, h }. */
+  setCamera(cam) {
+    this.camera = cam;
+    this._offset = 0;
+    this._dirty = true;
+    if (!this.s.training && this.s._sched) this.s._scheduleFrame();
+  }
+
+  renderNow() {
+    if (!this.ctx || !this.camera) return;
+    this.s.trainer.renderView(this.camera, this.ctx, 0, this._offset);
+    this._dirty = false;
+  }
+
+  _tick(frameCount, training) {
+    if (!this.ctx || !this.camera) return;
+    if (this._dirty || (training && frameCount % 6 === 0)) this.renderNow();
+  }
+}
+
+/** @param {SessionOptions} [opts] */
+export function createSession(opts = {}) { return new Session(opts); }

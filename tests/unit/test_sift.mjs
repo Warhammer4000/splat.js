@@ -1,7 +1,7 @@
 // Validate js SIFT against COLMAP's reference extraction on the same image.
 import { createRequire } from 'module';
 import fs from 'fs';
-import { detectSift, matchSift } from 'file:///C:/Dev/arrival.space/Browser_3DGS/prototype/js/sfm/sift.js';
+import { detectSift, matchSift } from '../../src/sfm/sift.js';
 
 const require = createRequire(import.meta.url);
 const jpeg = require('jpeg-js');
