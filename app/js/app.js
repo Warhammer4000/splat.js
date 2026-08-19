@@ -9,7 +9,7 @@
 // splat.js Session — plus the trainer's rendered canvas.
 
 import { createSession, gaussiansToPly } from '../../src/index.js';
-import { handleOAuthCallback, sendToArrival } from './arrival.js';
+import { handleOAuthCallback, sendToArrival, hasToken } from './arrival.js';
 import { PRESETS, REPO, DATA, HOLD_HELP, ownSet } from './data.js';
 import { Viewport, camCentre } from './viewport.js';
 import { Developer, fitRect } from './develop.js';
@@ -504,7 +504,7 @@ function buildExport() {
   wrap.innerHTML = `
     <button class="iconbtn" title="Export" aria-label="Export">${DL_ICON}</button>
     <div class="menu" hidden>
-      <button data-act="arr"><b>Send to Arrival.Space</b><span>Straight into a space of yours</span></button>
+      <button data-act="arr"><b>Upload to Arrival.Space</b><span>Straight into a space of yours</span></button>
       <button data-act="ply"><b>Download .ply</b><span>Standard splat file · ${mb} MB</span></button>
     </div>`;
 
@@ -524,26 +524,67 @@ function buildExport() {
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
     flash(`${fmt(S.splats)} splats on their way to your downloads.`, 3500);
   });
-  wrap.querySelector('[data-act="arr"]').addEventListener('click', async () => {
+  wrap.querySelector('[data-act="arr"]').addEventListener('click', () => {
     menu.hidden = true;
-    if (S.uploading) return;
+    if (!S.uploading) uploadDialog();
+  });
+  return wrap;
+}
+
+/** Ask for the space's title (a default is prefilled), then upload. The
+ *  sign-in window MUST be opened synchronously inside the Upload click —
+ *  after any await it would be popup-blocked. The finished space is
+ *  presented as a link, never auto-opened. */
+function uploadDialog() {
+  document.getElementById('upcard')?.remove();
+  const card = document.createElement('div');
+  card.className = 'upcard';
+  card.id = 'upcard';
+  card.innerHTML = `
+    <b>Upload to Arrival.Space</b>
+    <input id="up-title" type="text" spellcheck="false" maxlength="80">
+    <div class="upcard-row">
+      <button class="btn btn-quiet" id="up-cancel">Cancel</button>
+      <button class="btn btn-accent" id="up-go">Upload</button>
+    </div>`;
+  $('stage').appendChild(card);
+  const input = card.querySelector('#up-title');
+  input.value = S.preset.id === '__own' ? 'My splat' : S.preset.name;
+  input.focus();
+  input.select();
+  const close = () => card.remove();
+  card.querySelector('#up-cancel').addEventListener('click', close);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') card.querySelector('#up-go').click();
+    if (e.key === 'Escape') close();
+  });
+  card.querySelector('#up-go').addEventListener('click', async () => {
+    const title = input.value.trim() || 'My splat';
+    // synchronously, inside the click: the sign-in window (about:blank now,
+    // the login page once the auth URL is built)
+    const popup = hasToken() ? null : window.open('', 'arrival-oauth', 'width=480,height=720');
+    close();
+    if (!hasToken() && !popup) {
+      flash('The sign-in window was blocked — allow popups for this site and try again.', 8000);
+      return;
+    }
     S.uploading = true;
     try {
       const blob = await S.session.exportPlyBlob();
-      const url = await sendToArrival(blob, S.preset.name, {
+      const url = await sendToArrival(blob, title, {
+        popup,
         onStatus: (m) => flash(m, 120000),
-        onProgress: (pct) => flash(`Uploading to Arrival.Space … ${pct}%`, 120000),
+        onProgress: (pct) => flash(`Uploading … ${pct}%`, 120000),
       });
-      flash('Your space is ready — opening it.', 5000);
-      window.open(url, '_blank', 'noopener');
+      flash(`<b>${title}</b> is live · <a href="${url}" target="_blank" rel="noopener">Open your space ↗</a>`, 300000);
     } catch (e) {
       console.error(e);
-      flash(`Arrival.Space export failed: ${e.message}`, 8000);
+      if (popup && !popup.closed) popup.close();
+      flash(`Upload failed: ${e.message}`, 9000);
     } finally {
       S.uploading = false;
     }
   });
-  return wrap;
 }
 
 /** put the camera exactly on a frame's pose and lay its photograph over the model */

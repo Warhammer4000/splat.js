@@ -70,8 +70,20 @@ async function getClient() {
   return client;
 }
 
-/** Full PKCE round-trip in a popup; resolves to the access token. */
-async function signIn(onStatus) {
+/** Is a (never-expiring) token already stored? Callers use this to decide
+ *  whether the click needs to open a sign-in window SYNCHRONOUSLY — a
+ *  window.open after any await is popup-blocked. */
+export function hasToken() {
+  return !!localStorage.getItem(LS_TOKEN);
+}
+
+/** Full PKCE round-trip; resolves to the access token. `popup` must be a
+ *  window opened synchronously inside the user's click (about:blank is
+ *  fine — it gets navigated to the login page here). */
+async function signIn(onStatus, popup) {
+  if (!popup || popup.closed) {
+    throw new Error('sign-in window unavailable — press Upload again');
+  }
   const client = await getClient();
   const verifier = randomString(64);
   const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
@@ -86,8 +98,7 @@ async function signIn(onStatus) {
   auth.searchParams.set('state', state);
   auth.searchParams.set('scope', 'mcp:tools');
 
-  const popup = window.open(auth, 'arrival-oauth', 'width=480,height=720');
-  if (!popup) throw new Error('popup blocked — allow popups for this site and try again');
+  popup.location.href = auth.href;
   onStatus('Sign in to Arrival.Space in the popup …');
 
   const code = await new Promise((resolve, reject) => {
@@ -123,8 +134,8 @@ async function signIn(onStatus) {
   return tok.access_token;
 }
 
-async function getToken(onStatus) {
-  return localStorage.getItem(LS_TOKEN) || signIn(onStatus);
+async function getToken(onStatus, popup) {
+  return localStorage.getItem(LS_TOKEN) || signIn(onStatus, popup);
 }
 
 async function api(path, token, body) {
@@ -171,9 +182,10 @@ async function pollJob(jobId, token, onStatus) {
 }
 
 /** The whole thing: sign in (once), upload the .ply, make a space.
- *  Returns the new space's URL. */
-export async function sendToArrival(blob, title, { onStatus = () => {}, onProgress = () => {} } = {}) {
-  let token = await getToken(onStatus);
+ *  Returns the new space's URL. `popup`: a synchronously opened window for
+ *  the first sign-in (null when hasToken()). */
+export async function sendToArrival(blob, title, { onStatus = () => {}, onProgress = () => {}, popup = null } = {}) {
+  const token = await getToken(onStatus, popup);
   const fileName = `${(title || 'splat').toLowerCase().replace(/\W+/g, '_')}.ply`;
 
   const run = async () => {
@@ -208,9 +220,9 @@ export async function sendToArrival(blob, title, { onStatus = () => {}, onProgre
     return await run();
   } catch (e) {
     if (!e.auth) throw e;
-    // stored key was revoked — sign in again, once
+    // stored key was revoked — the next click starts a fresh sign-in (a
+    // sign-in window can only be opened inside a click)
     localStorage.removeItem(LS_TOKEN);
-    token = await signIn(onStatus);
-    return run();
+    throw new Error('your Arrival.Space key was revoked — press Upload again to sign in');
   }
 }
