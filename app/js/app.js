@@ -380,6 +380,8 @@ async function open(preset, autostart = false) {
   S.plyBlob = null;
   S._recovering = false;
   S._dragPaused = false;
+  S._errRender = null;
+  S._errRenderBusy = false;
   S._viewKey = '';
   document.getElementById('cv-model')?.remove();
   gpuCanvas = null;
@@ -1014,6 +1016,43 @@ function uploadDialog() {
   });
 }
 
+/** The error map needs pixels of the render. The live WebGPU canvas can read
+ *  back blank after presentation, so render the frame's exact camera into a
+ *  scratch canvas and snapshot it right behind the fence — at training
+ *  resolution, which also makes the comparison resolution-fair. */
+async function ensureErrRender(key) {
+  if ((S._errRender && S._errRender.key === key) || S._errRenderBusy) return;
+  if (S.atFrame < 0) return;
+  const cam = S.scene.cams[S.atFrame];
+  if (!cam || cam.ci < 0) return;
+  S._errRenderBusy = true;
+  const gen = S.gen;
+  try {
+    const ses = S.session;
+    const meta = ses.trainer.camMeta[cam.ci];
+    const cv = (S._errScratch ??= document.createElement('canvas'));
+    cv.width = meta.w; cv.height = meta.h;
+    ses.view.attach(cv);
+    ses.view.lookThrough(cam.ci);
+    ses.view.renderNow();
+    await ses.trainer.device.queue.onSubmittedWorkDone();
+    if (S.gen !== gen) return;
+    const snap = (S._errSnap ??= document.createElement('canvas'));
+    snap.width = meta.w; snap.height = meta.h;
+    snap.getContext('2d').drawImage(cv, 0, 0);
+    S._errRender = { key, canvas: snap };
+  } catch (e) {
+    console.error(e);
+  } finally {
+    S._errRenderBusy = false;
+    // hand the view back to the stage and force a fresh pose render
+    if (S.gen === gen && gpuCanvas && S.session) {
+      S.session.view.attach(gpuCanvas);
+      S._viewKey = '';
+    }
+  }
+}
+
 /** put the camera exactly on a frame's pose and lay its photograph over the model */
 function goToFrame(i) {
   const cam = S.scene.cams[i];
@@ -1350,9 +1389,12 @@ function draw() {
     ctx.save();
     ctx.scale(dpr, dpr);
     ctx.globalAlpha = S.fade;
+    const errKey = `${S.atFrame}:${S.iter}`;
+    if (S.compare === 'error' && S.session && S.session.trainer) ensureErrRender(errKey);
     S.rect = dev.render(ctx, w / dpr, h / dpr, {
       mode: S.compare, loupe: S.loupe, swipe: S.swipe, dpr,
-      key: `${S.atFrame}:${S.iter}`,
+      model: (S._errRender && S._errRender.key === errKey) ? S._errRender.canvas : null,
+      key: errKey,
     });
     ctx.restore();
   }

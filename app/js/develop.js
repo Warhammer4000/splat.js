@@ -34,7 +34,7 @@ export class Developer {
    * Reads the render back rather than simulating it, which is exactly what the
    * wired-up version does with the trainer's own framebuffer.
    */
-  _error(ctx, r, dpr, key) {
+  _error(ctx, r, dpr, key, model) {
     if (this.errKey === key) return this.err;
     this.errKey = key;
 
@@ -42,7 +42,11 @@ export class Developer {
     this.err.width = ew; this.err.height = eh;
     const ec = this.err.getContext('2d', { willReadFrequently: true });
 
-    ec.drawImage(ctx.canvas, r.x * dpr, r.y * dpr, r.w * dpr, r.h * dpr, 0, 0, ew, eh);
+    // `model` is a dedicated same-camera render snapshot handed in by the app
+    // (never the live WebGPU canvas: reading one back after presentation can
+    // return blank pixels). Render and photo are the same camera image, so
+    // both just downsample to the map's working size.
+    ec.drawImage(model, 0, 0, ew, eh);
     const a = ec.getImageData(0, 0, ew, eh);
     ec.clearRect(0, 0, ew, eh);
     ec.drawImage(this.bmp, 0, 0, ew, eh);
@@ -76,7 +80,8 @@ export class Developer {
     if (o.mode === 'render') return r;              // the model is already there
     if (o.mode === 'photo') { drawPhoto(); return r; }
     if (o.mode === 'error') {
-      const e = this._error(ctx, r, o.dpr || 1, o.key || '');
+      if (!o.model) return r;   // snapshot not ready yet — next frame
+      const e = this._error(ctx, r, o.dpr || 1, o.key || '', o.model);
       ctx.imageSmoothingEnabled = true;
       ctx.drawImage(e, r.x, r.y, r.w, r.h);
       return r;
