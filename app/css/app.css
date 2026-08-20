@@ -84,6 +84,7 @@ body { overflow: hidden; }
 .controls .statchip, .controls .cbtn { height: 32px; }
 .controls .iconbtn { width: 32px; height: 32px; }
 .controls .statchip, .controls .cbtn, .controls .iconbtn { border-color: var(--line); }
+.controls .iconbtn { color: var(--paper); }   /* icons speak like the Train text */
 /* hover: the fill breathes, the border stays put */
 .controls .statchip:hover, .controls .cbtn:hover, .controls .iconbtn:hover {
   border-color: var(--line);
@@ -176,7 +177,16 @@ body { overflow: hidden; }
   touch-action: pan-x pan-y;
   padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px solid var(--line);
 }
-.setpick button { flex: 0 0 92px; }
+.setpick button { flex: 0 0 92px; position: relative; }
+/* the last-capture tile carries a badge — its thumbnail can look exactly
+   like a preset's when the capture WAS of that scene */
+.setpick .yours {
+  position: absolute; top: 9px; right: 9px; z-index: 1;
+  padding: 1px 6px 2px; border-radius: 5px;
+  background: rgba(47, 212, 193, .92); color: #04231f;
+  font: 600 9px var(--mono); font-style: normal;
+  letter-spacing: .06em; text-transform: uppercase;
+}
 .setpick button {
   padding: 4px 4px 5px; border: 1px solid transparent; border-radius: 12px;
   overflow: hidden; text-align: center; transition: border-color .14s, background .14s;

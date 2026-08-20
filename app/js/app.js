@@ -307,7 +307,9 @@ async function offerLastCapture() {
   const b = document.createElement('button');
   b.dataset.id = '__last';
   b.title = `${rec.files.length} frames, saved on this device`;
-  b.innerHTML = `<div class="ph"></div><span>Last capture</span>`;
+  // the badge keeps it apart from the presets — a capture OF a preset scene
+  // makes the thumbnails near-identical
+  b.innerHTML = `<div class="ph"></div><i class="yours">yours</i><span>Last capture</span>`;
   const img = Object.assign(new Image(), { src: URL.createObjectURL(rec.files[0].blob), alt: '' });
   img.onload = () => b.querySelector('.ph')?.replaceWith(img);
   const makeSet = () => {
