@@ -359,34 +359,28 @@ body { overflow: hidden; }
 /* run-length hint on the start card */
 .srclinks .approx { color: var(--dim, #6b7877); margin-left: 10px; font-size: 12px; }
 
-/* training settings, folded away until asked for */
-.settings {
-  margin: 0 auto 16px; max-width: 420px; padding: 12px 16px 8px;
-  text-align: left; background: var(--panel-2);
-  border: 1px solid var(--line); border-radius: 12px;
-}
+/* training settings: a bare name-value table, folded away until asked for */
+.settings { margin: 0 auto 14px; max-width: 320px; text-align: left; }
 .setrow {
-  display: flex; align-items: center; justify-content: space-between; gap: 14px;
-  padding: 6px 0;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 4px 0;
 }
-.setrow label { font: 500 12.5px var(--ui); color: var(--muted); flex: none; }
-.setrow select {
-  padding: 4px 8px; font: 500 12px var(--mono); color: var(--paper);
-  background: var(--panel); border: 1px solid var(--line-2); border-radius: 8px;
+.setrow label { font: 400 12.5px var(--ui); color: var(--muted); }
+.setrow select, .setrow input[type="number"] {
+  width: 104px; padding: 4px 8px; text-align: right; text-align-last: right;
+  font: 500 12px var(--mono); color: var(--paper);
+  background: var(--panel-2); border: 1px solid transparent; border-radius: 8px;
 }
-.setctl { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.setctl small { font: 400 10.5px var(--mono); color: var(--dim); line-height: 1.4; }
-.setctl input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; flex: none; }
-.set-hint { margin: 6px 0 4px; font: 400 11.5px var(--mono); color: var(--dim); }
+.setrow select:hover, .setrow input[type="number"]:hover { border-color: var(--line-2); }
+.setrow select:focus, .setrow input[type="number"]:focus { border-color: var(--accent-30); outline: none; }
 .startrow { display: flex; align-items: center; justify-content: center; gap: 10px; }
-
-/* photo-count parameter in the set caption */
-.setdesc input {
-  width: 54px; padding: 2px 4px; margin: 0 2px;
-  font: 500 12.5px var(--mono); text-align: center; color: var(--paper);
-  background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 6px;
+.setgear { width: 42px; height: 42px; color: var(--muted); }
+.setgear:hover { color: var(--accent); }
+.setgear .gear {
+  width: 18px; height: 18px; fill: none; stroke: currentColor;
+  stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
 }
-.setdesc input:focus { border-color: var(--accent-30); outline: none; }
+
 
 /* the run length, inline after the live cycle count */
 .tmeta-max { font: 400 11px var(--mono); color: var(--dim); }

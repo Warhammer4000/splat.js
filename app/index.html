@@ -49,6 +49,8 @@
     <p class="setdesc" id="set-desc" hidden></p>
 
     <div class="settings" id="settings" hidden>
+      <div class="setrow" id="row-count" hidden><label for="set-count">Photos</label>
+        <input id="set-count" type="number" inputmode="numeric" min="12" value="42"></div>
       <div class="setrow"><label for="set-res">Training resolution</label>
         <select id="set-res">
           <option value="">Auto</option>
@@ -57,13 +59,17 @@
           <option value="960">960 px</option>
           <option value="1280">1280 px</option>
         </select></div>
-      <div class="setrow"><label for="set-2x">2× working buffer</label>
-        <span class="setctl"><input type="checkbox" id="set-2x">
-        <small>supervises above input res — no edge ringing when viewed sharp · ~1.7× slower</small></span></div>
-      <div class="setrow"><label for="set-sh">Colour model</label>
+      <div class="setrow"><label for="set-buf" title="Render grid relative to the training resolution. 2× removes edge ringing at sharp viewing sizes, ~1.7× slower.">Working buffer</label>
+        <select id="set-buf">
+          <option value="0.5">0.5×</option>
+          <option value="1">1×</option>
+          <option value="2">2×</option>
+        </select></div>
+      <div class="setrow"><label for="set-sh">Spherical harmonics</label>
         <select id="set-sh">
-          <option value="2">View-dependent</option>
-          <option value="0">Flat (faster, smaller file)</option>
+          <option value="0">0</option>
+          <option value="1">1</option>
+          <option value="2">2</option>
         </select></div>
       <div class="setrow"><label for="set-iters">Cycles</label>
         <select id="set-iters">
@@ -71,12 +77,10 @@
           <option value="">20,000</option>
           <option value="40000">40,000</option>
         </select></div>
-      <p class="set-hint">On a phone, small buys a lot:
-        <button class="linkish" id="set-phone">use phone values</button> (480 px · flat colours)</p>
     </div>
 
     <div class="startrow">
-      <button class="btn btn-quiet" id="btn-settings">Settings</button>
+      <button class="iconbtn setgear" id="btn-settings" title="Training settings" aria-label="Training settings"><svg viewBox="0 0 24 24" class="gear" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.09a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg></button>
       <button class="btn btn-accent big" id="btn-go">Start training</button>
     </div>
   </div>

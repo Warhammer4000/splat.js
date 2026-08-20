@@ -45,11 +45,21 @@ const PERF = { on: PERF_Q != null, iters: Math.max(200, parseInt(PERF_Q, 10) || 
 const BUF2X = new URLSearchParams(location.search).has('2x');
 
 // training settings (start-card panel), persisted across visits.
-// res 0 = auto, iters 0 = the 20k default, sh 2 = view-dependent colour.
+// res 0 = auto, iters 0 = the 20k default, buf = working-buffer scale.
+// Phones start from lighter defaults; anything saved wins.
 function loadSettings() {
-  const d = { res: 0, buf2x: BUF2X, sh: 2, iters: 0 };
-  try { return { ...d, ...JSON.parse(localStorage.getItem('splatjs_settings') || '{}'), ...(BUF2X ? { buf2x: true } : {}) }; }
-  catch { return d; }
+  const phone = matchMedia('(any-pointer: coarse)').matches &&
+    Math.min(screen.width, screen.height) <= 820;
+  const d = phone
+    ? { res: 480, buf: 1, sh: 0, iters: 0 }
+    : { res: 0, buf: 1, sh: 2, iters: 0 };
+  try {
+    const saved = JSON.parse(localStorage.getItem('splatjs_settings') || 'null');
+    const m = saved ? { ...d, ...saved } : d;
+    if (m.buf2x != null) { m.buf = m.buf2x ? 2 : (m.buf || 1); delete m.buf2x; }
+    if (BUF2X) m.buf = 2;
+    return m;
+  } catch { return d; }
 }
 function saveSettings() {
   try { localStorage.setItem('splatjs_settings', JSON.stringify(S.settings)); } catch { /* private mode */ }
@@ -162,7 +172,7 @@ function boot() {
   // the settings panel: values in, values out, persisted
   const st = S.settings;
   $('set-res').value = st.res ? String(st.res) : '';
-  $('set-2x').checked = !!st.buf2x;
+  $('set-buf').value = String(st.buf);
   $('set-sh').value = String(st.sh);
   $('set-iters').value = st.iters ? String(st.iters) : '';
   $('btn-settings').addEventListener('click', () => {
@@ -170,19 +180,22 @@ function boot() {
   });
   const readSettings = () => {
     st.res = parseInt($('set-res').value, 10) || 0;
-    st.buf2x = $('set-2x').checked;
+    st.buf = parseFloat($('set-buf').value) || 1;
     st.sh = parseInt($('set-sh').value, 10);
     st.iters = parseInt($('set-iters').value, 10) || 0;
     saveSettings();
   };
-  for (const id of ['set-res', 'set-2x', 'set-sh', 'set-iters']) {
+  for (const id of ['set-res', 'set-buf', 'set-sh', 'set-iters']) {
     $(id).addEventListener('change', readSettings);
   }
-  $('set-phone').addEventListener('click', () => {
-    $('set-res').value = '480';
-    $('set-2x').checked = false;
-    $('set-sh').value = '0';
-    readSettings();
+  $('set-count').addEventListener('change', () => {
+    const p = S.preset;
+    if (!p || p.files) return;
+    const mx = p.maxCount || p.count;
+    const n = clamp(parseInt($('set-count').value, 10) || p.count, 12, mx);
+    $('set-count').value = n;
+    p.useCount = n;
+    applyCount(p);
   });
 
   addEventListener('resize', () => { vp.resize(); chart?.resize(); dchart?.resize(); dvp?.resize(); });
@@ -320,21 +333,18 @@ function paintCard(preset) {
   const links = (preset.links || [])
     .map((l) => `<a href="${l.url}" target="_blank" rel="noopener">${l.label}</a>`).join(' · ');
   const cnt = preset.useCount || preset.count;
-  // sets bigger than their default expose the count as a parameter
-  const counter = preset.maxCount && preset.maxCount > preset.count
-    ? ` · <input id="set-count" type="number" inputmode="numeric" min="12" max="${preset.maxCount}" value="${cnt}"> of ${preset.maxCount} photos`
-    : '';
   $('set-desc').innerHTML = `<b>${preset.name}</b> — ${preset.origin}` +
-    (links ? ` ${links}` : '') + counter +
+    (links ? ` ${links}` : '') +
     `<span class="approx">${approxFor(preset, cnt)} on a fast GPU</span>`;
   $('set-desc').hidden = false;
-  $('set-count')?.addEventListener('change', () => {
-    const el = $('set-count');
-    const n = clamp(parseInt(el.value, 10) || preset.count, 12, preset.maxCount);
-    el.value = n;
-    preset.useCount = n;
-    applyCount(preset);
-  });
+  // the photo count lives in the settings panel — shown for sets that have
+  // room to move (the full Truck/Train sequences, trimming Camping, ...)
+  const mx = preset.files ? 0 : (preset.maxCount || preset.count);
+  $('row-count').hidden = mx <= 12;
+  if (mx > 12) {
+    $('set-count').max = mx;
+    $('set-count').value = cnt;
+  }
   $('btn-go').textContent = 'Start training';
   [...$('setpick').children].forEach((b) =>
     b.setAttribute('aria-pressed', String(b.dataset.id === preset.id)));
@@ -522,20 +532,19 @@ async function startPrep() {
       mvW * mvH,
       16000 * 256, // per-raster tile-grid cap (16k tiles of 16x16)
     );
-    // settings -> session options: res caps the input scale, the 2x buffer
-    // doubles the supervision grid on top of whatever that yields
+    // settings -> session options: res caps the input scale, the working
+    // buffer scales the supervision grid on top of whatever that yields
     const st = S.settings;
-    const frames = (st.res || st.buf2x) ? {
+    const frames = (st.res || st.buf !== 1) ? {
       trainMaxDim: st.res || undefined,
-      trainScale: st.buf2x ? 2 : undefined,
+      trainScale: st.buf !== 1 ? st.buf : undefined,
     } : undefined;
     const session = createSession({
       maxIters: S.maxIters, holdout: 'auto', evalHoldEvery: 2500,
       maxViewW: mvW, maxViewH: mvH,
       frames,
-      trainer: st.sh === 0 ? { shDeg: 0 } : undefined,
+      trainer: st.sh !== 2 ? { shDeg: st.sh } : undefined,
     });
-    if (st.buf2x) flash('2× working buffer — training supervises above input resolution.', 6000);
     S.session = session;
     session.on('stage', (e) => { if (S.gen === gen) onStage(e); });
     session.on('metrics', (e) => { if (S.gen === gen) onMetrics(e); });
