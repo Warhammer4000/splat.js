@@ -330,6 +330,10 @@ async function open(preset, autostart = false) {
   S.holdHist = [];
   S._lastReady = null;
   S.growthStopped = false;
+  S.plyBlob = null;
+  S._recovering = false;
+  S._dupPresentAt = 0;
+  S._viewKey = '';
   gpuCanvas = null;
   $('btn-go').textContent = 'Start training';
   $('btn-go').disabled = false;
@@ -599,6 +603,57 @@ function onTrainEvent(e) {
     S.chartEvents.push({ iter: e.iter, kind: 'stop', label: 'Growth stops' });
   }
   if (e.kind === 'train-complete') finish();
+  if (e.kind === 'device-lost') deviceLostRecovery();
+}
+
+/** iOS (and crashing drivers) reclaim the WebGPU device from backgrounded
+ *  tabs. The trained splats lived on it; photos + camera solve are CPU-side.
+ *  Mid-training: rebuild and train again. Done: the .ply blob was cached at
+ *  completion, so export and upload still work. */
+async function deviceLostRecovery() {
+  if (S._recovering) return;
+  const gen = S.gen;
+  if (S.state === 'done') {
+    flash(S.plyBlob
+      ? 'The browser reclaimed the graphics device — the finished model is safe, export still works.'
+      : 'The browser reclaimed the graphics device.', 9000);
+    return;
+  }
+  if (S.state !== 'train') return;
+  S._recovering = true;
+  gpuCanvas = null;   // its WebGPU context died with the device
+  flash('The system put the GPU to sleep while the tab was in the background — restarting training. Photos and the camera solve are kept.', 15000);
+  try {
+    // iOS won't hand out a new device while hidden — wait for the tab back
+    if (document.visibilityState === 'hidden') {
+      await new Promise((res) => {
+        const h = () => {
+          if (document.visibilityState !== 'visible') return;
+          removeEventListener('visibilitychange', h);
+          res();
+        };
+        addEventListener('visibilitychange', h);
+      });
+    }
+    if (S.gen !== gen) return;
+    await S.session.recover();
+    if (S.gen !== gen) return;
+    S.iter = 0; S.psnrTrain = null; S.psnrHold = null;
+    S.holdHist = []; S.chartEvents = []; S.growthStopped = false;
+    S.plyBlob = null;
+    buildSceneFromSession();
+    gpuCanvas = document.createElement('canvas');
+    S.session.view.attach(gpuCanvas);
+    S._viewKey = '';
+    startTraining();
+  } catch (err) {
+    console.error(err);
+    if (S.gen === gen) {
+      solveFailed('The graphics device was lost and could not be brought back — reload the page to train again.');
+    }
+  } finally {
+    S._recovering = false;
+  }
 }
 
 async function finish() {
@@ -621,6 +676,10 @@ async function finish() {
   dock('');
   const hold = S.psnrHold != null ? ` · ${S.psnrHold.toFixed(1)} dB on the photograph it never saw` : '';
   flash(`Done${hold}`, 6000);
+  // cache the export now, while the device is certainly alive — iOS can
+  // reclaim it from a backgrounded tab, and the readback path dies with it
+  S.plyBlob = null;
+  S.session.exportPlyBlob().then((b) => { S.plyBlob = b; }).catch(() => {});
   scoreFrames();
 }
 
@@ -689,6 +748,7 @@ function renderControls() {
 /** Resume from done: raise the horizon, restore the curve, back to train. */
 function continueTraining() {
   if (!S.session || S.state !== 'done') return;
+  S.plyBlob = null;   // the cached export goes stale the moment training resumes
   S.maxIters = S.session.continueFor(MORE_ITERS);
   S.state = 'train';
   S.trainT0 = performance.now() - S.minutes * 60000;   // minutes stay cumulative
@@ -731,7 +791,7 @@ function buildExport() {
   });
   wrap.querySelector('[data-act="ply"]').addEventListener('click', async () => {
     menu.hidden = true;
-    const blob = await S.session.exportPlyBlob();
+    const blob = S.plyBlob || await S.session.exportPlyBlob();
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `${(S.preset.name || 'splat').toLowerCase().replace(/\W+/g, '_')}.ply`;
@@ -802,7 +862,7 @@ function uploadDialog() {
     }
     S.uploading = true;
     try {
-      const blob = await S.session.exportPlyBlob();
+      const blob = S.plyBlob || await S.session.exportPlyBlob();
       const url = await sendToArrival(blob, title, {
         popup,
         onStatus: (m) => flash(m, 120000),
@@ -1134,6 +1194,13 @@ function draw() {
         R: pose.R, t: pose.t,
         f: pose.f * sc, cx: pose.cx * sc, cy: pose.cy * sc, w: gw, h: gh,
       });
+      S.session.view.renderNow();
+      // present the final pose a second time: iOS Safari's drawImage can
+      // alternate between the canvas's last two presented frames, which
+      // reads as the view "jumping" after a touch drag ends
+      S._dupPresentAt = now + 150;
+    } else if (S._dupPresentAt && now >= S._dupPresentAt) {
+      S._dupPresentAt = 0;
       S.session.view.renderNow();
     }
   }

@@ -18,7 +18,7 @@
  */
 export async function createGpu(opts = {}) {
   if (opts.device) {
-    return { device: opts.device, adapter: null, info: opts.info || {}, owned: false, dispose() {} };
+    return watchLost({ device: opts.device, adapter: null, info: opts.info || {}, owned: false, dispose() {} });
   }
   if (typeof navigator === 'undefined' || !navigator.gpu) {
     throw new Error('WebGPU not available in this environment');
@@ -37,5 +37,20 @@ export async function createGpu(opts = {}) {
     },
   });
   const info = adapter.info || {};
-  return { device, adapter, info, owned: true, dispose() { device.destroy(); } };
+  return watchLost({ device, adapter, info, owned: true, dispose() { device.destroy(); } });
+}
+
+/** Surface real device loss (iOS reclaims WebGPU devices from backgrounded
+ *  tabs; drivers reset). An intentional dispose() also settles device.lost,
+ *  with reason 'destroyed' — that one is not a loss. */
+function watchLost(ctx) {
+  ctx.lost = false;
+  if (ctx.device.lost && typeof ctx.device.lost.then === 'function') {
+    ctx.device.lost.then((info) => {
+      if (info && info.reason === 'destroyed') return;
+      ctx.lost = true;
+      if (ctx.onLost) ctx.onLost(info);
+    }).catch(() => {});
+  }
+  return ctx;
 }

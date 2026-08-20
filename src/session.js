@@ -178,6 +178,7 @@ export class Session {
     this._log(`initialized ${this.model.n} Gaussians (scene radius ${this.model.radius.toFixed(2)})`);
 
     if (!this.gpu) this.gpu = await createGpu({ device: this.opts.device });
+    this.gpu.onLost = (info) => this._deviceLost(info);
     const gi = this.gpu.info || {};
     const trainerOpts = {
       maxIters: this.opts.maxIters ?? 60000,
@@ -269,6 +270,41 @@ export class Session {
 
   _maxIters() { return this.opts.maxIters ?? 60000; }
 
+  /** The GPU vanished under us (iOS reclaims WebGPU devices from backgrounded
+   *  tabs; drivers reset). Training stops — the splats lived on the dead
+   *  device — but frames and reconstruction are CPU-side, so recover() can
+   *  rebuild and train again without redoing the solve. */
+  _deviceLost(info) {
+    if (this._lost) return;
+    this._lost = true;
+    this.training = false;
+    this._prevFence = null;
+    this._log(`GPU device lost (${(info && info.reason) || 'unknown'}) — ` +
+      `${(info && info.message) || 'reclaimed by the system'}`);
+    this._em.emit('event', { kind: 'device-lost', iter: this.trainer ? this.trainer.iter : 0 });
+  }
+
+  get deviceLost() { return !!this._lost; }
+
+  /** Rebuild after device loss: a fresh device and trainer from the CPU-side
+   *  reconstruction. Training restarts at iteration 0. */
+  async recover() {
+    if (!this.recon) throw new Error('nothing to recover — no reconstruction');
+    this.training = false;
+    this._lost = false;
+    this._prevFence = null;
+    this._metricsLock = null;    // readbacks on the dead device never resolve
+    this._framePending = false;
+    this.lossHistory = [];
+    this._lastHold = null;
+    this._lastHoldEval = 0;
+    this._itersAtStats = 0;
+    this.trainer = null;
+    if (this.gpu && this.gpu.owned) { try { this.gpu.dispose(); } catch { /* already gone */ } }
+    this.gpu = null;
+    return this.seed();
+  }
+
   _ensureScheduler() {
     if (this._sched) return;
     // Hidden tabs AND occluded windows get their rAF throttled; worker
@@ -284,7 +320,9 @@ export class Session {
     const runFrame = () => {
       if (!this._framePending) return;
       this._framePending = false;
-      this._frameLoop();
+      // a readback rejecting mid-flight (device loss) must not become an
+      // unhandled rejection — the loop stops, the device-lost event explains
+      this._frameLoop().catch((e) => this._log(`frame loop: ${(e && e.message) || e}`));
     };
     if (tickWorker) {
       tickWorker.onmessage = () => {
@@ -311,7 +349,7 @@ export class Session {
 
   async _frameLoop() {
     const trainer = this.trainer;
-    if (!trainer || !trainer.camMeta) return;
+    if (!trainer || !trainer.camMeta || this._lost) return;
     this._frameCount++;
 
     if (this.training && trainer.iter >= this._maxIters()) {
@@ -369,9 +407,14 @@ export class Session {
   }
 
   /** serialize every metric readback: they share the trainer's staging
-   *  buffers, and two in flight = "outstanding map pending" */
+   *  buffers, and two in flight = "outstanding map pending". On a lost
+   *  device readbacks would hang forever — fail fast instead. */
   _locked(fn) {
-    const run = (this._metricsLock || Promise.resolve()).then(fn, fn);
+    const call = () => {
+      if (this._lost) throw new Error('GPU device lost');
+      return fn();
+    };
+    const run = (this._metricsLock || Promise.resolve()).then(call, call);
     this._metricsLock = run.catch(() => {});
     return run;
   }
@@ -430,12 +473,15 @@ export class Session {
 
   /** Standard 3DGS .ply with Mip opacity compensation baked (what external
    *  sorted viewers expect). */
-  async exportPlyBlob() {
-    const { data, n, sh, shK } = await this.trainer.readGaussians();
-    const meta = this.trainer.camMeta[0];
-    const camPos = Float32Array.from(this.trainer.camMeta.flatMap(camPosition));
-    const baked = bakeOpacityCompensation(data, n, meta.f, camPos);
-    return gaussiansToPly(baked, n, sh, shK);
+  exportPlyBlob() {
+    // shares the trainer's staging buffers with the metric readbacks
+    return this._locked(async () => {
+      const { data, n, sh, shK } = await this.trainer.readGaussians();
+      const meta = this.trainer.camMeta[0];
+      const camPos = Float32Array.from(this.trainer.camMeta.flatMap(camPosition));
+      const baked = bakeOpacityCompensation(data, n, meta.f, camPos);
+      return gaussiansToPly(baked, n, sh, shK);
+    });
   }
 
   dispose() {
