@@ -41,7 +41,7 @@ body {
 #btn-new:hover, #gh:hover { color: var(--accent); }
 #btn-new .ai {
   width: 14px; height: 14px; flex: none;
-  fill: none; stroke: var(--accent); stroke-width: 1.75;
+  fill: none; stroke: currentColor; stroke-width: 1.75;
   stroke-linecap: round; stroke-linejoin: round;
 }
 
