@@ -340,11 +340,12 @@ select.sel {
 .hud { position: absolute; inset: 0; pointer-events: none; }
 .hud > * { pointer-events: auto; }
 
-.chip-row { position: absolute; left: 14px; top: 12px; display: flex; gap: 6px; flex-wrap: wrap; max-width: 70%; }
+/* status flashes live bottom-left, out of the controls' way but visible */
+.chip-row { position: absolute; left: 14px; bottom: 14px; display: flex; gap: 6px; flex-wrap: wrap; max-width: 70%; }
 .chip {
-  padding: 4px 11px; border-radius: var(--pill); border: 1px solid var(--line-2);
-  background: rgba(7, 9, 9, .8); backdrop-filter: blur(4px);
-  font: 400 11.5px var(--mono); color: var(--muted);
+  padding: 7px 15px; border-radius: var(--pill); border: 1px solid var(--line-2);
+  background: rgba(7, 9, 9, .84); backdrop-filter: blur(5px);
+  font: 400 13px var(--mono); color: var(--muted);
 }
 .chip b { color: var(--paper); font-weight: 500; }
 .chip[data-tone="accent"] { color: var(--accent); border-color: var(--accent-30); }
@@ -512,7 +513,9 @@ select.sel {
 }
 .tbtn-sm:hover { color: var(--paper); border-color: var(--line-2); }
 
-.tmeta { display: flex; flex-direction: column; gap: 2px; padding-left: 4px; }
+/* the ITERATION line sits on the play button's centre line; splats and the
+   growth note hang below it */
+.tmeta { display: flex; flex-direction: column; gap: 2px; padding-left: 4px; transform: translateY(16px); }
 .tmeta-1 { font: 500 15px var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tmeta-2 { font: 400 11px var(--mono); color: var(--dim); white-space: nowrap; }
 /* fixed-height slot: the note appears and vanishes without moving the stats */

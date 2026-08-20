@@ -1060,7 +1060,7 @@ function renderControls() {
   stats.className = 'statchip';
   stats.innerHTML = `<span><b>${fmt(S.splats)}</b> splats</span>` +
     (S.psnrHold != null ? `<span><b>${S.psnrHold.toFixed(1)}</b> dB</span>` : '') +
-    `<span><b>${S.minutes}</b> min</span><i>Details ›</i>`;
+    '<i>Details ›</i>';
   stats.addEventListener('click', openDetails);
   c.appendChild(stats);
   const more = document.createElement('button');
