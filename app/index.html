@@ -49,8 +49,9 @@
     <p class="setdesc" id="set-desc" hidden></p>
 
     <div class="settings" id="settings" hidden>
-      <div class="setrow" id="row-count" hidden title="How many of the set's images to use. More images, longer solve — pair matching grows with the square of the count."><label for="set-count">Images</label>
-        <input id="set-count" type="number" inputmode="numeric" min="2" value="42"></div>
+      <div class="setrow setrow-range" id="row-count" hidden title="How many of the set's images to use. More images, longer solve — pair matching grows with the square of the count."><label for="set-count">Images</label>
+        <input id="set-count" type="range" min="2" step="1" value="42">
+        <button class="countv" id="set-count-v" title="Use every image">42 / 251</button></div>
       <div class="setrow" title="Largest image dimension the photos are downscaled to for training. Auto picks from image size, count and GPU memory."><label for="set-res">Training resolution</label>
         <select id="set-res">
           <option value="">Auto</option>

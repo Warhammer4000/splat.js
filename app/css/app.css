@@ -373,6 +373,16 @@ body { overflow: hidden; }
 }
 .setrow select:hover, .setrow input[type="number"]:hover { border-color: var(--line-2); }
 .setrow select:focus, .setrow input[type="number"]:focus { border-color: var(--accent-30); outline: none; }
+
+/* the image-count row: a slider, and the value doubles as "use all" */
+.setrow-range input[type="range"] {
+  flex: 1; min-width: 0; margin: 0 2px; accent-color: var(--accent);
+}
+.countv {
+  flex: none; min-width: 66px; padding: 2px 4px; text-align: right;
+  font: 500 12px var(--mono); color: var(--paper); border-radius: 6px;
+}
+.countv:hover { color: var(--accent); }
 .startrow { display: flex; align-items: center; justify-content: center; gap: 10px; }
 /* same height as .btn.big beside it (12px padding + 15px/19px line + border) */
 .setgear { width: 47px; height: 47px; color: var(--muted); }

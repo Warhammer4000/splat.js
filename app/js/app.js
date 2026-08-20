@@ -189,15 +189,25 @@ function boot() {
   for (const id of ['set-res', 'set-buf', 'set-sh', 'set-iters']) {
     $(id).addEventListener('change', readSettings);
   }
+  // count slider: live label while dragging, the (cheaper) photo-list rebuild
+  // on release; the value label is also the "use all" button
+  const countLabel = () => {
+    const p = S.preset;
+    if (p) $('set-count-v').textContent = `${$('set-count').value} / ${p.maxCount || p.count}`;
+  };
+  $('set-count').addEventListener('input', countLabel);
   $('set-count').addEventListener('change', () => {
     const p = S.preset;
     if (!p || p.files) return;
-    const mx = p.maxCount || p.count;
-    // 2 is the solver's own floor, not a policy number
-    const n = clamp(parseInt($('set-count').value, 10) || p.count, 2, mx);
-    $('set-count').value = n;
-    p.useCount = n;
+    p.useCount = parseInt($('set-count').value, 10) || p.count;
+    countLabel();
     applyCount(p);
+  });
+  $('set-count-v').addEventListener('click', () => {
+    const p = S.preset;
+    if (!p || p.files) return;
+    $('set-count').value = p.maxCount || p.count;
+    $('set-count').dispatchEvent(new Event('change'));
   });
 
   addEventListener('resize', () => { vp.resize(); chart?.resize(); dchart?.resize(); dvp?.resize(); });
@@ -346,6 +356,7 @@ function paintCard(preset) {
   if (mx >= 3) {
     $('set-count').max = mx;
     $('set-count').value = cnt;
+    $('set-count-v').textContent = `${cnt} / ${mx}`;
   }
   $('btn-go').textContent = 'Start training';
   [...$('setpick').children].forEach((b) =>
