@@ -1445,10 +1445,10 @@ function draw() {
       pose.R.map((v) => Math.round(v * 8192)).join(',') + '|' +
       pose.t.map((v) => Math.round(v * 8192)).join(',');
     // re-render when the view actually changed; while training also refresh
-    // the evolving model — at an interval that scales with the device: each
-    // refresh costs a full raster pass, so on a slow GPU it must stay rare
-    // (~25 iterations' worth of time between refreshes, floor 400ms)
-    const refreshMs = Math.max(400, 25000 / Math.max(1, S.itersPerSec || 100));
+    // the evolving model — 2/s at most, fewer on slow devices (~25
+    // iterations' worth of time between refreshes). Each render here also
+    // pushes back the session's own auto-refresh, so there is ONE timer.
+    const refreshMs = Math.max(500, 25000 / Math.max(1, S.itersPerSec || 100));
     if (key !== S._viewKey || (training && now - (S._lastViewAt || 0) > refreshMs)) {
       S._viewKey = key;
       S._lastViewAt = now;

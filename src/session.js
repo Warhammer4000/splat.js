@@ -593,19 +593,21 @@ class SessionView {
     if (!this.ctx || !this.camera) return;
     this.s.trainer.renderView(this.camera, this.ctx, 0, this._offset);
     this._dirty = false;
+    // any render satisfies the auto-refresh — a host that renders on its own
+    // cadence keeps pushing this back and the tick below never double-fires
+    this._lastAuto = performance.now();
   }
 
   _tick(frameCount, training) {
     if (!this.ctx || !this.camera) return;
     if (this._dirty) { this.renderNow(); return; }
     // during training, refresh the (unchanged-camera) view sparingly — every
-    // render is a full raster pass stolen from the optimiser, so the interval
-    // scales with measured speed (~25 iterations between refreshes)
+    // render is a full raster pass stolen from the optimiser (~2/s at most,
+    // fewer on slow devices: ~25 iterations between refreshes)
     const ips = this.s._itersAtStats && this.s._lastStats
       ? Math.max(1, this.s._lastIps || 100) : 100;
-    const interval = Math.max(400, 25000 / ips);
+    const interval = Math.max(500, 25000 / ips);
     if (training && performance.now() - (this._lastAuto || 0) > interval) {
-      this._lastAuto = performance.now();
       this.renderNow();
     }
   }
