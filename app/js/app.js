@@ -344,6 +344,19 @@ function buildSetPicker() {
   }
 }
 
+/** the first `cnt` photos of a preset, honouring its skip list */
+function presetPhotoList(preset, cnt) {
+  const skip = new Set(preset.skip || []);
+  const out = [];
+  for (let k = 0, i = preset.start; k < cnt; i++) {
+    if (skip.has(i)) continue;
+    const url = presetUrl(preset, i);
+    out.push({ url, name: url.split('/').pop() });
+    k++;
+  }
+  return out;
+}
+
 function presetUrl(p, i) {
   return `${DATA}${p.dir}/` +
     p.pattern.replace(/\{i:(\d+)\}/, (_, w) => String(i).padStart(+w, '0'));
@@ -388,10 +401,7 @@ function applyCount(preset) {
   const ap = $('set-desc').querySelector('.approx');
   if (ap) ap.textContent = `${approxFor(preset, cnt)} on a fast GPU`;
   if (S.state === 'ready' && !S.picking && S.preset === preset && !preset.files) {
-    S.photos = [];
-    for (let k = 0, i = preset.start; k < cnt; k++, i++) {
-      S.photos.push({ url: presetUrl(preset, i), name: presetUrl(preset, i).split('/').pop() });
-    }
+    S.photos = presetPhotoList(preset, cnt);
     buildStrip();
   }
 }
@@ -523,11 +533,7 @@ async function open(preset, autostart = false) {
   if (preset.files) {
     S.photos = preset.files.map((f, i) => ({ url: preset.urls[i], name: f.name }));
   } else {
-    S.photos = [];
-    const cnt = preset.useCount || preset.count;
-    for (let k = 0, i = preset.start; k < cnt; k++, i++) {
-      S.photos.push({ url: presetUrl(preset, i), name: presetUrl(preset, i).split('/').pop() });
-    }
+    S.photos = presetPhotoList(preset, preset.useCount || preset.count);
   }
   buildStrip();
   paintCard(preset);

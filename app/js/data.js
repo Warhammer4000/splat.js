@@ -14,7 +14,9 @@ export const PRESETS = [
       { label: 'Tanks & Temples', url: 'https://www.tanksandtemples.org/' },
       { label: 'image set', url: 'https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/' },
     ],
-    dir: 'truck', pattern: '{i:6}.jpg', start: 1, count: 100, maxCount: 251,
+    // 000061 is the sequence's easter egg — the photographer in frame. Funny,
+    // but a person that exists in ONE image only feeds the loss pure error.
+    dir: 'truck', pattern: '{i:6}.jpg', start: 1, count: 100, maxCount: 250, skip: [61],
     blurb: 'A parked truck, circled once on foot. Even spacing, constant light, ' +
            'plenty of sideways movement — close to a textbook capture.',
     approx: '~6 min',
