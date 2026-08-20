@@ -269,18 +269,53 @@ function presetUrl(p, i) {
     p.pattern.replace(/\{i:(\d+)\}/, (_, w) => String(i).padStart(+w, '0'));
 }
 
+/** rough wall-time tier for a chosen photo count (pair matching is O(n²)) */
+function approxFor(preset, n) {
+  if (!preset.maxCount) return preset.approx;
+  return n <= 60 ? '~6 min' : n <= 100 ? '~10 min' : n <= 160 ? '~18 min'
+    : n <= 220 ? '~30 min' : '~45 min';
+}
+
 function paintCard(preset) {
   // the header stays the product's; the selection describes itself in a
   // caption attached to the preset row
   const links = (preset.links || [])
     .map((l) => `<a href="${l.url}" target="_blank" rel="noopener">${l.label}</a>`).join(' · ');
+  const cnt = preset.useCount || preset.count;
+  // sets bigger than their default expose the count as a parameter
+  const counter = preset.maxCount && preset.maxCount > preset.count
+    ? ` · <input id="set-count" type="number" inputmode="numeric" min="12" max="${preset.maxCount}" value="${cnt}"> of ${preset.maxCount} photos`
+    : '';
   $('set-desc').innerHTML = `<b>${preset.name}</b> — ${preset.origin}` +
-    (links ? ` ${links}` : '') +
-    (preset.approx ? `<span class="approx">${preset.approx} on a fast GPU</span>` : '');
+    (links ? ` ${links}` : '') + counter +
+    `<span class="approx">${approxFor(preset, cnt)} on a fast GPU</span>`;
   $('set-desc').hidden = false;
+  $('set-count')?.addEventListener('change', () => {
+    const el = $('set-count');
+    const n = clamp(parseInt(el.value, 10) || preset.count, 12, preset.maxCount);
+    el.value = n;
+    preset.useCount = n;
+    applyCount(preset);
+  });
   $('btn-go').textContent = 'Start training';
   [...$('setpick').children].forEach((b) =>
     b.setAttribute('aria-pressed', String(b.dataset.id === preset.id)));
+}
+
+/** re-cut the photo list to the chosen count (only while on the start card
+ *  with this preset live — in the mid-run picker the choice applies when the
+ *  switch commits through open()) */
+function applyCount(preset) {
+  const cnt = preset.useCount || preset.count;
+  const ap = $('set-desc').querySelector('.approx');
+  if (ap) ap.textContent = `${approxFor(preset, cnt)} on a fast GPU`;
+  if (S.state === 'ready' && !S.picking && S.preset === preset && !preset.files) {
+    S.photos = [];
+    for (let k = 0, i = preset.start; k < cnt; k++, i++) {
+      S.photos.push({ url: presetUrl(preset, i), name: presetUrl(preset, i).split('/').pop() });
+    }
+    buildStrip();
+  }
 }
 
 function showPicker() {
@@ -408,7 +443,8 @@ async function open(preset, autostart = false) {
     S.photos = preset.files.map((f, i) => ({ url: preset.urls[i], name: f.name }));
   } else {
     S.photos = [];
-    for (let k = 0, i = preset.start; k < preset.count; k++, i++) {
+    const cnt = preset.useCount || preset.count;
+    for (let k = 0, i = preset.start; k < cnt; k++, i++) {
       S.photos.push({ url: presetUrl(preset, i), name: presetUrl(preset, i).split('/').pop() });
     }
   }
