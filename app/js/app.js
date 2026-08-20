@@ -253,12 +253,14 @@ function boot() {
   addEventListener('blur', () => S.keys.clear());
   wireStage();
 
-  addEventListener('click', (e) => {
+  // pointerdown, not click: iOS never synthesises clicks for taps on
+  // non-interactive elements (the canvas), so a click listener misses them
+  addEventListener('pointerdown', (e) => {
     if (!e.target.closest('.exportwrap')) {
       document.querySelectorAll('.menu').forEach((m) => { m.hidden = true; });
     }
     if (S.picking && !e.target.closest('#start')) closePicker();
-  });
+  }, true);
 
   $('gh').href = REPO;
   $('about-gh').href = REPO;
