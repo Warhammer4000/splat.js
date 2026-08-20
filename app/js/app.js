@@ -1422,6 +1422,25 @@ function renderHud() {
   if (hud.dataset.k !== next) { hud.innerHTML = next; hud.dataset.k = next; }
 }
 
+// ── screen wake lock ────────────────────────────────────────────────────────
+// a long run gets no touches, and phones dim and lock the screen — hold a
+// wake lock while the pipeline works (and while the done-tour is playing)
+let wakeLock = null;
+async function updateWakeLock() {
+  const want = document.visibilityState === 'visible' &&
+    (S.state === 'prep' || S.state === 'train' || (S.state === 'done' && !!S.tour));
+  if (want && !wakeLock && navigator.wakeLock) {
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } catch { /* denied (battery saver etc.) — nothing to do */ }
+  } else if (!want && wakeLock) {
+    try { wakeLock.release(); } catch { /* already gone */ }
+    wakeLock = null;
+  }
+}
+document.addEventListener('visibilitychange', updateWakeLock);
+
 // ── main loop ───────────────────────────────────────────────────────────────
 let lastPulse = 0;
 let lastLoopT = performance.now();
@@ -1623,6 +1642,8 @@ function loop() {
   const dt = Math.min(0.05, (now - lastLoopT) / 1000);
   lastLoopT = now;
   if (S.flash && now > S.flash.until) S.flash = null;
+  const wlWant = `${S.state}:${!!S.tour}`;
+  if (wlWant !== S._wlKey) { S._wlKey = wlWant; updateWakeLock(); }
   const grow = $('t-grow');
   if (grow) {
     const txt = (S.growNote && now < S.growNote.until) ? S.growNote.text : '';
