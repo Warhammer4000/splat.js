@@ -47,7 +47,38 @@
 
     <div class="setpick" id="setpick"></div>
     <p class="setdesc" id="set-desc" hidden></p>
-    <button class="btn btn-accent big" id="btn-go">Start training</button>
+
+    <div class="settings" id="settings" hidden>
+      <div class="setrow"><label for="set-res">Training resolution</label>
+        <select id="set-res">
+          <option value="">Auto</option>
+          <option value="480">480 px</option>
+          <option value="640">640 px</option>
+          <option value="960">960 px</option>
+          <option value="1280">1280 px</option>
+        </select></div>
+      <div class="setrow"><label for="set-2x">2× working buffer</label>
+        <span class="setctl"><input type="checkbox" id="set-2x">
+        <small>supervises above input res — no edge ringing when viewed sharp · ~1.7× slower</small></span></div>
+      <div class="setrow"><label for="set-sh">Colour model</label>
+        <select id="set-sh">
+          <option value="2">View-dependent</option>
+          <option value="0">Flat (faster, smaller file)</option>
+        </select></div>
+      <div class="setrow"><label for="set-iters">Cycles</label>
+        <select id="set-iters">
+          <option value="10000">10,000</option>
+          <option value="">20,000</option>
+          <option value="40000">40,000</option>
+        </select></div>
+      <p class="set-hint">On a phone, small buys a lot:
+        <button class="linkish" id="set-phone">use phone values</button> (480 px · flat colours)</p>
+    </div>
+
+    <div class="startrow">
+      <button class="btn btn-quiet" id="btn-settings">Settings</button>
+      <button class="btn btn-accent big" id="btn-go">Start training</button>
+    </div>
   </div>
 </main>
 

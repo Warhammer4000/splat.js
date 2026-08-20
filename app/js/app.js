@@ -44,6 +44,17 @@ const PERF = { on: PERF_Q != null, iters: Math.max(200, parseInt(PERF_Q, 10) || 
 // PSNR — an experiment flag, off by default.
 const BUF2X = new URLSearchParams(location.search).has('2x');
 
+// training settings (start-card panel), persisted across visits.
+// res 0 = auto, iters 0 = the 20k default, sh 2 = view-dependent colour.
+function loadSettings() {
+  const d = { res: 0, buf2x: BUF2X, sh: 2, iters: 0 };
+  try { return { ...d, ...JSON.parse(localStorage.getItem('splatjs_settings') || '{}'), ...(BUF2X ? { buf2x: true } : {}) }; }
+  catch { return d; }
+}
+function saveSettings() {
+  try { localStorage.setItem('splatjs_settings', JSON.stringify(S.settings)); } catch { /* private mode */ }
+}
+
 const S = {
   state: 'ready',              // ready | prep | train | done
   preset: null,
@@ -67,6 +78,7 @@ const S = {
   detailTab: 'score',
   keys: new Set(),             // held WASD keys (camera-relative fly)
   maxIters: INITIAL_ITERS,     // grows when the user continues training
+  settings: loadSettings(),    // training knobs from the start-card panel
   gen: 0,                      // run generation — stale async work checks it
 };
 
@@ -146,6 +158,32 @@ function boot() {
   $('d-close').addEventListener('click', () => { $('details').hidden = true; });
   $('d-prev').addEventListener('click', () => detailFlip(-1));
   $('d-next').addEventListener('click', () => detailFlip(1));
+
+  // the settings panel: values in, values out, persisted
+  const st = S.settings;
+  $('set-res').value = st.res ? String(st.res) : '';
+  $('set-2x').checked = !!st.buf2x;
+  $('set-sh').value = String(st.sh);
+  $('set-iters').value = st.iters ? String(st.iters) : '';
+  $('btn-settings').addEventListener('click', () => {
+    $('settings').hidden = !$('settings').hidden;
+  });
+  const readSettings = () => {
+    st.res = parseInt($('set-res').value, 10) || 0;
+    st.buf2x = $('set-2x').checked;
+    st.sh = parseInt($('set-sh').value, 10);
+    st.iters = parseInt($('set-iters').value, 10) || 0;
+    saveSettings();
+  };
+  for (const id of ['set-res', 'set-2x', 'set-sh', 'set-iters']) {
+    $(id).addEventListener('change', readSettings);
+  }
+  $('set-phone').addEventListener('click', () => {
+    $('set-res').value = '480';
+    $('set-2x').checked = false;
+    $('set-sh').value = '0';
+    readSettings();
+  });
 
   addEventListener('resize', () => { vp.resize(); chart?.resize(); dchart?.resize(); dvp?.resize(); });
   // Safari's proprietary pinch channel — it ignores user-scalable=no, and the
@@ -470,6 +508,7 @@ async function startPrep() {
   const gen = S.gen;
   $('start').hidden = true;
   $('btn-new').hidden = false;
+  S.maxIters = PERF.on ? PERF.iters : (S.settings.iters || INITIAL_ITERS);
   S.state = 'prep';
   S.prep = { stage: 'decode', done: 0, total: S.photos.length };
   dock('prep');
@@ -483,12 +522,20 @@ async function startPrep() {
       mvW * mvH,
       16000 * 256, // per-raster tile-grid cap (16k tiles of 16x16)
     );
+    // settings -> session options: res caps the input scale, the 2x buffer
+    // doubles the supervision grid on top of whatever that yields
+    const st = S.settings;
+    const frames = (st.res || st.buf2x) ? {
+      trainMaxDim: st.res || undefined,
+      trainScale: st.buf2x ? 2 : undefined,
+    } : undefined;
     const session = createSession({
       maxIters: S.maxIters, holdout: 'auto', evalHoldEvery: 2500,
       maxViewW: mvW, maxViewH: mvH,
-      frames: BUF2X ? { trainScale: 2 } : undefined,
+      frames,
+      trainer: st.sh === 0 ? { shDeg: 0 } : undefined,
     });
-    if (BUF2X) flash('2× working buffer — training supervises above native resolution.', 6000);
+    if (st.buf2x) flash('2× working buffer — training supervises above input resolution.', 6000);
     S.session = session;
     session.on('stage', (e) => { if (S.gen === gen) onStage(e); });
     session.on('metrics', (e) => { if (S.gen === gen) onMetrics(e); });

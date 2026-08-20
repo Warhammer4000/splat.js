@@ -12,7 +12,7 @@
 //      last, front-facing faces only (visible faces of a convex solid never
 //      overlap in projection)
 
-import { processSource } from './io/frames.js';
+import { processSource, adaptiveTrainCap } from './io/frames.js';
 import { makeRng } from './sfm/geometry.js';
 
 const W = 640, H = 480, F = 620;
@@ -188,8 +188,9 @@ export function generateSyntheticRaw(count = 12) {
 }
 
 /** Generate `count` synthetic views. Returns the same format as loadImageFiles. */
-export function generateSyntheticDataset(count = 12, trainCap, opts) {
-  return generateSyntheticRaw(count).map((v) => processSource(v.canvas, W, H, v.name, trainCap, opts));
+export function generateSyntheticDataset(count = 12, trainCap, opts = {}) {
+  const cap = trainCap || adaptiveTrainCap(count, W, H, opts);
+  return generateSyntheticRaw(count).map((v) => processSource(v.canvas, W, H, v.name, cap, opts));
 }
 
 function lookAtPose(eye, center) {
