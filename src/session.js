@@ -296,6 +296,10 @@ export class Session {
     this.training = false;
     this._lost = false;
     this._fences = [];
+    this._ips = null;
+    this._thrT = null;
+    this._statsGap = 2000;
+    this._lastStats = performance.now();
     this._metricsLock = null;    // readbacks on the dead device never resolve
     this._framePending = false;
     this.lossHistory = [];
@@ -372,6 +376,16 @@ export class Session {
       const batch = this.opts.itersPerFrame ??
         Math.max(4, Math.min(64, Math.round(this._batch ?? 15)));
       const t0 = performance.now();
+      // true throughput, stall time included: Safari's stale fences hide the
+      // GPU's real pace from per-frame dt, and a slow GPU otherwise ends up
+      // with many seconds of work queued (chunky metrics, laggy pause)
+      if (this._thrT == null) {
+        this._thrT = t0; this._thrIter = trainer.iter;
+      } else if (t0 - this._thrT > 1000) {
+        const ips = (trainer.iter - this._thrIter) / (t0 - this._thrT) * 1000;
+        this._ips = this._ips == null ? ips : this._ips * 0.5 + ips * 0.5;
+        this._thrT = t0; this._thrIter = trainer.iter;
+      }
       for (let k = 0; k < batch; k++) trainer.stepOnce();
 
       const tEnc = performance.now() - t0;
@@ -394,7 +408,7 @@ export class Session {
 
       const now = performance.now();
       let tMet = 0;
-      if (now - this._lastStats > 2000) {
+      if (now - this._lastStats > (this._statsGap ?? 2000)) {
         const m0 = performance.now();
         await this._emitMetrics();
         tMet = performance.now() - m0;
@@ -423,6 +437,12 @@ export class Session {
       const dt = Math.max(5, performance.now() - t0);
       const ideal = batch * (120 / dt);
       this._batch = Math.max(4, Math.min(64, (this._batch ?? 15) * 0.7 + ideal * 0.3));
+      // throughput cap: ~0.4s of measured GPU work per batch. The dt adapter
+      // reads 5ms frames when fences resolve stale and pushes the batch to
+      // the clamp — fine on a desktop, ten queued seconds on a phone.
+      if (this._ips != null) {
+        this._batch = Math.min(this._batch, Math.max(8, Math.round(this._ips * 0.4)));
+      }
       if (this.perf) {
         this.perf.frames.push([Math.round(now), trainer.iter, batch, trainer.n,
           +tEnc.toFixed(1), +tView.toFixed(1), +tStall.toFixed(1), +tMet.toFixed(1), +dt.toFixed(1)]);
@@ -456,10 +476,9 @@ export class Session {
     const trainer = this.trainer;
     const now = performance.now();
     const itersPerSec = (trainer.iter - this._itersAtStats) / Math.max(1, now - this._lastStats) * 1000;
-    this._itersAtStats = trainer.iter;
-    this._lastStats = now;
     const m = { iter: trainer.iter, splats: trainer.n, itersPerSec: Math.round(itersPerSec) };
     this._lastIps = m.itersPerSec;
+    const tRead = performance.now();
     const mse = await trainer.readLoss();
     if (mse != null && mse > 0) {
       m.psnrTrain = -10 * Math.log10(mse);
@@ -474,6 +493,13 @@ export class Session {
     } else if (this._lastHold != null) {
       m.psnrHold = this._lastHold;
     }
+    // The readbacks above drain every queued batch first — seconds on a slow
+    // GPU. Pace the next readout from COMPLETION and by what this one cost,
+    // or a fixed 2s cadence turns into back-to-back queue drains.
+    const end = performance.now();
+    this._lastStats = end;
+    this._itersAtStats = trainer.iter;
+    this._statsGap = Math.min(8000, Math.max(2000, (end - tRead) * 2.5));
     this._em.emit('metrics', m);
     return m;
   }
