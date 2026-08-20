@@ -575,13 +575,23 @@ async function startPrep() {
     if (S.gen !== gen) return;
     S.solveStats.solveSec = (performance.now() - t0) / 1000;
 
-    // a degenerate own-capture can "solve" a fragment and then train nonsense
-    // with full confidence — catch it here, with advice instead of jargon
+    // a degenerate solve trains nonsense with full confidence — catch it
+    // here, with advice instead of jargon. Own captures fail on connectivity;
+    // for the KNOWN test sets a fragmentary solve means something else went
+    // wrong (GPU state after many runs, usually) and a retry beats a bad run.
     const placed = session.recon.cams.length;
     const isOwn = S.preset.id && S.preset.id.startsWith('__');
     if (isOwn && (placed < 3 || placed < S.photos.length * 0.4)) {
       solveFailed(`Only ${placed} of ${S.photos.length} photos could be placed — ` +
         'the set doesn\'t connect well enough to reconstruct.');
+      S.state = 'ready';
+      dock('');
+      $('start').hidden = false;
+      return;
+    }
+    if (!isOwn && placed < S.photos.length * 0.6) {
+      solveFailed(`Only ${placed} of ${S.photos.length} images could be placed — ` +
+        'that is unusual for this test set. Reloading the page and starting again usually clears it.');
       S.state = 'ready';
       dock('');
       $('start').hidden = false;
@@ -855,7 +865,8 @@ function buildPerfReport() {
   L.push(`ua: ${navigator.userAgent}`);
   L.push(`gpu: ${[gi.vendor, gi.architecture, gi.device].filter(Boolean).join(' ') || 'unknown'}`);
   L.push(`screen: ${screen.width}x${screen.height} @dpr ${devicePixelRatio}`);
-  L.push(`photos: ${S.photos.length} · training res ${fr0.tw}x${fr0.th}`);
+  L.push(`photos: ${S.photos.length} · placed ${ses.recon ? ses.recon.cams.length : '?'} · training res ${fr0.tw}x${fr0.th}`);
+  L.push(`settings: ${JSON.stringify(S.settings)} · preset ${S.preset ? S.preset.id : '?'}`);
   L.push(`splats: ${fmt(S.splats)} · holdout psnr ${S.psnrHold != null ? S.psnrHold.toFixed(2) : '—'} dB`);
   L.push(`tileGrad: ${ses.trainer ? ses.trainer.tileGrad : '?'} · maxIters ${S.maxIters}`);
   if (rows.length > 1) {
