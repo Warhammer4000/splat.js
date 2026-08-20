@@ -36,9 +36,12 @@ export const PRESETS = [
     kind: 'Indoor photo set',
     origin: 'A children\'s playroom in 225 photos — soft painted walls and ceilings make it a genuinely hard indoor solve.',
     links: [],
+    // keep ALL frames: trimming the unplaced ones cascades more failures
+    // (207 -> 197 -> 196 -> 192 measured) — even unplaceable frames carry
+    // tracks that chain their neighbours together
     dir: 'playroom', list: 'files.json', count: 100, maxCount: 225,
-    blurb: 'Indoor, warm light, and a lot of featureless wall. Feature-poor photos get ' +
-           're-scanned at fine scale so the chain stays connected.',
+    blurb: 'Indoor, warm light, and a lot of featureless wall. A few blank-wall shots ' +
+           'sit out of every solve — they still help chain the rest together.',
     approx: '~12 min',
   },
   {
