@@ -1527,9 +1527,11 @@ function draw() {
   vp.draw({
     model: !!gpuCanvas,
     cams: S.scene.cams,
-    showCams: true,
+    // on a photograph (compare modes) the overlays read as artefacts in the
+    // image — frustums only while moving around freely
+    showCams: !onFrame,
     showPath: S.state === 'train' && !onFrame,
-    faint: onFrame || S.state === 'done',
+    faint: S.state === 'done',
     skip: S.atFrame,
     active: S.state === 'train' && S.session.training
       ? (S.scene.cams.find((c) => c.ci === S.session.activeCam) || {}).i : -1,
