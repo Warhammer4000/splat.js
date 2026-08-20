@@ -383,6 +383,78 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
   log(`  avg features/image: ${Math.round(feats.reduce((s, f) => s + f.n, 0) / n)}`);
   await tick();
 
+  // Adaptive rescue: images that came back feature-poor get a second pass
+  // with the base octave upsampled 2x (COLMAP's own default). Soft indoor
+  // texture — painted walls, ceilings — is invisible at octave 0 and those
+  // frames starve registration (playroom: 150/225 -> 209/225). ONLY the
+  // starved images: fine-scale features on rich images once flooded the
+  // contrast-sorted cap and warped truck to 8.5% ATE (note above).
+  if (useSift && (opts.siftFirstOctave ?? 0) >= 0) {
+    // density, not an absolute count: fewer than one keypoint per ~700
+    // feature-scale pixels marks a starved image. An absolute threshold
+    // dragged camping's small video frames into the rescue and the
+    // fine-scale flood cost it 2.15% ATE (0.38% at 1/500; 1/700 leaves its
+    // marginal frames alone while playroom's blank walls still qualify).
+    const starved = [];
+    for (let i = 0; i < n; i++) {
+      if (feats[i].n * 700 < images[i].fw * images[i].fh) starved.push(i);
+    }
+    if (starved.length) {
+      log(`  ${starved.length} feature-poor images (density) — second pass at first octave -1`);
+      const t0r = performance.now();
+      const adopt = (data) => {
+        const f = data;
+        f.sift = true;
+        if (f.n > MAXF) throw new Error('too many features per image');
+        f.xn = new Float32Array(f.n);
+        f.yn = new Float32Array(f.n);
+        feats[f.id] = f;
+      };
+      if (typeof Worker !== 'undefined' && opts.workers !== false) {
+        const nW = Math.min(8, Math.max(2, (navigator.hardwareConcurrency || 4) - 2));
+        const workers = Array.from({ length: nW },
+          () => new Worker(new URL('./featworker.js', import.meta.url), { type: 'module' }));
+        let doneR = 0;
+        await new Promise((resolve, reject) => {
+          let next = 0;
+          const feed = (wk) => {
+            if (next >= starved.length) return;
+            const id = starved[next++];
+            wk.onmessage = (e) => {
+              adopt(e.data);
+              doneR++;
+              ev({ stage: 'features', done: doneR, total: starved.length,
+                   detail: { image: e.data.id, n: e.data.n, x: e.data.x, y: e.data.y } });
+              if (doneR === starved.length) resolve();
+              else feed(wk);
+            };
+            wk.onerror = (err) => reject(new Error('feature worker: ' + (err.message || err)));
+            wk.postMessage({
+              id, gray: images[id].gray, w: images[id].fw, h: images[id].fh,
+              maxFeats: opts.siftFeats || 3900, firstOctave: -1,
+              peakScale: opts.siftPeak ?? 1,
+            });
+          };
+          workers.forEach(feed);
+        });
+        workers.forEach((w) => w.terminate());
+      } else {
+        for (const id of starved) {
+          const f = detectSift(images[id].gray, images[id].fw, images[id].fh,
+            opts.siftFeats || 3900, -1, opts.siftPeak ?? 1);
+          f.id = id;
+          adopt(f);
+          await tick(); checkAbort();
+        }
+      }
+      const avg2 = Math.round(starved.reduce((s, id) => s + feats[id].n, 0) / starved.length);
+      log(`  rescue: avg ${avg2} features on those images ` +
+        `(${((performance.now() - t0r) / 1000).toFixed(1)}s)`);
+      checkAbort();
+      await tick();
+    }
+  }
+
   // ---- pairwise matching ----
   // Mutual matches build the track graph. When an essential matrix fits a
   // pair well, its inliers replace the raw matches (removes contamination on

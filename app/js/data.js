@@ -32,6 +32,16 @@ export const PRESETS = [
     approx: '~8 min',
   },
   {
+    id: 'playroom', name: 'Playroom',
+    kind: 'Indoor photo set',
+    origin: 'A children\'s playroom in 225 photos — soft painted walls and ceilings make it a genuinely hard indoor solve.',
+    links: [],
+    dir: 'playroom', list: 'files.json', count: 100, maxCount: 225,
+    blurb: 'Indoor, warm light, and a lot of featureless wall. Feature-poor photos get ' +
+           're-scanned at fine scale so the chain stays connected.',
+    approx: '~12 min',
+  },
+  {
     id: 'train', name: 'Train',
     kind: 'Standard test set',
     origin: 'The Train sequence from the Tanks & Temples reconstruction benchmark.',

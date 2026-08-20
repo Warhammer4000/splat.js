@@ -345,9 +345,12 @@ function buildSetPicker() {
       open(p);
     });
     host.appendChild(b);
-    const url = presetUrl(p, p.start);
-    const img = Object.assign(new Image(), { src: url, alt: '' });
-    img.onload = () => b.querySelector('.ph')?.replaceWith(img);
+    const thumb = () => {
+      const img = Object.assign(new Image(), { src: presetUrl(p, p.names ? 0 : p.start), alt: '' });
+      img.onload = () => b.querySelector('.ph')?.replaceWith(img);
+    };
+    if (p.list && !p.names) loadPresetList(p).then(thumb).catch(() => {});
+    else thumb();
   }
 }
 
@@ -355,7 +358,9 @@ function buildSetPicker() {
 function presetPhotoList(preset, cnt) {
   const skip = new Set(preset.skip || []);
   const out = [];
-  for (let k = 0, i = preset.start; k < cnt; i++) {
+  const start = preset.names ? 0 : preset.start;
+  const limit = preset.names ? preset.names.length : Infinity;
+  for (let k = 0, i = start; k < cnt && i < limit; i++) {
     if (skip.has(i)) continue;
     const url = presetUrl(preset, i);
     out.push({ url, name: url.split('/').pop() });
@@ -365,8 +370,17 @@ function presetPhotoList(preset, cnt) {
 }
 
 function presetUrl(p, i) {
+  if (p.names) return `${DATA}${p.dir}/${p.names[i]}`;
   return `${DATA}${p.dir}/` +
     p.pattern.replace(/\{i:(\d+)\}/, (_, w) => String(i).padStart(+w, '0'));
+}
+
+/** list-based presets fetch their file list once (BOM-tolerant) */
+async function loadPresetList(p) {
+  if (!p.list || p.names) return;
+  const t = await (await fetch(`${DATA}${p.dir}/${p.list}`)).text();
+  p.names = JSON.parse(t.replace(/^﻿/, ''));
+  p.maxCount = Math.min(p.maxCount || p.names.length, p.names.length);
 }
 
 /** rough wall-time tier for a chosen photo count (pair matching is O(n²)) */
@@ -497,6 +511,10 @@ async function useOwnVideo(file) {
 
 /** reset everything and show a set's start card (autostart commits a switch) */
 async function open(preset, autostart = false) {
+  if (preset.list && !preset.names) {
+    try { await loadPresetList(preset); }
+    catch { flash('Could not load that set\'s file list.', 5000); return; }
+  }
   S.gen++;
   if (S.session) { S.session.pause(); S.session.dispose(); }
   S.session = null;
