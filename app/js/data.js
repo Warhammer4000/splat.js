@@ -14,7 +14,7 @@ export const PRESETS = [
       { label: 'Tanks & Temples', url: 'https://www.tanksandtemples.org/' },
       { label: 'image set', url: 'https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/' },
     ],
-    dir: 'truck', pattern: '{i:6}.jpg', start: 1, count: 42, maxCount: 251,
+    dir: 'truck', pattern: '{i:6}.jpg', start: 1, count: 100, maxCount: 251,
     blurb: 'A parked truck, circled once on foot. Even spacing, constant light, ' +
            'plenty of sideways movement — close to a textbook capture.',
     approx: '~6 min',

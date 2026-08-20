@@ -122,6 +122,7 @@ function boot() {
   // camera answers the finger instead of waiting behind the training queue.
   // Resumes on release; a user-pressed pause is left alone.
   vp.onDragStart = () => {
+    stopTour();
     if (S.state === 'train' && S.session && S.session.training) {
       S._dragPaused = true;
       S.session.pause();
@@ -178,6 +179,19 @@ function boot() {
   $('set-iters').value = st.iters ? String(st.iters) : '';
   $('btn-settings').addEventListener('click', () => {
     const open = $('settings').hidden;
+    const card = $('start');
+    if (open) {
+      // pin the card's top edge: the panel extends DOWNWARD only, and the
+      // card scrolls if it outgrows the screen
+      const top = Math.max(10, card.offsetTop);
+      card.style.top = `${top}px`;
+      card.style.margin = '0 auto';
+      card.style.bottom = 'auto';
+      card.style.maxHeight = `calc(100% - ${top + 12}px)`;
+    } else {
+      card.style.top = ''; card.style.margin = '';
+      card.style.bottom = ''; card.style.maxHeight = '';
+    }
     $('settings').hidden = !open;
     $('btn-settings').setAttribute('aria-expanded', String(open));
   });
@@ -213,6 +227,7 @@ function boot() {
   });
 
   addEventListener('resize', () => { vp.resize(); chart?.resize(); dchart?.resize(); dvp?.resize(); });
+  $('cv').addEventListener('wheel', stopTour, { passive: true });
   // Safari's proprietary pinch channel — it ignores user-scalable=no, and the
   // page must never zoom itself (pinch will become a camera control)
   for (const t of ['gesturestart', 'gesturechange', 'gestureend']) {
@@ -477,6 +492,7 @@ async function open(preset, autostart = false) {
   S.prep = null; S.feats = new Map(); S.lastPairEv = null; S.regCams = [];
   S.regPts = null; S.regPtsCount = 0;
   S.growNote = null;
+  S.tour = null;
   S.solveStats = { pairsChecked: 0, pairsUsable: 0, solveSec: 0 };
   S.chartEvents = [];
   S.maxIters = PERF.on ? PERF.iters : INITIAL_ITERS;
@@ -876,6 +892,7 @@ async function finish() {
   }
   renderControls();
   dock('');
+  startTour();
   const hold = S.psnrHold != null ? ` · ${S.psnrHold.toFixed(1)} dB on the photograph it never saw` : '';
   flash(`Done${hold}`, 6000);
   // cache the export now, while the device is certainly alive — iOS can
@@ -1038,6 +1055,7 @@ function renderControls() {
 /** Resume from done: raise the horizon, restore the curve, back to train. */
 function continueTraining() {
   if (!S.session || S.state !== 'done') return;
+  stopTour();
   S.plyBlob = null;   // the cached export goes stale the moment training resumes
   S.maxIters = S.session.continueFor(MORE_ITERS);
   S.state = 'train';
@@ -1208,6 +1226,7 @@ async function ensureErrRender(key) {
 
 /** put the camera exactly on a frame's pose and lay its photograph over the model */
 function goToFrame(i) {
+  stopTour();
   const cam = S.scene.cams[i];
   if (!cam || !cam.R) { flash('That frame was never placed — there is no viewpoint to jump to.'); return; }
   S.sel = i; S.atFrame = i;
@@ -1391,6 +1410,68 @@ function renderHud() {
 let lastPulse = 0;
 let lastLoopT = performance.now();
 
+// ── done-state intro: glide slowly along the capture path until the user acts
+function startTour() {
+  const cams = S.scene ? S.scene.cams.filter((c) => c.R) : [];
+  if (cams.length < 2) return;
+  const pts = cams.map(camCentre);
+  const lens = [];
+  for (let i = 0; i < pts.length - 1; i++) {
+    lens.push(Math.max(1e-6, Math.hypot(
+      pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1], pts[i + 1][2] - pts[i][2])));
+  }
+  const med = [...lens].sort((a, b) => a - b)[lens.length >> 1];
+  // constant WORLD speed: ~1.6 s per typical camera gap, whatever the density
+  S.tour = { cams, pts, lens, speed: med / 1.6, i: 0, f: 0, dir: 1, pd: [] };
+}
+
+function stopTour() { S.tour = null; }
+
+/** Catmull-Rom through the capture positions — rounded, not segment-jerky */
+function tourPos(T, i, f) {
+  const last = T.pts.length - 1;
+  const P = (k) => T.pts[clamp(k, 0, last)];
+  const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
+  const out = [];
+  const t2 = f * f, t3 = t2 * f;
+  for (let k = 0; k < 3; k++) {
+    out[k] = 0.5 * ((2 * p1[k]) + (-p0[k] + p2[k]) * f +
+      (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * t2 +
+      (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * t3);
+  }
+  return out;
+}
+
+function tourStep(dt) {
+  const T = S.tour;
+  if (!T) return;
+  if (S.state !== 'done' || S.atFrame >= 0 || S.picking || !$('details').hidden) return;
+  if (S.keys.size) { stopTour(); return; }   // flying takes over
+
+  // advance at constant world speed, ping-pong at the path's ends
+  T.f += (dt * T.speed * T.dir) / T.lens[T.i];
+  while (T.f > 1 && T.i < T.lens.length - 1) { T.f = (T.f - 1) * (T.lens[T.i] / T.lens[T.i + 1]); T.i++; }
+  while (T.f < 0 && T.i > 0) { T.f = 1 + T.f * (T.lens[T.i] / T.lens[T.i - 1]); T.i--; }
+  if (T.f >= 1 && T.i >= T.lens.length - 1) { T.f = 1; T.dir = -1; }
+  if (T.f <= 0 && T.i <= 0) { T.f = 0; T.dir = 1; }
+
+  const a = T.cams[T.i], b = T.cams[T.i + 1];
+  const pos = tourPos(T, T.i, T.f);
+  const fa = [a.R[6], a.R[7], a.R[8]], fb = [b.R[6], b.R[7], b.R[8]];
+  let fwd = [0, 1, 2].map((k) => fa[k] + (fb[k] - fa[k]) * T.f);
+  const nrm = Math.hypot(fwd[0], fwd[1], fwd[2]) || 1;
+  fwd = fwd.map((v) => v / nrm);
+  const da = (T.pd[T.i] ??= vp._pivotDist(a));
+  const db = (T.pd[T.i + 1] ??= vp._pivotDist(b));
+  const d = da + (db - da) * T.f;
+
+  vp.target = [pos[0] + fwd[0] * d, pos[1] + fwd[1] * d, pos[2] + fwd[2] * d];
+  vp.dist = d;
+  vp.yaw = Math.atan2(-fwd[0], -fwd[2]);
+  vp.pitch = Math.asin(clamp(vp.upSign * fwd[1], -1, 1));
+  vp.dirty = true;
+}
+
 /** WASD fly: move the orbit target along the camera's own axes */
 function flyStep(dt) {
   if (!S.keys.size || !S.scene) return;
@@ -1427,6 +1508,7 @@ function loop() {
   // no fade on the photo overlay — it reads as lag on slow devices
   S.fade = S.fadeTo;
   flyStep(dt);
+  tourStep(dt);
 
   if (S.state === 'prep') paintPrepDock();
 
