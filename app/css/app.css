@@ -84,6 +84,11 @@ body { overflow: hidden; }
 .controls .statchip, .controls .cbtn { height: 32px; }
 .controls .iconbtn { width: 32px; height: 32px; }
 .controls .statchip, .controls .cbtn, .controls .iconbtn { border-color: var(--line); }
+/* hover: the fill breathes, the border stays put */
+.controls .statchip:hover, .controls .cbtn:hover, .controls .iconbtn:hover {
+  border-color: var(--line);
+  background: rgba(36, 44, 45, .85);
+}
 .controls .seg { background: rgba(7, 9, 9, .82); backdrop-filter: blur(4px); }
 
 /* start card, centred on the frames it is about to chew through */
