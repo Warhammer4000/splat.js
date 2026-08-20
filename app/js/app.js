@@ -1065,7 +1065,7 @@ function renderControls() {
   c.appendChild(stats);
   const more = document.createElement('button');
   more.className = 'cbtn';
-  more.textContent = `Train +${fmt(MORE_ITERS / 1000)}k`;
+  more.textContent = 'Train';
   more.title = 'Continue training — the schedules stretch to the longer run';
   more.addEventListener('click', continueTraining);
   c.appendChild(more);
