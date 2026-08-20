@@ -87,6 +87,21 @@ function boot() {
 
   vp = new Viewport($('cv'));
   vp.onLeave = leaveFrame;
+  // The GPU belongs to the view while the user is orbiting: stop submitting
+  // training batches (the ~4 queued ones drain in about a second), so the
+  // camera answers the finger instead of waiting behind the training queue.
+  // Resumes on release; a user-pressed pause is left alone.
+  vp.onDragStart = () => {
+    if (S.state === 'train' && S.session && S.session.training) {
+      S._dragPaused = true;
+      S.session.pause();
+    }
+  };
+  vp.onDragEnd = () => {
+    if (!S._dragPaused) return;
+    S._dragPaused = false;
+    if (S.session && S.state === 'train') S.session.start();
+  };
   dev = new Developer();
 
   $('btn-go').addEventListener('click', async () => {
@@ -356,6 +371,7 @@ async function open(preset, autostart = false) {
   S.growthStopped = false;
   S.plyBlob = null;
   S._recovering = false;
+  S._dragPaused = false;
   S._viewKey = '';
   document.getElementById('cv-model')?.remove();
   gpuCanvas = null;

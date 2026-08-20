@@ -42,6 +42,7 @@ export class Viewport {
       if (!this.enabled) return;
       if (this.lock) this.onLeave?.();
       drag = { x: e.clientX, y: e.clientY, pan: e.shiftKey || e.button === 2 || e.button === 1 };
+      this.onDragStart?.();
       try { cv.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
     });
     cv.addEventListener('pointermove', (e) => {
@@ -64,7 +65,11 @@ export class Viewport {
       }
       this.dirty = true;
     });
-    const end = () => { drag = null; };
+    const end = () => {
+      if (!drag) return;
+      drag = null;
+      this.onDragEnd?.();
+    };
     cv.addEventListener('pointerup', end);
     cv.addEventListener('pointercancel', end);
     cv.addEventListener('contextmenu', (e) => e.preventDefault());
