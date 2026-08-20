@@ -328,6 +328,7 @@ async function open(preset, autostart = false) {
   S.chartEvents = [];
   S.maxIters = INITIAL_ITERS;
   S.holdHist = [];
+  S._lastReady = null;
   S.growthStopped = false;
   gpuCanvas = null;
   $('btn-go').textContent = 'Start training';
@@ -477,6 +478,11 @@ function onStage(e) {
   if (e.stage === 'features' && e.detail) {
     S.feats.set(e.detail.image, e.detail);
     S.sel = e.detail.image;
+    // stay ahead of the decoder so the beat shows photos, not black
+    for (let k = 1; k <= 3; k++) {
+      const nx = S.photos[Math.min(e.detail.image + k, S.photos.length - 1)];
+      if (nx) bmp(nx.url);
+    }
     paintStrip();
   }
   if (e.stage === 'matching' && e.detail) {
@@ -1162,14 +1168,24 @@ function photoStage(ctx, w, h, dpr, marks = false) {
   ctx.fillStyle = '#070909';
   ctx.fillRect(0, 0, w, h);
   if (!S.photos.length || !S.photos[S.sel]) return; // intro: bare stage
-  const img = readyBmp(S.photos[S.sel].url);
+  // fast machines outrun the decoder during the landmarks beat (the selected
+  // frame changes every ~90ms, a full-res decode takes longer) — hold the
+  // last DECODED photo instead of flashing black, and mark that one
+  let img = readyBmp(S.photos[S.sel].url);
+  let shownIdx = S.sel;
+  if (img) {
+    S._lastReady = { img, idx: S.sel };
+  } else if (S._lastReady) {
+    img = S._lastReady.img;
+    shownIdx = S._lastReady.idx;
+  }
   if (!img) return;
   const r = fitRect(img.width, img.height, w / dpr, h / dpr, 10);
   ctx.save(); ctx.scale(dpr, dpr);
   ctx.globalAlpha = S.state === 'ready' ? .42 : 1;
   ctx.drawImage(img, r.x, r.y, r.w, r.h);
   ctx.globalAlpha = 1;
-  if (marks) drawRealMarks(ctx, r, S.sel);
+  if (marks) drawRealMarks(ctx, r, shownIdx);
   ctx.restore();
 }
 
