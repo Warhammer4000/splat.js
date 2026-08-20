@@ -49,9 +49,9 @@
     <p class="setdesc" id="set-desc" hidden></p>
 
     <div class="settings" id="settings" hidden>
-      <div class="setrow" id="row-count" hidden><label for="set-count">Photos</label>
+      <div class="setrow" id="row-count" hidden title="How many of the set's images to use. More images, longer solve — pair matching grows with the square of the count."><label for="set-count">Images</label>
         <input id="set-count" type="number" inputmode="numeric" min="12" value="42"></div>
-      <div class="setrow"><label for="set-res">Training resolution</label>
+      <div class="setrow" title="Largest image dimension the photos are downscaled to for training. Auto picks from image size, count and GPU memory."><label for="set-res">Training resolution</label>
         <select id="set-res">
           <option value="">Auto</option>
           <option value="480">480 px</option>
@@ -59,19 +59,19 @@
           <option value="960">960 px</option>
           <option value="1280">1280 px</option>
         </select></div>
-      <div class="setrow"><label for="set-buf" title="Render grid relative to the training resolution. 2× removes edge ringing at sharp viewing sizes, ~1.7× slower.">Working buffer</label>
+      <div class="setrow" title="Render grid relative to the training resolution. 2× removes edge ringing at sharp viewing sizes (~1.7× slower); 0.5× quarters the raster work."><label for="set-buf">Working buffer</label>
         <select id="set-buf">
           <option value="0.5">0.5×</option>
           <option value="1">1×</option>
           <option value="2">2×</option>
         </select></div>
-      <div class="setrow"><label for="set-sh">Spherical harmonics</label>
+      <div class="setrow" title="View-dependent colour detail. 0 = flat colours (faster, smaller file); 2 = full."><label for="set-sh">Spherical harmonics</label>
         <select id="set-sh">
           <option value="0">0</option>
           <option value="1">1</option>
           <option value="2">2</option>
         </select></div>
-      <div class="setrow"><label for="set-iters">Cycles</label>
+      <div class="setrow" title="Training cycles. A finished run can always continue with +10,000 more."><label for="set-iters">Cycles</label>
         <select id="set-iters">
           <option value="10000">10,000</option>
           <option value="">20,000</option>

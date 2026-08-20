@@ -360,7 +360,7 @@ body { overflow: hidden; }
 .srclinks .approx { color: var(--dim, #6b7877); margin-left: 10px; font-size: 12px; }
 
 /* training settings: a bare name-value table, folded away until asked for */
-.settings { margin: 0 auto 14px; max-width: 320px; text-align: left; }
+.settings { margin: 16px auto 16px; max-width: 320px; text-align: left; }
 .setrow {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
   padding: 4px 0;
@@ -374,7 +374,8 @@ body { overflow: hidden; }
 .setrow select:hover, .setrow input[type="number"]:hover { border-color: var(--line-2); }
 .setrow select:focus, .setrow input[type="number"]:focus { border-color: var(--accent-30); outline: none; }
 .startrow { display: flex; align-items: center; justify-content: center; gap: 10px; }
-.setgear { width: 42px; height: 42px; color: var(--muted); }
+/* same height as .btn.big beside it (12px padding + 15px/19px line + border) */
+.setgear { width: 47px; height: 47px; color: var(--muted); }
 .setgear:hover { color: var(--accent); }
 .setgear .gear {
   width: 18px; height: 18px; fill: none; stroke: currentColor;
@@ -495,7 +496,7 @@ body { overflow: hidden; }
 .lastcap:hover img { opacity: 1; }
 
 /* breathing room above Start training (the removed paragraph used to provide it) */
-#btn-go { margin-top: 18px; }
+.startrow { margin-top: 18px; }   /* the gap the Start button used to carry */
 
 /* capture close, top right */
 .camrec-x {

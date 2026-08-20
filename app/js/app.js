@@ -51,12 +51,13 @@ function loadSettings() {
   const phone = matchMedia('(any-pointer: coarse)').matches &&
     Math.min(screen.width, screen.height) <= 820;
   const d = phone
-    ? { res: 480, buf: 1, sh: 0, iters: 0 }
-    : { res: 0, buf: 1, sh: 2, iters: 0 };
+    ? { v: 2, res: 480, buf: 1, sh: 0, iters: 0 }
+    : { v: 2, res: 0, buf: 1, sh: 2, iters: 0 };
   try {
     const saved = JSON.parse(localStorage.getItem('splatjs_settings') || 'null');
-    const m = saved ? { ...d, ...saved } : d;
-    if (m.buf2x != null) { m.buf = m.buf2x ? 2 : (m.buf || 1); delete m.buf2x; }
+    // v gates out saves from older panel layouts (e.g. the phone-preset
+    // button that wrote sh 0 onto desktops)
+    const m = saved && saved.v === 2 ? { ...d, ...saved } : d;
     if (BUF2X) m.buf = 2;
     return m;
   } catch { return d; }
