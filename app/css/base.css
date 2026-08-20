@@ -513,9 +513,9 @@ select.sel {
 }
 .tbtn-sm:hover { color: var(--paper); border-color: var(--line-2); }
 
-/* the ITERATION line sits on the play button's centre line; splats and the
-   growth note hang below it */
-.tmeta { display: flex; flex-direction: column; gap: 2px; padding-left: 4px; transform: translateY(16px); }
+/* iter + splats centre as a pair on the play button; only the transient
+   growth note hangs below */
+.tmeta { display: flex; flex-direction: column; gap: 2px; padding-left: 4px; transform: translateY(8px); }
 .tmeta-1 { font: 500 15px var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tmeta-2 { font: 400 11px var(--mono); color: var(--dim); white-space: nowrap; }
 /* fixed-height slot: the note appears and vanishes without moving the stats */
