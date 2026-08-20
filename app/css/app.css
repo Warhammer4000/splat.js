@@ -86,6 +86,16 @@ body { overflow: hidden; }
   border: 1px solid var(--line-2); border-radius: 16px;
   box-shadow: var(--shadow);
 }
+/* phones: the card IS the screen — no border, no chrome, content centred
+   while it fits and scrolling from the top once it doesn't */
+@media (max-width: 640px) {
+  .card-start {
+    inset: 0; margin: 0; width: 100%; height: 100%; max-height: 100%;
+    border: 0; border-radius: 0;
+    display: grid; align-content: safe center;
+  }
+}
+
 /* short screens: tighten the card so Start stays in reach without scrolling */
 @media (max-height: 700px) {
   .card-start { padding-top: 36px; }

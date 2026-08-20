@@ -180,9 +180,9 @@ function boot() {
   $('btn-settings').addEventListener('click', () => {
     const open = $('settings').hidden;
     const card = $('start');
-    if (open) {
+    if (open && matchMedia('(min-width: 641px)').matches) {
       // pin the card's top edge: the panel extends DOWNWARD only, and the
-      // card scrolls if it outgrows the screen
+      // card scrolls if it outgrows the screen (full-screen phones skip this)
       const top = Math.max(10, card.getBoundingClientRect().top);
       card.style.top = `${top}px`;
       card.style.margin = '0 auto';
