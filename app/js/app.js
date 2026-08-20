@@ -474,6 +474,7 @@ async function open(preset, autostart = false) {
   S.iter = 0; S.splats = 0; S.psnrTrain = null; S.psnrHold = null;
   S.prep = null; S.feats = new Map(); S.lastPairEv = null; S.regCams = [];
   S.regPts = null; S.regPtsCount = 0;
+  S.growNote = null;
   S.solveStats = { pairsChecked: 0, pairsUsable: 0, solveSec: 0 };
   S.chartEvents = [];
   S.maxIters = PERF.on ? PERF.iters : INITIAL_ITERS;
@@ -795,7 +796,8 @@ function onMetrics(m) {
 function onTrainEvent(e) {
   if (e.kind === 'refine' && e.grown > 0) {
     S.chartEvents.push({ iter: e.iter, kind: 'grow', label: `Capacity +${fmt(e.grown)}` });
-    flash(`Capacity grows → ${fmt(e.n)} splats`, 2200);
+    // shown right under the splat count in the dock, not as a HUD chip
+    S.growNote = { text: `+${fmt(e.grown)} splats`, until: performance.now() + 2200 };
   }
   if (e.kind === 'refine' && e.grown === 0 && !S.growthStopped && e.iter > S.maxIters * 0.7) {
     S.growthStopped = true;
@@ -1339,6 +1341,7 @@ function dock(kind) {
         <div class="tmeta">
           <span class="tmeta-1"><span id="t-iter">${fmt(S.iter)}</span> <span class="tmeta-max">/ <span id="t-max">${fmt(S.maxIters)}</span></span></span>
           <span class="tmeta-2"><span id="t-splats">${S.splats ? fmt(S.splats) : '—'}</span> splats · <span id="t-ips">${S.itersPerSec ? fmt(S.itersPerSec) : '—'}</span>/s</span>
+          <span class="tmeta-grow" id="t-grow" hidden></span>
         </div>
       </div>
       <div class="chartwrap"><canvas id="chart"></canvas><div class="chart-tip" id="chart-tip" hidden></div></div>
@@ -1412,6 +1415,12 @@ function loop() {
   const dt = Math.min(0.05, (now - lastLoopT) / 1000);
   lastLoopT = now;
   if (S.flash && now > S.flash.until) S.flash = null;
+  const grow = $('t-grow');
+  if (grow) {
+    const show = !!(S.growNote && now < S.growNote.until);
+    if (grow.hidden === show) grow.hidden = !show;
+    if (show && grow.textContent !== S.growNote.text) grow.textContent = S.growNote.text;
+  }
   // no fade on the photo overlay — it reads as lag on slow devices
   S.fade = S.fadeTo;
   flyStep(dt);
