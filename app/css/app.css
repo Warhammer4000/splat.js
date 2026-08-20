@@ -57,8 +57,11 @@ body {
 
 .controls {
   position: absolute; z-index: 3; right: 14px; top: 12px;
-  display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end;
 }
+/* one row, one height — chip, Train button and export share the same pill */
+.controls .statchip, .controls .cbtn { height: 32px; }
+.controls .iconbtn { width: 32px; height: 32px; }
 .controls .seg { background: rgba(7, 9, 9, .82); backdrop-filter: blur(4px); }
 
 /* start card, centred on the frames it is about to chew through */

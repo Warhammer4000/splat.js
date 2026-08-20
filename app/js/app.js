@@ -828,7 +828,7 @@ function renderControls() {
   stats.addEventListener('click', openDetails);
   c.appendChild(stats);
   const more = document.createElement('button');
-  more.className = 'btn btn-quiet';
+  more.className = 'cbtn';
   more.textContent = `Train +${fmt(MORE_ITERS / 1000)}k`;
   more.title = 'Continue training — the schedules stretch to the longer run';
   more.addEventListener('click', continueTraining);
@@ -1105,14 +1105,14 @@ function dock(kind) {
         <button class="play" id="t-play" data-state="pause">❚❚</button>
         <button class="tbtn-sm" id="t-finish" hidden title="Stop here and keep the model as it is">Finish</button>
         <div class="tmeta">
-          <span class="tmeta-1"><span id="t-iter">0</span> <span class="tmeta-max">/ <span id="t-max">${fmt(S.maxIters)}</span></span></span>
-          <span class="tmeta-2"><span id="t-splats">—</span> splats · <span id="t-ips">—</span>/s</span>
+          <span class="tmeta-1"><span id="t-iter">${fmt(S.iter)}</span> <span class="tmeta-max">/ <span id="t-max">${fmt(S.maxIters)}</span></span></span>
+          <span class="tmeta-2"><span id="t-splats">${S.splats ? fmt(S.splats) : '—'}</span> splats · <span id="t-ips">${S.itersPerSec ? fmt(S.itersPerSec) : '—'}</span>/s</span>
         </div>
       </div>
       <div class="chartwrap"><canvas id="chart"></canvas><div class="chart-tip" id="chart-tip" hidden></div></div>
       <div class="tscores">
-        <div class="score" data-tone="accent"><div class="score-v" id="t-ptrain">—</div><div class="score-k">trained dB</div></div>
-        <div class="score" data-tone="alt"><div class="score-v" id="t-phold">—</div><div class="score-k">hidden dB</div></div>
+        <div class="score" data-tone="accent"><div class="score-v" id="t-ptrain">${S.psnrTrain != null ? S.psnrTrain.toFixed(2) : '—'}</div><div class="score-k">trained dB</div></div>
+        <div class="score" data-tone="alt"><div class="score-v" id="t-phold">${S.psnrHold != null ? S.psnrHold.toFixed(2) : '—'}</div><div class="score-k">hidden dB</div></div>
       </div>`;
     $('t-play').addEventListener('click', toggleTrain);
     $('t-finish').addEventListener('click', async () => {
