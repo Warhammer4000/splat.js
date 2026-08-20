@@ -372,6 +372,7 @@ body { overflow: hidden; }
 /* the Timing tab: the log takes the canvas's slot in the details sheet */
 #d-perf { aspect-ratio: 16 / 9; max-height: none; }
 #d-perf[hidden] { display: none; }
+.tabbtns { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
 .perfpre {
   margin: 0; padding: 10px 12px; max-height: min(320px, 42vh); overflow: auto;
   font: 400 10.5px/1.55 var(--mono); color: var(--muted); text-align: left;

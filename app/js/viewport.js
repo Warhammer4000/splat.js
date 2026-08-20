@@ -37,26 +37,62 @@ export class Viewport {
 
   _bind() {
     const cv = this.cv;
-    let drag = null;
+    const pts = new Map();   // pointerId -> {x, y} (all active pointers)
+    let mode = null;         // 'orbit' | 'pan' | 'two'
+    let pinch = null;        // two-finger baseline { d, cx, cy }
+
+    // camera-relative pan: sideways along the view's right, vertical along
+    // its up — content follows the fingers from any orientation
+    const panBy = (dx, dy) => {
+      const s = this.dist * 0.0016;
+      const { right, down } = this._basis();
+      for (let i = 0; i < 3; i++) {
+        this.target[i] -= (right[i] * dx + down[i] * dy) * s;
+      }
+    };
+
+    const twoBaseline = () => {
+      const v = [...pts.values()];
+      pinch = {
+        d: Math.max(20, Math.hypot(v[1].x - v[0].x, v[1].y - v[0].y)),
+        cx: (v[0].x + v[1].x) / 2, cy: (v[0].y + v[1].y) / 2,
+      };
+      mode = 'two';
+    };
+
     cv.addEventListener('pointerdown', (e) => {
       if (!this.enabled) return;
-      if (this.lock) this.onLeave?.();
-      drag = { x: e.clientX, y: e.clientY, pan: e.shiftKey || e.button === 2 || e.button === 1 };
-      this.onDragStart?.();
+      if (!pts.size) {
+        if (this.lock) this.onLeave?.();
+        this.onDragStart?.();
+        mode = (e.shiftKey || e.button === 2 || e.button === 1) ? 'pan' : 'orbit';
+      }
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pts.size >= 2) twoBaseline();
       try { cv.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
     });
+
     cv.addEventListener('pointermove', (e) => {
-      if (!drag) return;
-      const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-      drag.x = e.clientX; drag.y = e.clientY;
-      if (drag.pan) {
-        // camera-relative pan: sideways along the view's right, vertical
-        // along its up — content follows the cursor from any orientation
-        const s = this.dist * 0.0016;
-        const { right, down } = this._basis();
-        for (let i = 0; i < 3; i++) {
-          this.target[i] -= (right[i] * dx + down[i] * dy) * s;
-        }
+      const p = pts.get(e.pointerId);
+      if (!p) return;
+      const dx = e.clientX - p.x, dy = e.clientY - p.y;
+      p.x = e.clientX; p.y = e.clientY;
+
+      if (mode === 'two') {
+        if (pts.size < 2) return;
+        // pinch = dolly, centroid = pan — the standard two-finger camera
+        const v = [...pts.values()];
+        const d = Math.max(20, Math.hypot(v[1].x - v[0].x, v[1].y - v[0].y));
+        const cx = (v[0].x + v[1].x) / 2, cy = (v[0].y + v[1].y) / 2;
+        this.dist = Math.max(0.05, Math.min(400, this.dist * pinch.d / d));
+        panBy(cx - pinch.cx, cy - pinch.cy);
+        pinch = { d, cx, cy };
+        this.dirty = true;
+        return;
+      }
+
+      if (mode === 'pan') {
+        panBy(dx, dy);
       } else {
         // upSign keeps the orbit feel identical in y-down worlds, where the
         // screen-x axis is mirrored relative to yaw
@@ -65,10 +101,17 @@ export class Viewport {
       }
       this.dirty = true;
     });
-    const end = () => {
-      if (!drag) return;
-      drag = null;
-      this.onDragEnd?.();
+
+    const end = (e) => {
+      if (!pts.delete(e.pointerId)) return;
+      if (pts.size >= 2) {
+        twoBaseline();
+      } else if (pts.size === 1) {
+        mode = 'orbit'; pinch = null;   // the remaining finger orbits on
+      } else {
+        mode = null; pinch = null;
+        this.onDragEnd?.();
+      }
     };
     cv.addEventListener('pointerup', end);
     cv.addEventListener('pointercancel', end);

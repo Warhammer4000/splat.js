@@ -183,6 +183,7 @@ function boot() {
     if (S.state === 'train' || S.state === 'prep') { e.preventDefault(); e.returnValue = ''; }
   });
   window.__splat = S;          // console access
+  window.__vp = () => vp;      // console access (camera state)
   showIntro();                 // nothing preselected — the visitor chooses
   offerLastCapture();
   requestAnimationFrame(loop);
@@ -769,6 +770,19 @@ function buildPerfReport() {
   return L.join('\n');
 }
 
+/** clipboard copy with feedback on the button itself — a flash would be
+ *  hidden behind the details sheet */
+async function copyPerfLog(btn) {
+  const old = btn.textContent;
+  try {
+    await navigator.clipboard.writeText(buildPerfReport());
+    btn.textContent = 'Copied ✓';
+  } catch {
+    btn.textContent = 'Copy failed';
+  }
+  setTimeout(() => { btn.textContent = old; }, 1600);
+}
+
 function downloadPerfLog() {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([buildPerfReport()], { type: 'text/plain' }));
@@ -788,10 +802,12 @@ function perfCard() {
     <pre class="perfpre">${txt.split('\nframes:')[0].replace(/</g, '&lt;')}</pre>
     <div class="upcard-row">
       <button class="btn btn-quiet" id="perf-close">Close</button>
+      <button class="btn btn-quiet" id="perf-copy">Copy</button>
       <button class="btn btn-accent" id="perf-dl">Download log</button>
     </div>`;
   $('stage').appendChild(card);
   card.querySelector('#perf-close').addEventListener('click', () => card.remove());
+  card.querySelector('#perf-copy').addEventListener('click', (e) => copyPerfLog(e.currentTarget));
   card.querySelector('#perf-dl').addEventListener('click', downloadPerfLog);
 }
 
@@ -1533,8 +1549,10 @@ function renderDetails() {
         stat('Score readback', metCosts.length ? `${Math.round(pctl(metCosts, .5))} <small>ms median</small>` : '—'),
         stat('GPU wait', pf.length ? `${Math.round(pctl(colv(6), .9))} <small>ms p90</small>` : '—'),
       ],
-      btn: 'Download log',
-      onBtn: downloadPerfLog,
+      btns: [
+        { label: 'Download log', fn: downloadPerfLog },
+        { label: 'Copy to clipboard', fn: copyPerfLog },
+      ],
     },
   }[S.detailTab];
 
@@ -1547,8 +1565,12 @@ function renderDetails() {
   $('d-cap').textContent = T.cap;
   $('d-txt').innerHTML =
     `<h3>${T.title}</h3>${T.body.map((p) => `<p>${p}</p>`).join('')}<div class="grp">${T.rows.join('')}</div>` +
-    (T.btn ? `<button class="btn btn-quiet" id="d-tabbtn" style="margin-top:14px">${T.btn}</button>` : '');
-  if (T.btn) $('d-tabbtn').addEventListener('click', T.onBtn);
+    (T.btns ? `<div class="tabbtns">${T.btns.map((b, i) =>
+      `<button class="btn btn-quiet" data-bi="${i}">${b.label}</button>`).join('')}</div>` : '');
+  if (T.btns) {
+    $('d-txt').querySelectorAll('[data-bi]').forEach((el) =>
+      el.addEventListener('click', () => T.btns[el.dataset.bi].fn(el)));
+  }
 
   const gap = (S.psnrTrain != null && S.psnrHold != null) ? S.psnrTrain - S.psnrHold : null;
   $('d-txt2').innerHTML = `
