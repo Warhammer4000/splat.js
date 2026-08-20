@@ -14,7 +14,7 @@ import { recordCaptureVideo, cameraSupported } from './camera.js';
 import { saveLastCapture, loadLastCapture } from './store.js';
 import { zipStore } from './zip.js';
 import { handleOAuthCallback, sendToArrival, hasToken } from './arrival.js';
-import { PRESETS, REPO, DATA, HOLD_HELP, ownSet } from './data.js';
+import { PRESETS, REPO, DATA, ownSet } from './data.js';
 import { Viewport, camCentre } from './viewport.js';
 import { Developer, fitRect } from './develop.js';
 import { Chart } from './chart.js';
@@ -57,7 +57,7 @@ const S = {
   solveStats: { pairsChecked: 0, pairsUsable: 0, solveSec: 0 },
   chartEvents: [],             // real refine/growth moments for the curve
   flash: null,
-  detailTab: 'marks',
+  detailTab: 'score',
   keys: new Set(),             // held WASD keys (camera-relative fly)
   maxIters: INITIAL_ITERS,     // grows when the user continues training
   gen: 0,                      // run generation — stale async work checks it
@@ -1434,18 +1434,12 @@ function pairStage(ctx, w, h, dpr) {
 }
 
 // ── details sheet ───────────────────────────────────────────────────────────
-const DTABS = [['marks', 'Landmarks'], ['matches', 'Matching'], ['cams', 'Cameras'], ['perf', 'Timing']];
+const DTABS = [['score', 'Score'], ['marks', 'Landmarks'], ['matches', 'Matching'], ['cams', 'Cameras'], ['perf', 'Timing']];
 
 function openDetails() {
   $('details').hidden = false;
   $('d-export').replaceChildren(buildExport());
   renderDetails();
-  if (!dchart) dchart = new Chart($('d-chart'), {});
-  dchart.maxIter = S.maxIters;
-  dchart.train = S.session.lossHistory.map(([i, v]) => [i, v]);
-  dchart.hold = chart ? chart.hold : [];
-  dchart.events = S.chartEvents.map((e) => ({ ...e, at: e.iter / S.maxIters }));
-  dchart.resize();
 }
 
 function renderDetails() {
@@ -1474,6 +1468,7 @@ function renderDetails() {
   const survived = S.solveStats.pairsChecked
     ? Math.round(100 * S.solveStats.pairsUsable / S.solveStats.pairsChecked) : 0;
 
+  const gap = (S.psnrTrain != null && S.psnrHold != null) ? S.psnrTrain - S.psnrHold : null;
   const pf = (ses.perf && ses.perf.frames) || [];
   const colv = (i) => pf.map((r) => r[i]);
   const ipsAll = pf.length > 1
@@ -1481,6 +1476,34 @@ function renderDetails() {
   const metCosts = colv(7).filter((v) => v > 0);
 
   const T = {
+    score: {
+      cap: 'Turquoise: the photos it trained on. Amber: the one it never saw.',
+      title: 'Score over the run',
+      body: [
+        'Each cycle renders the splats from one photo\'s viewpoint and nudges them to ' +
+        'shrink the difference to that photograph. Higher dB is better; +3 dB halves the error.',
+        'The amber photo never trained the model, so its score only rises when the 3D is ' +
+        'actually right — the turquoise curve can also rise by memorising.',
+      ],
+      rows: [
+        stat('Cycles', fmt(S.iter)),
+        S.psnrTrain != null ? stat('Trained photos', `${S.psnrTrain.toFixed(1)} <small>dB</small>`, 'accent') : '',
+        S.psnrHold != null ? stat('Hidden photo', `${S.psnrHold.toFixed(1)} <small>dB</small>`, 'alt') : '',
+        gap != null ? stat('Gap', `${gap.toFixed(1)} <small>dB</small>`, Math.abs(gap) < 1.5 ? 'accent' : undefined) : '',
+        stat('Splats', fmt(S.splats)),
+        stat('Exported file', `${(S.splats * 164 / 1e6).toFixed(1)} <small>MB</small>`),
+        stat('Time', `${S.minutes} <small>min</small>`),
+      ].filter(Boolean),
+      btns: [{
+        label: 'Look at the frame it never saw',
+        fn: () => {
+          const h = S.scene.cams.find((c) => c.state === 'holdout');
+          $('details').hidden = true;
+          S.compare = 'swipe';
+          select(h ? h.i : S.sel);
+        },
+      }],
+    },
     marks: {
       cap: `Frame ${S.sel + 1}. Pick another below — flat sky and plain walls stay empty.`,
       title: 'Spots worth remembering',
@@ -1556,11 +1579,21 @@ function renderDetails() {
     },
   }[S.detailTab];
 
-  const isPerf = S.detailTab === 'perf';
-  $('d-cv').hidden = isPerf;
-  const pre = $('d-perf');
-  pre.hidden = !isPerf;
-  if (isPerf) pre.textContent = buildPerfReport();
+  // the visual slot: the photo/pair/cameras canvas, the score chart, or the log
+  const vis = S.detailTab === 'perf' ? 'perf' : S.detailTab === 'score' ? 'chart' : 'cv';
+  $('d-cv').hidden = vis !== 'cv';
+  $('d-chart').hidden = vis !== 'chart';
+  $('d-perf').hidden = vis !== 'perf';
+  if (vis === 'perf') $('d-perf').textContent = buildPerfReport();
+  if (vis === 'chart') {
+    if (!dchart) dchart = new Chart($('d-chart'), {});
+    dchart.maxIter = S.maxIters;
+    dchart.train = S.session.lossHistory.map(([i, v]) => [i, v]);
+    dchart.hold = chart ? chart.hold : (S.holdHist || []).slice();
+    dchart.events = S.chartEvents.map((e) => ({ ...e, at: e.iter / S.maxIters }));
+    dchart.resize();
+    dchart.draw();
+  }
 
   $('d-cap').textContent = T.cap;
   $('d-txt').innerHTML =
@@ -1572,33 +1605,6 @@ function renderDetails() {
       el.addEventListener('click', () => T.btns[el.dataset.bi].fn(el)));
   }
 
-  const gap = (S.psnrTrain != null && S.psnrHold != null) ? S.psnrTrain - S.psnrHold : null;
-  $('d-txt2').innerHTML = `
-    <h3>Guess, compare, nudge</h3>
-    <p>Every point from the solve became a <b>splat</b>: a soft 3D blob with a position, a
-       size along three axes, an orientation, a colour and a transparency. That is the whole
-       model — no mesh, no texture, no surface.</p>
-    <p>Each cycle renders the splats from one photo's viewpoint, compares the result with that
-       photograph, and nudges every splat a little to shrink the difference.</p>
-    <p>${HOLD_HELP}</p>
-    <div class="grp">
-      ${stat('Cycles', fmt(S.iter))}
-      ${S.psnrTrain != null ? stat('On trained photos', `${S.psnrTrain.toFixed(1)} <small>dB</small>`, 'accent') : ''}
-      ${S.psnrHold != null ? stat('On the hidden photo', `${S.psnrHold.toFixed(1)} <small>dB</small>`, 'alt') : ''}
-      ${gap != null ? stat('Gap', `${gap.toFixed(1)} <small>dB</small>`, Math.abs(gap) < 1.5 ? 'accent' : undefined) : ''}
-      ${stat('Splats', fmt(S.splats))}
-      ${stat('Exported file', `${(S.splats * 164 / 1e6).toFixed(1)} <small>MB</small>`)}
-      ${stat('Time in this tab', `${S.minutes} <small>min</small>`)}
-    </div>
-    <button class="btn btn-quiet" id="d-hold" style="margin-top:14px">Look at the frame it never saw</button>`;
-
-  $('d-hold')?.addEventListener('click', () => {
-    const h = S.scene.cams.find((c) => c.state === 'holdout');
-    $('details').hidden = true;
-    S.compare = 'swipe';
-    select(h ? h.i : S.sel);
-  });
-
   if (S.detailTab === 'cams' && !dvp) {
     dvp = new Viewport($('d-cv'));
     dvp.setScene(S.scene);
@@ -1608,7 +1614,8 @@ function renderDetails() {
 }
 
 function drawDetail() {
-  if (S.detailTab === 'perf') return;   // the log pre replaces the canvas
+  // score = the chart canvas, perf = the log pre — neither repaints per frame
+  if (S.detailTab === 'perf' || S.detailTab === 'score') return;
   const cv = $('d-cv');
   if (!cv.clientWidth) return;
   if (S.detailTab === 'cams') {

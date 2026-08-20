@@ -56,7 +56,7 @@
 <section class="sheet" id="details" hidden>
   <div class="sheet-head">
     <div>
-      <h2>What just happened</h2>
+      <h2>Details</h2>
       <p id="d-sub">—</p>
     </div>
     <div class="sheet-tools">
@@ -69,18 +69,11 @@
       <div class="sheet-vis">
         <div class="seg" id="d-seg"></div>
         <canvas id="d-cv"></canvas>
+        <canvas id="d-chart" hidden></canvas>
         <pre id="d-perf" class="perfpre" hidden></pre>
         <p class="cap" id="d-cap">—</p>
       </div>
       <div class="sheet-txt" id="d-txt"></div>
-    </div>
-    <div class="sheet-row">
-      <div class="sheet-vis">
-        <div class="seg-title">Score over the run</div>
-        <canvas id="d-chart"></canvas>
-        <p class="cap">Turquoise: the photos it trained on. Amber: the one photo it never saw.</p>
-      </div>
-      <div class="sheet-txt" id="d-txt2"></div>
     </div>
   </div>
 </section>
