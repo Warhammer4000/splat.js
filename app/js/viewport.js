@@ -241,6 +241,22 @@ export class Viewport {
       ctx.fillStyle = '#070909';
       ctx.fillRect(0, 0, w, h);
     }
+    // a raw flat [x,y,z,...] cloud (the solve's growing triangulation),
+    // drawn under the frustums in a single soft tone
+    if (o.cloud && o.cloud.length) {
+      const { R, t, f, cx, cy } = P;
+      ctx.fillStyle = 'rgba(47, 212, 193, .38)';
+      const s = 1.5 * (this.dpr || 1);
+      for (let i = 0; i < o.cloud.length; i += 3) {
+        const X = o.cloud[i], Y = o.cloud[i + 1], Z = o.cloud[i + 2];
+        const zc = R[6] * X + R[7] * Y + R[8] * Z + t[2];
+        if (zc <= 0.05) continue;
+        const px = f * (R[0] * X + R[1] * Y + R[2] * Z + t[0]) / zc + cx;
+        const py = f * (R[3] * X + R[4] * Y + R[5] * Z + t[1]) / zc + cy;
+        if (px < 0 || py < 0 || px > w || py > h) continue;
+        ctx.fillRect(px - s / 2, py - s / 2, s, s);
+      }
+    }
     if (o.showCams && o.cams) this._drawCams(o, P);
     this.dirty = false;
     return P;
@@ -281,8 +297,29 @@ export class Viewport {
   _drawCams(o, P) {
     const ctx = this.ctx, dpr = this.dpr || 1;
     if (o.faint) ctx.globalAlpha = 0.4;
-    const s = (this.scene ? this.scene.radius : 4) * 0.075;
     const list = o.cams;
+    // Pyramid depth follows the capture spacing (median gap between
+    // consecutive shots), not the scene radius — radius-scaled frustums
+    // overdraw the subject on tight captures. Clamped so sparse arcs don't
+    // balloon and dense ones stay visible.
+    const rad = this.scene ? this.scene.radius : 4;
+    let s = rad * 0.075;
+    if (list.length >= 3) {
+      if (this._camSizeN !== list.length) {
+        const gaps = [];
+        let prev = null;
+        for (const c of list) {
+          if (!c.R) continue;
+          const p = camCentre(c);
+          if (prev) gaps.push(Math.hypot(p[0] - prev[0], p[1] - prev[1], p[2] - prev[2]));
+          prev = p;
+        }
+        gaps.sort((a, b) => a - b);
+        this._camSize = gaps.length ? gaps[gaps.length >> 1] * 0.8 : 0;
+        this._camSizeN = list.length;
+      }
+      if (this._camSize) s = Math.min(s, Math.max(this._camSize, rad * 0.02));
+    }
     const upto = o.reveal ?? list.length;
     const path = [];
     const stride = Math.max(1, Math.ceil(list.length / 30));

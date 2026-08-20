@@ -473,6 +473,7 @@ async function open(preset, autostart = false) {
   S.sel = 0; S.atFrame = -1; S.fade = 0; S.fadeTo = 0;
   S.iter = 0; S.splats = 0; S.psnrTrain = null; S.psnrHold = null;
   S.prep = null; S.feats = new Map(); S.lastPairEv = null; S.regCams = [];
+  S.regPts = null; S.regPtsCount = 0;
   S.solveStats = { pairsChecked: 0, pairsUsable: 0, solveSec: 0 };
   S.chartEvents = [];
   S.maxIters = PERF.on ? PERF.iters : INITIAL_ITERS;
@@ -521,7 +522,7 @@ const BEATS = [
   { id: 'decode',   label: 'Reading photographs' },
   { id: 'features', label: 'Finding landmarks' },
   { id: 'matching', label: 'Matching photos' },
-  { id: 'cameras',  label: 'Placing cameras' },
+  { id: 'cameras',  label: 'Solving positions' },
   { id: 'seed',     label: 'Seeding splats' },
 ];
 const beatIndex = (stage) =>
@@ -671,13 +672,38 @@ function onStage(e) {
       i: e.detail.image, R: e.detail.R, t: e.detail.t, f: e.detail.f,
       w: fr.fw, h: fr.fh, cx: fr.fw / 2, cy: fr.fh / 2, state: 'placed',
     });
-    // keep an orbit that frames the growing camera set
+    if (e.detail.cloud && e.detail.cloud.length) {
+      S.regPts = e.detail.cloud;
+      S.regPtsCount = e.detail.points || 0;
+    }
+    // an overview that keeps FOLLOWING the growing reconstruction — framing
+    // once at 3 cameras left everything after out of shot
     const cs = S.regCams.map(camCentre);
     const c = cs.reduce((a, p) => [a[0] + p[0], a[1] + p[1], a[2] + p[2]], [0, 0, 0])
       .map((v) => v / cs.length);
-    const r = Math.max(1e-3, ...cs.map((p) => Math.hypot(p[0] - c[0], p[1] - c[1], p[2] - c[2])));
-    vp.scene = { center: c, radius: r * 1.2, xyz: null, rgb: null };
-    if (S.regCams.length === 3) { vp.detectUp(S.regCams); vp.frameScene(); }
+    let tgt = c;
+    if (S.regPts && S.regPts.length) {
+      // midpoint of camera ring and cloud puts both in frame
+      let px = 0, py = 0, pz = 0;
+      const m = S.regPts.length / 3;
+      for (let i = 0; i < S.regPts.length; i += 3) {
+        px += S.regPts[i]; py += S.regPts[i + 1]; pz += S.regPts[i + 2];
+      }
+      tgt = [(c[0] + px / m) / 2, (c[1] + py / m) / 2, (c[2] + pz / m) / 2];
+    }
+    // radius from the CAMERAS only — the cloud has outliers, the ring doesn't
+    const r = Math.max(1e-3, ...cs.map((p) => Math.hypot(p[0] - tgt[0], p[1] - tgt[1], p[2] - tgt[2])));
+    vp.scene = { center: tgt, radius: r * 1.1, xyz: null, rgb: null };
+    if (S.regCams.length === 3) {
+      vp.detectUp(S.regCams);
+      vp.frameScene();
+    } else if (S.regCams.length > 3) {
+      vp.detectUp(S.regCams);
+      const k = 0.3;   // damped follow: no jumps, just a slow zoom-out
+      for (let i = 0; i < 3; i++) vp.target[i] += (tgt[i] - vp.target[i]) * k;
+      vp.dist += (r * 2.4 - vp.dist) * k;
+      vp.dirty = true;
+    }
   }
 }
 
@@ -1427,7 +1453,10 @@ function prepSub() {
     return `${fmt(e.done)} of ${fmt(e.total)} pairs · ${fmt(e.detail?.usable ?? 0)} survived the geometry test`;
   }
   if (e.stage === 'focal') return `no lens data in the files — trying focal ${e.done + 1} of ${e.total}`;
-  if (e.stage === 'register') return `${e.done} of ${e.total} cameras placed`;
+  if (e.stage === 'register') {
+    return `${e.done} of ${e.total} photos placed` +
+      (S.regPtsCount ? ` · ${fmt(S.regPtsCount)} points triangulated` : '');
+  }
   if (e.stage === 'ba') return 'polishing the geometry (bundle adjustment)';
   if (e.stage === 'solved') return `${e.detail.cams} cameras · ${fmt(e.detail.points)} points · ${e.detail.rms ? e.detail.rms.toFixed(2) + 'px' : ''}`;
   if (e.stage === 'seed') return 'one splat per landmark, plus jittered copies';
@@ -1451,7 +1480,7 @@ function draw() {
     if (S.scene) {
       vp.draw({ points: true, cams: S.scene.cams, showCams: true, showPath: true, sel: S.sel, active: -1 });
     } else {
-      vp.draw({ cams: S.regCams, showCams: true, showPath: true, reveal: S.regCams.length, active: -1, sel: -1 });
+      vp.draw({ cams: S.regCams, showCams: true, showPath: true, reveal: S.regCams.length, active: -1, sel: -1, cloud: S.regPts });
     }
     return;
   }

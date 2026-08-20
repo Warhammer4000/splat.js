@@ -1010,8 +1010,20 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
         }
         vlog(`registered image ${bestImg} (${reg.inliers}/${bestCount} inliers, +${newPts} points)`);
         if (withBA) {
+          // a downsampled snapshot of the triangulated cloud rides along so a
+          // UI can show the reconstruction growing, not just the frustums
+          const cloud = [];
+          let nPts = 0;
+          const stride = Math.max(1, (tracks.length / 4000) | 0);
+          for (let ti = 0; ti < tracks.length; ti++) {
+            const X = tracks[ti].X;
+            if (!X) continue;
+            if (nPts % stride === 0) cloud.push(X[0], X[1], X[2]);
+            nPts++;
+          }
           ev({ stage: 'register', done: registered.size, total: n, detail: {
             image: bestImg, R: Array.from(reg.R), t: Array.from(reg.t), f: K[bestImg].f,
+            cloud, points: nPts,
           } });
         }
 
