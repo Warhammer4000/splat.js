@@ -1399,7 +1399,9 @@ function flyStep(dt) {
   if (S.atFrame >= 0) leaveFrame();   // like a drag, movement leaves the photo
   const { fwd, right, down } = vp._basis();
   const boost = (S.keys.has('ShiftLeft') || S.keys.has('ShiftRight')) ? 3 : 1;
-  const sp = S.scene.radius * 0.7 * dt * boost;
+  // speed follows the pivot distance (zoomed in = fine movement, zoomed out
+  // = covering ground), floored so a extreme close-up can still move
+  const sp = Math.max(vp.dist, S.scene.radius * 0.02) * 1.2 * dt * boost;
   let any = false;
   const move = (v, f) => { for (let i = 0; i < 3; i++) vp.target[i] += v[i] * f; any = true; };
   if (S.keys.has('KeyW')) move(fwd, sp);
