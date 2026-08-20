@@ -118,8 +118,10 @@ export class Session {
     this.training = false;
     this.lossHistory = [];  // [iter, psnrTrain]
     this._fences = [];      // in-flight batch fences (see _frameLoop)
-    // opts.perf: record per-frame loop timings for offline analysis
-    this.perf = opts.perf ? { frames: [], marks: [] } : null;
+    // Per-frame loop timings, recorded by default — the cost is a handful of
+    // performance.now() calls and one small array row per submitted batch.
+    // opts.perf: false disables.
+    this.perf = opts.perf === false ? null : { frames: [], marks: [] };
     this._em = new Emitter();
     this._debug = null;     // solver internals (feats/tracks) for UI beats
     this.view = new SessionView(this);

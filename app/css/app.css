@@ -34,6 +34,15 @@ body {
   stroke-linecap: round; stroke-linejoin: round;
 }
 
+/* ── touch ownership ─────────────────────────────────────────────────────────
+   The page must never react on its own: no pinch-zoom, no rubber-banding, no
+   stray scrolling. Touches on the stage belong entirely to the app (pinch /
+   two-finger move become camera controls); the filmstrip and the details
+   sheet keep their own panning. */
+html, body { touch-action: pan-x pan-y; overscroll-behavior: none; }
+body { overflow: hidden; }
+.stage, .camrec { touch-action: none; }
+
 /* ── stage ───────────────────────────────────────────────────────────────── */
 
 /* v1 places .stage / .strip inside a named-area grid; v2 owns its own layout.
@@ -360,6 +369,9 @@ body {
 
 /* the ?perf benchmark summary */
 #perfcard { width: min(560px, 92%); }
+/* the Timing tab: the log takes the canvas's slot in the details sheet */
+#d-perf { aspect-ratio: 16 / 9; max-height: none; }
+#d-perf[hidden] { display: none; }
 .perfpre {
   margin: 0; padding: 10px 12px; max-height: min(320px, 42vh); overflow: auto;
   font: 400 10.5px/1.55 var(--mono); color: var(--muted); text-align: left;

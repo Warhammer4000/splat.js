@@ -124,6 +124,11 @@ function boot() {
   $('d-close').addEventListener('click', () => { $('details').hidden = true; });
 
   addEventListener('resize', () => { vp.resize(); chart?.resize(); dchart?.resize(); dvp?.resize(); });
+  // Safari's proprietary pinch channel — it ignores user-scalable=no, and the
+  // page must never zoom itself (pinch will become a camera control)
+  for (const t of ['gesturestart', 'gesturechange', 'gestureend']) {
+    document.addEventListener(t, (e) => e.preventDefault());
+  }
   const WASD = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'ShiftLeft', 'ShiftRight'];
   addEventListener('keydown', (e) => {
     if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
@@ -411,7 +416,7 @@ async function startPrep() {
     );
     const session = createSession({
       maxIters: S.maxIters, holdout: 'auto', evalHoldEvery: 2500,
-      maxViewW: mvW, maxViewH: mvH, perf: PERF.on,
+      maxViewW: mvW, maxViewH: mvH,
     });
     S.session = session;
     session.on('stage', (e) => { if (S.gen === gen) onStage(e); });
@@ -590,10 +595,8 @@ function onMetrics(m) {
   S.iter = m.iter;
   S.splats = m.splats;
   S.itersPerSec = m.itersPerSec;
-  if (PERF.on) {
-    (S.perfMetrics ??= []).push([Math.round(performance.now()), m.iter, m.itersPerSec,
-      m.psnrTrain != null ? m.psnrTrain.toFixed(2) : '', m.psnrHold != null ? m.psnrHold.toFixed(2) : '']);
-  }
+  (S.perfMetrics ??= []).push([Math.round(performance.now()), m.iter, m.itersPerSec,
+    m.psnrTrain != null ? m.psnrTrain.toFixed(2) : '', m.psnrHold != null ? m.psnrHold.toFixed(2) : '']);
   if (m.psnrTrain != null) S.psnrTrain = m.psnrTrain;
   if (m.psnrHold != null) S.psnrHold = m.psnrHold;
   if (m.psnrHold != null) (S.holdHist ??= []).push([m.iter, m.psnrHold]);
@@ -750,6 +753,14 @@ function buildPerfReport() {
   return L.join('\n');
 }
 
+function downloadPerfLog() {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([buildPerfReport()], { type: 'text/plain' }));
+  a.download = `splatjs_perf_${new Date().toISOString().replace(/\W/g, '').slice(0, 15)}.txt`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
 function perfCard() {
   document.getElementById('perfcard')?.remove();
   const txt = buildPerfReport();
@@ -765,13 +776,7 @@ function perfCard() {
     </div>`;
   $('stage').appendChild(card);
   card.querySelector('#perf-close').addEventListener('click', () => card.remove());
-  card.querySelector('#perf-dl').addEventListener('click', () => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([txt], { type: 'text/plain' }));
-    a.download = `splatjs_perf_${new Date().toISOString().replace(/\W/g, '').slice(0, 15)}.txt`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-  });
+  card.querySelector('#perf-dl').addEventListener('click', downloadPerfLog);
 }
 
 /** after the run: an honest per-photograph score, filled in the background */
@@ -1397,7 +1402,7 @@ function pairStage(ctx, w, h, dpr) {
 }
 
 // ── details sheet ───────────────────────────────────────────────────────────
-const DTABS = [['marks', 'Landmarks'], ['matches', 'Matching'], ['cams', 'Cameras']];
+const DTABS = [['marks', 'Landmarks'], ['matches', 'Matching'], ['cams', 'Cameras'], ['perf', 'Timing']];
 
 function openDetails() {
   $('details').hidden = false;
@@ -1436,6 +1441,12 @@ function renderDetails() {
   const selFeats = (S.feats.get(S.sel) || {}).n;
   const survived = S.solveStats.pairsChecked
     ? Math.round(100 * S.solveStats.pairsUsable / S.solveStats.pairsChecked) : 0;
+
+  const pf = (ses.perf && ses.perf.frames) || [];
+  const colv = (i) => pf.map((r) => r[i]);
+  const ipsAll = pf.length > 1
+    ? (pf[pf.length - 1][1] - pf[0][1]) / Math.max(.001, (pf[pf.length - 1][0] - pf[0][0]) / 1000) : 0;
+  const metCosts = colv(7).filter((v) => v > 0);
 
   const T = {
     marks: {
@@ -1488,11 +1499,40 @@ function renderDetails() {
         stat('Solve time', `${Math.round(S.solveStats.solveSec)} <small>s</small>`),
       ],
     },
+    perf: {
+      cap: 'Every submitted batch: encode, view render, GPU wait, score readback — in milliseconds.',
+      title: 'Where the time went',
+      body: [
+        'The loop times itself as it runs: how long each batch of cycles takes to encode, how ' +
+        'long the GPU makes it wait, and what the score readbacks cost — a readback has to ' +
+        'drain everything queued before it can measure.',
+        'Speeds differ mostly by memory bandwidth: a phone GPU sits dozens of times below a ' +
+        'desktop card, at identical quality. The downloaded log is the file to attach when ' +
+        'something is slower than it should be.',
+      ],
+      rows: [
+        stat('Speed', ipsAll ? `${fmt(ipsAll)} <small>cycles/s</small>` : '—', 'accent'),
+        stat('GPU per cycle', ipsAll ? `${(1000 / ipsAll).toFixed(1)} <small>ms</small>` : '—'),
+        stat('Cycles per submit', pf.length ? fmt(pctl(colv(2), .5)) : '—'),
+        stat('Score readback', metCosts.length ? `${Math.round(pctl(metCosts, .5))} <small>ms median</small>` : '—'),
+        stat('GPU wait', pf.length ? `${Math.round(pctl(colv(6), .9))} <small>ms p90</small>` : '—'),
+      ],
+      btn: 'Download log',
+      onBtn: downloadPerfLog,
+    },
   }[S.detailTab];
+
+  const isPerf = S.detailTab === 'perf';
+  $('d-cv').hidden = isPerf;
+  const pre = $('d-perf');
+  pre.hidden = !isPerf;
+  if (isPerf) pre.textContent = buildPerfReport();
 
   $('d-cap').textContent = T.cap;
   $('d-txt').innerHTML =
-    `<h3>${T.title}</h3>${T.body.map((p) => `<p>${p}</p>`).join('')}<div class="grp">${T.rows.join('')}</div>`;
+    `<h3>${T.title}</h3>${T.body.map((p) => `<p>${p}</p>`).join('')}<div class="grp">${T.rows.join('')}</div>` +
+    (T.btn ? `<button class="btn btn-quiet" id="d-tabbtn" style="margin-top:14px">${T.btn}</button>` : '');
+  if (T.btn) $('d-tabbtn').addEventListener('click', T.onBtn);
 
   const gap = (S.psnrTrain != null && S.psnrHold != null) ? S.psnrTrain - S.psnrHold : null;
   $('d-txt2').innerHTML = `
@@ -1530,6 +1570,7 @@ function renderDetails() {
 }
 
 function drawDetail() {
+  if (S.detailTab === 'perf') return;   // the log pre replaces the canvas
   const cv = $('d-cv');
   if (!cv.clientWidth) return;
   if (S.detailTab === 'cams') {
