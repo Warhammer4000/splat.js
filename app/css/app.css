@@ -129,9 +129,9 @@ body { overflow: hidden; }
 .srclinks a:hover { color: #5ee7d6; }
 .srclinks a::after { content: ' ↗'; text-decoration: none; opacity: .6; }
 
-/* the set chooser: five sets, one click each, no menu */
+/* the set chooser: one click each, no menu; wraps when the row overfills */
 .setpick {
-  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 6px;
   padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--line);
 }
 .setpick button {

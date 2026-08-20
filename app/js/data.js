@@ -20,6 +20,19 @@ export const PRESETS = [
     approx: '~6 min',
   },
   {
+    id: 'truck-full', name: 'Truck · all',
+    kind: 'Standard test set — complete',
+    origin: 'All 251 photos of the Tanks & Temples Truck sequence — the complete benchmark set, nothing skipped.',
+    links: [
+      { label: 'Tanks & Temples', url: 'https://www.tanksandtemples.org/' },
+      { label: 'image set', url: 'https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/' },
+    ],
+    dir: 'truck', pattern: '{i:6}.jpg', start: 1, count: 251,
+    blurb: 'The same walk at full density. Six times the photos of the small set — ' +
+           'and pair matching grows with the square of the count, so bring patience.',
+    approx: '~40 min',
+  },
+  {
     id: 'camping', name: 'Camping',
     kind: 'Handheld phone video',
     origin: '113 frames pulled from a phone video. Not a benchmark — an ordinary capture, with everything that goes wrong in one.',
@@ -41,6 +54,19 @@ export const PRESETS = [
     blurb: 'More photos of a harder subject: dark paint, repeating windows, and a seam ' +
            'where the shoot was interrupted and picked up again.',
     approx: '~10 min',
+  },
+  {
+    id: 'train-full', name: 'Train · all',
+    kind: 'Standard test set — complete',
+    origin: 'All 301 photos of the Tanks & Temples Train sequence — the complete benchmark set.',
+    links: [
+      { label: 'Tanks & Temples', url: 'https://www.tanksandtemples.org/' },
+      { label: 'image set', url: 'https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/' },
+    ],
+    dir: 'train', pattern: '{i:5}.jpg', start: 1, count: 301,
+    blurb: 'The hardest set here, complete: dark paint, repeating windows, and three ' +
+           'hundred photos of pair matching. A long run, for benchmarking.',
+    approx: '~50 min',
   },
   {
     id: 'synthetic', name: 'Synthetic Corner',

@@ -55,8 +55,9 @@ export function adaptiveTrainCap(nImages, w, h, opts = {}) {
   return Math.max(320, Math.floor(full * s));
 }
 
-function fitDims(w, h, maxDim) {
-  const s = Math.min(1, maxDim / Math.max(w, h));
+function fitDims(w, h, maxDim, allowUp = false) {
+  const s0 = maxDim / Math.max(w, h);
+  const s = allowUp ? s0 : Math.min(1, s0);
   return [Math.max(2, Math.round(w * s)), Math.max(2, Math.round(h * s))];
 }
 
@@ -107,7 +108,10 @@ function drawScaledFast(src, w, h) {
 export function processSource(src, srcW, srcH, name, trainCap, opts = {}) {
   const featCap = opts.featMaxDim || FEAT_MAX_DIM;
   const [fw, fh] = fitDims(srcW, srcH, featCap);
-  const [tw, th] = fitDims(srcW, srcH, trainCap || TRAIN_MAX_DIM);
+  // an EXPLICIT trainMaxDim override may upscale the training targets past
+  // native (supervising above native penalises super-resolution ringing);
+  // the adaptive cap never upscales
+  const [tw, th] = fitDims(srcW, srcH, trainCap || TRAIN_MAX_DIM, !!opts.trainMaxDim);
 
   const fctx = drawScaledFast(src, fw, fh);
   const fdata = fctx.getImageData(0, 0, fw, fh).data;

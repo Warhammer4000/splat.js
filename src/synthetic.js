@@ -188,8 +188,8 @@ export function generateSyntheticRaw(count = 12) {
 }
 
 /** Generate `count` synthetic views. Returns the same format as loadImageFiles. */
-export function generateSyntheticDataset(count = 12) {
-  return generateSyntheticRaw(count).map((v) => processSource(v.canvas, W, H, v.name));
+export function generateSyntheticDataset(count = 12, trainCap, opts) {
+  return generateSyntheticRaw(count).map((v) => processSource(v.canvas, W, H, v.name, trainCap, opts));
 }
 
 function lookAtPose(eye, center) {
