@@ -339,6 +339,7 @@ body { overflow: hidden; }
 }
 
 .sheet-tools { display: flex; align-items: center; gap: 12px; }
+.sheet-tools .iconbtn { color: var(--paper); }
 
 .statchip {
   display: inline-flex; align-items: center; gap: 13px;
