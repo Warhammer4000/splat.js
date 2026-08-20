@@ -137,6 +137,8 @@ function boot() {
     useOwnPhotos(e.dataTransfer.files);
   });
   $('d-close').addEventListener('click', () => { $('details').hidden = true; });
+  $('d-prev').addEventListener('click', () => detailFlip(-1));
+  $('d-next').addEventListener('click', () => detailFlip(1));
 
   addEventListener('resize', () => { vp.resize(); chart?.resize(); dchart?.resize(); dvp?.resize(); });
   // Safari's proprietary pinch channel — it ignores user-scalable=no, and the
@@ -148,7 +150,12 @@ function boot() {
   addEventListener('keydown', (e) => {
     if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
     if (!$('about').hidden) { if (e.key === 'Escape') $('about').hidden = true; return; }
-    if (!$('details').hidden) { if (e.key === 'Escape') $('details').hidden = true; return; }
+    if (!$('details').hidden) {
+      if (e.key === 'Escape') $('details').hidden = true;
+      if (S.detailTab === 'marks' && e.key === 'ArrowLeft') detailFlip(-1);
+      if (S.detailTab === 'marks' && e.key === 'ArrowRight') detailFlip(1);
+      return;
+    }
     if (S.picking && e.key === 'Escape') { closePicker(); return; }
     if (e.key === ' ' && S.state === 'train') { e.preventDefault(); toggleTrain(); }
     if (e.key === 'ArrowRight') select(S.sel + 1);
@@ -1505,7 +1512,7 @@ function renderDetails() {
       }],
     },
     marks: {
-      cap: `Frame ${S.sel + 1}. Pick another below — flat sky and plain walls stay empty.`,
+      cap: `Photo ${S.sel + 1} of ${n} — flat sky and plain walls stay empty.`,
       title: 'Spots worth remembering',
       body: [
         'Before there is any 3D, every photo is scanned for places that could be recognised ' +
@@ -1579,6 +1586,8 @@ function renderDetails() {
     },
   }[S.detailTab];
 
+  $('d-prev').hidden = $('d-next').hidden = S.detailTab !== 'marks';
+
   // the visual slot: the photo/pair/cameras canvas, the score chart, or the log
   const vis = S.detailTab === 'perf' ? 'perf' : S.detailTab === 'score' ? 'chart' : 'cv';
   $('d-cv').hidden = vis !== 'cv';
@@ -1611,6 +1620,16 @@ function renderDetails() {
     dvp.upSign = vp.upSign;
   }
   if (dvp) dvp.resize();
+}
+
+/** Landmarks tab: step through the photos (the filmstrip is under the sheet) */
+function detailFlip(dir) {
+  const n = S.photos.length;
+  if (!n) return;
+  S.sel = (S.sel + dir + n) % n;
+  bmp(S.photos[S.sel].url);                                  // decode now
+  bmp(S.photos[(S.sel + dir + n) % n].url);                  // prefetch onward
+  renderDetails();
 }
 
 function drawDetail() {

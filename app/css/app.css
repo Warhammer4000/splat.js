@@ -226,7 +226,19 @@ body { overflow: hidden; }
   gap: 30px; padding: 26px 0; border-bottom: 1px solid var(--line);
 }
 .sheet-row:last-child { border-bottom: 0; }
-.sheet-vis { min-width: 0; }
+.sheet-vis { min-width: 0; position: relative; }
+
+/* flip through the photos on the Landmarks tab — the filmstrip is covered */
+.d-nav {
+  position: absolute; top: 50%; transform: translateY(-50%); z-index: 2;
+  width: 40px; height: 40px; border-radius: 50%;
+  border: 1px solid var(--line-2); color: var(--paper);
+  background: rgba(7, 9, 9, .7); backdrop-filter: blur(4px);
+  font: 300 24px/1 var(--ui); padding-bottom: 3px;
+}
+.d-nav:hover { border-color: var(--muted); background: rgba(7, 9, 9, .9); }
+#d-prev { left: 10px; }
+#d-next { right: 10px; }
 .sheet-vis canvas {
   display: block; width: 100%; aspect-ratio: 16 / 9;
   background: var(--stage); border: 1px solid var(--line); border-radius: var(--r);
