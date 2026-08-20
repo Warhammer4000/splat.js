@@ -33,7 +33,7 @@ body {
   padding: 6px 8px; margin-left: 14px;
   position: relative; color: var(--muted);
 }
-#btn-new::before, #gh::before {
+#btn-new::before {
   content: ''; position: absolute; left: -14px; top: 50%;
   transform: translateY(-50%);
   width: 1px; height: 18px; background: var(--line-2);
@@ -429,7 +429,9 @@ body { overflow: hidden; }
   display: inline-flex; align-items: center; gap: 5px;
   width: auto; height: 47px; padding: 0 12px 0 14px;
   border: 0; border-radius: var(--pill); color: var(--muted);
+  background: none; backdrop-filter: none;
 }
+.setgear:hover { background: var(--panel-2); }
 .setgear:hover { color: var(--accent); }
 /* disabled: same voice as the disabled Start beside it */
 .setgear[disabled] {
