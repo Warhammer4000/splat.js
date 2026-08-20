@@ -34,6 +34,19 @@
 
 * { box-sizing: border-box; }
 
+/* one quiet scrollbar everywhere: slim, rounded, track invisible.
+   Chrome/Firefox take the standard properties (and then ignore the -webkit
+   pseudos); Safari takes the pseudos. */
+* { scrollbar-width: thin; scrollbar-color: rgba(147, 161, 160, .32) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(147, 161, 160, .32); border-radius: 4px;
+  border: 2px solid transparent; background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(147, 161, 160, .55); background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+
 /* .btn and friends set display, which would otherwise beat the UA [hidden] rule */
 [hidden] { display: none !important; }
 
@@ -373,10 +386,8 @@ select.sel {
 .strip-head .spacer { flex: 1; }
 .strip-scroll {
   display: flex; gap: 5px; padding: 8px 14px 10px;
-  overflow-x: auto; scrollbar-width: thin;
+  overflow-x: auto;
 }
-.strip-scroll::-webkit-scrollbar { height: 6px; }
-.strip-scroll::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 3px; }
 
 .frame {
   position: relative; flex: none; width: 78px; padding: 0;
