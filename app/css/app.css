@@ -27,7 +27,18 @@ body {
   display: inline-flex; align-items: center; gap: 7px;
   color: var(--paper); border-color: var(--line-2);
 }
-#btn-new:hover { border-color: var(--accent); color: var(--accent); }
+/* New and Source: no pills — a quiet divider, then icon + word */
+#btn-new, #gh {
+  border: 0; background: none; border-radius: 8px;
+  padding: 6px 8px; margin-left: 14px;
+  position: relative; color: var(--muted);
+}
+#btn-new::before, #gh::before {
+  content: ''; position: absolute; left: -14px; top: 50%;
+  transform: translateY(-50%);
+  width: 1px; height: 18px; background: var(--line-2);
+}
+#btn-new:hover, #gh:hover { color: var(--accent); }
 #btn-new .ai {
   width: 14px; height: 14px; flex: none;
   fill: none; stroke: var(--accent); stroke-width: 1.75;
@@ -417,6 +428,7 @@ body { overflow: hidden; }
   border-radius: var(--pill); color: var(--muted);
 }
 .setgear:hover { color: var(--accent); }
+.setgear[disabled] { color: var(--line-2); pointer-events: none; }
 .setgear .gear {
   width: 18px; height: 18px; fill: none; stroke: currentColor;
   stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;

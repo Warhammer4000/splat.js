@@ -293,6 +293,9 @@ function showIntro() {
   $('set-desc').hidden = true;
   [...$('setpick').children].forEach((b) => b.setAttribute('aria-pressed', 'false'));
   $('btn-go').disabled = true;
+  $('btn-settings').disabled = true;
+  $('settings').hidden = true;
+  $('btn-settings').setAttribute('aria-expanded', 'false');
   $('start').hidden = false;
 }
 
@@ -522,6 +525,7 @@ async function open(preset, autostart = false) {
   gpuCanvas = null;
   $('btn-go').textContent = 'Start training';
   $('btn-go').disabled = false;
+  $('btn-settings').disabled = false;
   $('card-x').hidden = true;
   $('start').hidden = true;
   $('controls').hidden = true;
