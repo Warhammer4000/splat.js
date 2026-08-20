@@ -37,6 +37,13 @@ const MORE_ITERS = 10000;
 const PERF_Q = new URLSearchParams(location.search).get('perf');
 const PERF = { on: PERF_Q != null, iters: Math.max(200, parseInt(PERF_Q, 10) || 1000) };
 
+// ?2x trains against a DOUBLE-resolution working buffer (the photos are only
+// re-gridded, no new information): the loss then sees and suppresses the
+// bright edge ringing that otherwise appears when the view renders above
+// training resolution. Costs ~1.7x training time and a little native-res
+// PSNR — an experiment flag, off by default.
+const BUF2X = new URLSearchParams(location.search).has('2x');
+
 const S = {
   state: 'ready',              // ready | prep | train | done
   preset: null,
@@ -443,7 +450,9 @@ async function startPrep() {
     const session = createSession({
       maxIters: S.maxIters, holdout: 'auto', evalHoldEvery: 2500,
       maxViewW: mvW, maxViewH: mvH,
+      frames: BUF2X ? { trainScale: 2 } : undefined,
     });
+    if (BUF2X) flash('2× working buffer — training supervises above native resolution.', 6000);
     S.session = session;
     session.on('stage', (e) => { if (S.gen === gen) onStage(e); });
     session.on('metrics', (e) => { if (S.gen === gen) onMetrics(e); });

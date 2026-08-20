@@ -45,6 +45,10 @@ const TARGET_BUDGET_BYTES = 700e6;
  *  processSource. An explicit opts.trainMaxDim wins unconditionally. */
 export function adaptiveTrainCap(nImages, w, h, opts = {}) {
   if (opts.trainMaxDim) return opts.trainMaxDim;
+  // explicit working-buffer scale, relative to native (may upscale; the
+  // photos are only re-gridded — supervising above native suppresses
+  // super-resolution ringing at the cost of native-res PSNR and speed)
+  if (opts.trainScale) return Math.round(Math.max(w, h) * opts.trainScale);
   const native = Math.max(w, h);
   const full = Math.min(native, TRAIN_MAX_DIM);
   const [fw, fh] = fitDims(w, h, full);
@@ -108,10 +112,11 @@ function drawScaledFast(src, w, h) {
 export function processSource(src, srcW, srcH, name, trainCap, opts = {}) {
   const featCap = opts.featMaxDim || FEAT_MAX_DIM;
   const [fw, fh] = fitDims(srcW, srcH, featCap);
-  // an EXPLICIT trainMaxDim override may upscale the training targets past
-  // native (supervising above native penalises super-resolution ringing);
-  // the adaptive cap never upscales
-  const [tw, th] = fitDims(srcW, srcH, trainCap || TRAIN_MAX_DIM, !!opts.trainMaxDim);
+  // an EXPLICIT override may upscale the training targets past native
+  // (supervising above native penalises super-resolution ringing); the
+  // adaptive cap never upscales
+  const [tw, th] = fitDims(srcW, srcH, trainCap || TRAIN_MAX_DIM,
+    !!(opts.trainMaxDim || opts.trainScale));
 
   const fctx = drawScaledFast(src, fw, fh);
   const fdata = fctx.getImageData(0, 0, fw, fh).data;
