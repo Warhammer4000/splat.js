@@ -95,9 +95,9 @@ export class Viewport {
       if (mode === 'pan') {
         panBy(dx, dy);
       } else {
-        // the up-frame flips its handedness with the up axis, so one drag
-        // direction feels identical in y-up and y-down worlds
-        this.yaw -= dx * 0.006;
+        // the up-frame has fixed handedness, so one sign fits every world;
+        // + matches the feel the app always had in y-down reconstructions
+        this.yaw += dx * 0.006;
         this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch - dy * 0.005));
       }
       this.dirty = true;
