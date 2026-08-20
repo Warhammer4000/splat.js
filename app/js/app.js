@@ -443,7 +443,7 @@ async function startPrep() {
   } catch (e) {
     if (S.gen !== gen) return;
     console.error(e);
-    solveFailed(/parallax|overlap|initialization/i.test(e.message)
+    solveFailed(/parallax|overlap|initialization|matches|register/i.test(e.message)
       ? 'The photos don\'t overlap enough to connect into one scene.'
       : e.message);
     S.state = 'ready';
