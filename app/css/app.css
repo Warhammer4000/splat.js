@@ -384,7 +384,14 @@ body { overflow: hidden; }
   font: 500 12px var(--mono); color: var(--paper); border-radius: 6px;
 }
 .countv:hover { color: var(--accent); }
-.startrow { display: flex; align-items: center; justify-content: center; gap: 10px; }
+/* sticks to the bottom of the card's visible area when the card overflows
+   (small screens with a set selected) — Start is always in reach */
+.startrow {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  position: sticky; bottom: 0; z-index: 2;
+  margin-left: -30px; margin-right: -30px; padding: 12px 30px 8px;
+  background: linear-gradient(to top, rgba(14, 17, 18, .97) 70%, transparent);
+}
 /* same height as .btn.big beside it; the chevron flips down when open */
 .setgear {
   display: inline-flex; align-items: center; gap: 5px;
