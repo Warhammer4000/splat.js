@@ -418,6 +418,19 @@ async function startPrep() {
     if (S.gen !== gen) return;
     S.solveStats.solveSec = (performance.now() - t0) / 1000;
 
+    // a degenerate own-capture can "solve" a fragment and then train nonsense
+    // with full confidence — catch it here, with advice instead of jargon
+    const placed = session.recon.cams.length;
+    const isOwn = S.preset.id && S.preset.id.startsWith('__');
+    if (isOwn && (placed < 3 || placed < S.photos.length * 0.4)) {
+      solveFailed(`Only ${placed} of ${S.photos.length} photos could be placed — ` +
+        'the set doesn\'t connect well enough to reconstruct.');
+      S.state = 'ready';
+      dock('');
+      $('start').hidden = false;
+      return;
+    }
+
     // 3) seed + trainer
     S.prep = { stage: 'seed', done: 0, total: 1 };
     await session.seed();
@@ -430,11 +443,32 @@ async function startPrep() {
   } catch (e) {
     if (S.gen !== gen) return;
     console.error(e);
-    flash(`That set did not solve: ${e.message}`, 12000);
+    solveFailed(/parallax|overlap|initialization/i.test(e.message)
+      ? 'The photos don\'t overlap enough to connect into one scene.'
+      : e.message);
     S.state = 'ready';
     dock('');
     $('start').hidden = false;
   }
+}
+
+/** the solve failed — say so in plain words and teach the capture that works */
+function solveFailed(why) {
+  document.getElementById('failcard')?.remove();
+  const c = document.createElement('div');
+  c.className = 'upcard failcard';
+  c.id = 'failcard';
+  c.innerHTML = `
+    <b>That capture didn't solve</b>
+    <p class="fail-why">${why}</p>
+    <ul class="fail-tips">
+      <li><b>Move sideways.</b> Depth comes from a change of viewpoint — turning on the spot gives the solver nothing.</li>
+      <li><b>Overlap generously.</b> Each photo should share most of its view with the one before.</li>
+      <li><b>Pause, then shoot.</b> Motion blur, mirrors and glass are the usual killers.</li>
+    </ul>
+    <div class="upcard-row"><button class="btn btn-accent" id="fail-ok">Got it</button></div>`;
+  $('stage').appendChild(c);
+  c.querySelector('#fail-ok').addEventListener('click', () => c.remove());
 }
 
 function onStage(e) {

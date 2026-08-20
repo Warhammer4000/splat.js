@@ -170,8 +170,11 @@ export class GSTrainer {
       const shb = this.cap * this.shK * 3 * 4;
       this.bufSH = buf(shb, B.STORAGE | B.COPY_DST | B.COPY_SRC, 'sh');
       this.bufSHGrad = buf(shb, B.STORAGE | B.COPY_SRC, 'shGrad');
-      this.bufSHM = buf(shb, B.STORAGE | B.COPY_DST, 'sh-adam-m');
-      this.bufSHV = buf(shb, B.STORAGE | B.COPY_DST, 'sh-adam-v');
+      // COPY_SRC is load-bearing: refine() reads these back to relocate donor
+      // moments — without it the readback encoder errors and refine silently
+      // wrote back ZEROED SH Adam moments every 2500 iters
+      this.bufSHM = buf(shb, B.STORAGE | B.COPY_DST | B.COPY_SRC, 'sh-adam-m');
+      this.bufSHV = buf(shb, B.STORAGE | B.COPY_DST | B.COPY_SRC, 'sh-adam-v');
       this.uniSHAdam = buf(32, B.UNIFORM | B.COPY_DST, 'uniSHAdam');
     }
 

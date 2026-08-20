@@ -462,3 +462,10 @@ label.btn { cursor: pointer; }
 .setdesc a { color: var(--accent); text-decoration: none; margin-left: 2px; }
 .setdesc a:hover { text-decoration: underline; }
 .setdesc .approx { color: var(--dim); margin-left: 8px; }
+
+/* solve-failure card: plain words + the capture rules that matter */
+.failcard { width: min(420px, 88%); }
+.fail-why { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
+.fail-tips { margin: 2px 0 4px; padding-left: 18px; display: grid; gap: 7px; }
+.fail-tips li { font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+.fail-tips b { color: var(--paper); }
