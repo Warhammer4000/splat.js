@@ -1341,7 +1341,7 @@ function dock(kind) {
         <div class="tmeta">
           <span class="tmeta-1"><span id="t-iter">${fmt(S.iter)}</span> <span class="tmeta-max">/ <span id="t-max">${fmt(S.maxIters)}</span></span></span>
           <span class="tmeta-2"><span id="t-splats">${S.splats ? fmt(S.splats) : '—'}</span> splats · <span id="t-ips">${S.itersPerSec ? fmt(S.itersPerSec) : '—'}</span>/s</span>
-          <span class="tmeta-grow" id="t-grow" hidden></span>
+          <span class="tmeta-grow" id="t-grow"></span>
         </div>
       </div>
       <div class="chartwrap"><canvas id="chart"></canvas><div class="chart-tip" id="chart-tip" hidden></div></div>
@@ -1417,9 +1417,8 @@ function loop() {
   if (S.flash && now > S.flash.until) S.flash = null;
   const grow = $('t-grow');
   if (grow) {
-    const show = !!(S.growNote && now < S.growNote.until);
-    if (grow.hidden === show) grow.hidden = !show;
-    if (show && grow.textContent !== S.growNote.text) grow.textContent = S.growNote.text;
+    const txt = (S.growNote && now < S.growNote.until) ? S.growNote.text : '';
+    if (grow.textContent !== txt) grow.textContent = txt;
   }
   // no fade on the photo overlay — it reads as lag on slow devices
   S.fade = S.fadeTo;
