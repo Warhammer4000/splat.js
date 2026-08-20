@@ -749,7 +749,7 @@ function startTraining() {
     S.sel = first.i;
     vp.freeF = null;
     vp.syncTo(first);
-    vp.dist = S.scene.radius * 1.35;
+    vp.dist *= 1.25;   // a step back from the photographer, not a radius jump
     paintStrip();
   }
   renderControls();
@@ -870,7 +870,7 @@ async function finish() {
   const first = S.scene.cams.find((c) => c.R && c.state !== 'holdout') || S.scene.cams[0];
   if (first && first.R) {
     vp.syncTo(first);
-    vp.dist = S.scene.radius * 1.1;   // stepped back just enough for context
+    vp.dist *= 1.15;   // stepped back just enough for context
   } else {
     vp.frameScene();
   }

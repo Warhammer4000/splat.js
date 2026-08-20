@@ -157,11 +157,42 @@ export class Viewport {
     this.dirty = true;
   }
 
+  /** How far away is the stuff this camera looks at? Median depth of the
+   *  sparse points inside its frustum — the scene RADIUS is dominated by far
+   *  background, which used to push the orbit pivot way past the subject
+   *  (small-feeling scenes, wild rotation). */
+  _pivotDist(cam) {
+    const fallback = (this.scene ? this.scene.radius : 4) * 0.9;
+    const s = this.scene;
+    if (!s || !s.xyz || !cam.R || !cam.t) return fallback;
+    const { xyz } = s;
+    const R = cam.R, t = cam.t;
+    const inFrust = cam.f && cam.w;
+    const zs = [];
+    const n = xyz.length / 3;
+    const step = Math.max(1, Math.floor(n / 4000));
+    for (let i = 0; i < n; i += step) {
+      const o = i * 3;
+      const X = xyz[o], Y = xyz[o + 1], Z = xyz[o + 2];
+      const z = R[6] * X + R[7] * Y + R[8] * Z + t[2];
+      if (z <= 0.01) continue;
+      if (inFrust) {
+        const px = cam.f * (R[0] * X + R[1] * Y + R[2] * Z + t[0]) / z + cam.cx;
+        const py = cam.f * (R[3] * X + R[4] * Y + R[5] * Z + t[1]) / z + cam.cy;
+        if (px < 0 || py < 0 || px > cam.w || py > cam.h) continue;
+      }
+      zs.push(z);
+    }
+    if (zs.length < 20) return fallback;
+    zs.sort((a, b) => a - b);
+    return Math.min(fallback, zs[zs.length >> 1]);
+  }
+
   /** orbit around a training camera's position without snapping to its pose */
   syncTo(cam) {
     const C = camCentre(cam);
     const fwd = [cam.R[6], cam.R[7], cam.R[8]];
-    const d = (this.scene ? this.scene.radius : 4) * 0.9;
+    const d = this._pivotDist(cam);
     this.target = [C[0] + fwd[0] * d, C[1] + fwd[1] * d, C[2] + fwd[2] * d];
     this.dist = d;
     this.yaw = Math.atan2(-fwd[0], -fwd[2]);
