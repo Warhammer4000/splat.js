@@ -183,7 +183,7 @@ function boot() {
     if (open) {
       // pin the card's top edge: the panel extends DOWNWARD only, and the
       // card scrolls if it outgrows the screen
-      const top = Math.max(10, card.offsetTop);
+      const top = Math.max(10, card.getBoundingClientRect().top);
       card.style.top = `${top}px`;
       card.style.margin = '0 auto';
       card.style.bottom = 'auto';
