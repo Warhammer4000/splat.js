@@ -85,6 +85,7 @@ body { overflow: hidden; }
 .controls .iconbtn { width: 32px; height: 32px; }
 .controls .statchip, .controls .cbtn, .controls .iconbtn { border-color: var(--line); }
 .controls .iconbtn { color: var(--paper); }   /* icons speak like the Train text */
+.controls .statchip i { color: var(--paper); }   /* Details too */
 /* hover: the fill breathes, the border stays put */
 .controls .statchip:hover, .controls .cbtn:hover, .controls .iconbtn:hover {
   border-color: var(--line);
