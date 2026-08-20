@@ -1409,37 +1409,57 @@ function renderHud() {
 let lastPulse = 0;
 let lastLoopT = performance.now();
 
-// ── done-state intro: glide slowly along the capture path until the user acts
+// ── done-state intro: glide along the capture path until the user acts ──────
 function startTour() {
   const cams = S.scene ? S.scene.cams.filter((c) => c.R) : [];
-  if (cams.length < 2) return;
-  const pts = cams.map(camCentre);
-  const lens = [];
-  for (let i = 0; i < pts.length - 1; i++) {
-    lens.push(Math.max(1e-6, Math.hypot(
-      pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1], pts[i + 1][2] - pts[i][2])));
+  const n = cams.length;
+  if (n < 2) return;
+
+  // pre-smooth positions AND view directions over ±2 neighbours — a handheld
+  // capture path is jittery, and a spline through jitter is jittery too
+  const raw = cams.map(camCentre);
+  const smooth3 = (arr) => arr.map((_, i) => {
+    const acc = [0, 0, 0];
+    let w = 0;
+    for (let k = -2; k <= 2; k++) {
+      const j = clamp(i + k, 0, arr.length - 1);
+      const wt = 3 - Math.abs(k);
+      for (let c = 0; c < 3; c++) acc[c] += arr[j][c] * wt;
+      w += wt;
+    }
+    return [acc[0] / w, acc[1] / w, acc[2] / w];
+  });
+  const pts = smooth3(raw);
+  const sfwd = smooth3(cams.map((c) => [c.R[6], c.R[7], c.R[8]]))
+    .map((v) => { const m = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / m, v[1] / m, v[2] / m]; });
+
+  // Catmull-Rom, densely resampled into an arc-length table: playback walks
+  // the table at EXACTLY constant velocity, whatever the gap sizes
+  const P = (k) => pts[clamp(k, 0, n - 1)];
+  const cr = (i, f) => {
+    const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
+    const t2 = f * f, t3 = t2 * f;
+    return [0, 1, 2].map((k) => 0.5 * ((2 * p1[k]) + (-p0[k] + p2[k]) * f +
+      (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * t2 +
+      (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * t3));
+  };
+  const samples = [], us = [], cum = [0];
+  const SUB = 8;
+  for (let i = 0; i < n - 1; i++) {
+    for (let k = 0; k < SUB; k++) { samples.push(cr(i, k / SUB)); us.push(i + k / SUB); }
   }
-  const med = [...lens].sort((a, b) => a - b)[lens.length >> 1];
-  // constant WORLD speed: ~1.6 s per typical camera gap, whatever the density
-  S.tour = { cams, pts, lens, speed: med / 1.6, i: 0, f: 0, dir: 1, pd: [] };
+  samples.push(cr(n - 2, 1)); us.push(n - 1);
+  for (let k = 1; k < samples.length; k++) {
+    const a = samples[k - 1], b = samples[k];
+    cum.push(cum[k - 1] + Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]));
+  }
+  const total = cum[cum.length - 1] || 1e-6;
+  const duration = clamp(1.4 * n, 10, 30);   // one full pass, 30 s at most
+
+  S.tour = { cams, sfwd, samples, us, cum, total, speed: total / duration, s: 0, k: 0, dir: 1, pd: [] };
 }
 
 function stopTour() { S.tour = null; }
-
-/** Catmull-Rom through the capture positions — rounded, not segment-jerky */
-function tourPos(T, i, f) {
-  const last = T.pts.length - 1;
-  const P = (k) => T.pts[clamp(k, 0, last)];
-  const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
-  const out = [];
-  const t2 = f * f, t3 = t2 * f;
-  for (let k = 0; k < 3; k++) {
-    out[k] = 0.5 * ((2 * p1[k]) + (-p0[k] + p2[k]) * f +
-      (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * t2 +
-      (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * t3);
-  }
-  return out;
-}
 
 function tourStep(dt) {
   const T = S.tour;
@@ -1447,22 +1467,26 @@ function tourStep(dt) {
   if (S.state !== 'done' || S.atFrame >= 0 || S.picking || !$('details').hidden) return;
   if (S.keys.size) { stopTour(); return; }   // flying takes over
 
-  // advance at constant world speed, ping-pong at the path's ends
-  T.f += (dt * T.speed * T.dir) / T.lens[T.i];
-  while (T.f > 1 && T.i < T.lens.length - 1) { T.f = (T.f - 1) * (T.lens[T.i] / T.lens[T.i + 1]); T.i++; }
-  while (T.f < 0 && T.i > 0) { T.f = 1 + T.f * (T.lens[T.i] / T.lens[T.i - 1]); T.i--; }
-  if (T.f >= 1 && T.i >= T.lens.length - 1) { T.f = 1; T.dir = -1; }
-  if (T.f <= 0 && T.i <= 0) { T.f = 0; T.dir = 1; }
+  T.s += dt * T.speed * T.dir;               // constant velocity, ping-pong
+  if (T.s >= T.total) { T.s = T.total; T.dir = -1; }
+  if (T.s <= 0) { T.s = 0; T.dir = 1; }
+  while (T.k < T.cum.length - 2 && T.cum[T.k + 1] < T.s) T.k++;
+  while (T.k > 0 && T.cum[T.k] > T.s) T.k--;
 
-  const a = T.cams[T.i], b = T.cams[T.i + 1];
-  const pos = tourPos(T, T.i, T.f);
-  const fa = [a.R[6], a.R[7], a.R[8]], fb = [b.R[6], b.R[7], b.R[8]];
-  let fwd = [0, 1, 2].map((k) => fa[k] + (fb[k] - fa[k]) * T.f);
+  const span = Math.max(1e-9, T.cum[T.k + 1] - T.cum[T.k]);
+  const a = (T.s - T.cum[T.k]) / span;
+  const A = T.samples[T.k], B = T.samples[T.k + 1];
+  const pos = [A[0] + (B[0] - A[0]) * a, A[1] + (B[1] - A[1]) * a, A[2] + (B[2] - A[2]) * a];
+  const u = T.us[T.k] + (T.us[T.k + 1] - T.us[T.k]) * a;
+  const i = clamp(Math.floor(u), 0, T.cams.length - 2);
+  const f = u - i;
+  const fa = T.sfwd[i], fb = T.sfwd[i + 1];
+  let fwd = [fa[0] + (fb[0] - fa[0]) * f, fa[1] + (fb[1] - fa[1]) * f, fa[2] + (fb[2] - fa[2]) * f];
   const nrm = Math.hypot(fwd[0], fwd[1], fwd[2]) || 1;
-  fwd = fwd.map((v) => v / nrm);
-  const da = (T.pd[T.i] ??= vp._pivotDist(a));
-  const db = (T.pd[T.i + 1] ??= vp._pivotDist(b));
-  const d = da + (db - da) * T.f;
+  fwd = [fwd[0] / nrm, fwd[1] / nrm, fwd[2] / nrm];
+  const da = (T.pd[i] ??= vp._pivotDist(T.cams[i]));
+  const db = (T.pd[i + 1] ??= vp._pivotDist(T.cams[i + 1]));
+  const d = da + (db - da) * f;
 
   vp.target = [pos[0] + fwd[0] * d, pos[1] + fwd[1] * d, pos[2] + fwd[2] * d];
   vp.dist = d;
