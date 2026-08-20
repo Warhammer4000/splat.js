@@ -302,7 +302,7 @@ body { overflow: hidden; }
   background: rgba(7, 9, 9, .82); backdrop-filter: blur(4px);
 }
 .iconbtn:hover { border-color: var(--muted); color: #5ee7d6; }
-.iconbtn .pl { width: 14px; height: 14px; fill: currentColor; }
+.iconbtn .pl { width: 18px; height: 18px; fill: currentColor; }
 .iconbtn .dl {
   width: 15px; height: 15px;
   fill: none; stroke: currentColor; stroke-width: 2.5;
