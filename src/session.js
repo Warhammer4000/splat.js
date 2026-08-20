@@ -117,6 +117,9 @@ export class Session {
     this.holdout = -1;
     this.training = false;
     this.lossHistory = [];  // [iter, psnrTrain]
+    this._fences = [];      // in-flight batch fences (see _frameLoop)
+    // opts.perf: record per-frame loop timings for offline analysis
+    this.perf = opts.perf ? { frames: [], marks: [] } : null;
     this._em = new Emitter();
     this._debug = null;     // solver internals (feats/tracks) for UI beats
     this.view = new SessionView(this);
@@ -278,7 +281,7 @@ export class Session {
     if (this._lost) return;
     this._lost = true;
     this.training = false;
-    this._prevFence = null;
+    this._fences = [];
     this._log(`GPU device lost (${(info && info.reason) || 'unknown'}) — ` +
       `${(info && info.message) || 'reclaimed by the system'}`);
     this._em.emit('event', { kind: 'device-lost', iter: this.trainer ? this.trainer.iter : 0 });
@@ -292,7 +295,7 @@ export class Session {
     if (!this.recon) throw new Error('nothing to recover — no reconstruction');
     this.training = false;
     this._lost = false;
-    this._prevFence = null;
+    this._fences = [];
     this._metricsLock = null;    // readbacks on the dead device never resolve
     this._framePending = false;
     this.lossHistory = [];
@@ -371,10 +374,17 @@ export class Session {
       const t0 = performance.now();
       for (let k = 0; k < batch; k++) trainer.stepOnce();
 
+      const tEnc = performance.now() - t0;
+
       // periodic refinement: relocate dead splats + grow capacity (MCMC-lite)
       if (trainer.iter > 1500 && trainer.iter - (trainer.lastRefine || 0) >= 2500) {
         trainer.lastRefine = trainer.iter;
+        const r0 = performance.now();
         trainer.refine().then((r) => {
+          if (this.perf) {
+            this.perf.marks.push({ t: Math.round(r0), kind: 'refine', iter: trainer.iter,
+              ms: Math.round(performance.now() - r0), moved: r.moved, grown: r.grown });
+          }
           if (r.moved || r.grown) {
             this._log(`refine @${trainer.iter}: relocated ${r.moved}, grew +${r.grown} -> ${r.n} splats`);
             this._em.emit('event', { kind: 'refine', iter: trainer.iter, ...r });
@@ -383,25 +393,44 @@ export class Session {
       }
 
       const now = performance.now();
-      if (now - this._lastStats > 2000) await this._emitMetrics();
+      let tMet = 0;
+      if (now - this._lastStats > 2000) {
+        const m0 = performance.now();
+        await this._emitMetrics();
+        tMet = performance.now() - m0;
+      }
 
-      // Pipelined completion: await the PREVIOUS batch's fence, not this
-      // one's — the GPU always has a queued batch and never idles on the
-      // fence round-trip (Safari's completion latency is large; awaiting the
-      // current batch left its GPU idle between frames).
+      const v0 = performance.now();
       this.view._tick(this._frameCount, this.training);
-      const fence = trainer.device.queue.onSubmittedWorkDone();
-      if (this._prevFence) await this._prevFence;
-      this._prevFence = fence;
+      const tView = performance.now() - v0;
+
+      // Deep pipelining: keep a RING of fences in flight, not one. Safari
+      // resolves onSubmittedWorkDone hundreds of ms late even when the GPU is
+      // idle; gating each batch on a single fence made that latency the loop
+      // period, and the batch adapter — reading the latency as GPU time —
+      // shrank the batch into its floor (an iPhone sat at ~15 it/s on a scene
+      // it can train at hundreds). With 4 fences outstanding the late fences
+      // overlap; the frame period becomes ~latency/4 and the same adapter now
+      // GROWS the batch until real GPU work dominates. Prompt-fence devices
+      // (desktop) behave as before.
+      this._fences.push(trainer.device.queue.onSubmittedWorkDone());
+      const s0 = performance.now();
+      if (this._fences.length > 4) await this._fences.shift();
+      const tStall = performance.now() - s0;
+
       // adapt the batch to the measured cadence (steady-state ~= GPU time of
       // one batch); damped so it settles instead of oscillating
       const dt = Math.max(5, performance.now() - t0);
       const ideal = batch * (120 / dt);
       this._batch = Math.max(4, Math.min(64, (this._batch ?? 15) * 0.7 + ideal * 0.3));
+      if (this.perf) {
+        this.perf.frames.push([Math.round(now), trainer.iter, batch, trainer.n,
+          +tEnc.toFixed(1), +tView.toFixed(1), +tStall.toFixed(1), +tMet.toFixed(1), +dt.toFixed(1)]);
+      }
     } else {
       this.view._tick(this._frameCount, this.training);
       await trainer.device.queue.onSubmittedWorkDone();
-      this._prevFence = null;
+      this._fences.length = 0;
     }
     if (this.training || this.view._dirty) this._scheduleFrame();
   }

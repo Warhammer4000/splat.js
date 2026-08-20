@@ -31,6 +31,12 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const INITIAL_ITERS = 20000;
 const MORE_ITERS = 10000;
 
+// ?perf runs a short instrumented benchmark (default 1000 iterations, or
+// ?perf=2500) and offers the frame-loop timing log as a text file — for
+// diagnosing devices at arm's length (phones, other people's machines)
+const PERF_Q = new URLSearchParams(location.search).get('perf');
+const PERF = { on: PERF_Q != null, iters: Math.max(200, parseInt(PERF_Q, 10) || 1000) };
+
 const S = {
   state: 'ready',              // ready | prep | train | done
   preset: null,
@@ -58,7 +64,19 @@ const S = {
 };
 
 let vp, dev, chart, dchart, dvp;
-let gpuCanvas = null;          // the trainer renders here; the stage blits it
+// The trainer renders here. The canvas LIVES IN THE DOM, composited under the
+// overlay canvas — drawImage from a WebGPU canvas is not safe on iOS Safari
+// (it can return either of the last two presented frames, which flickers).
+let gpuCanvas = null;
+
+function mountModelCanvas() {
+  document.getElementById('cv-model')?.remove();
+  gpuCanvas = document.createElement('canvas');
+  gpuCanvas.id = 'cv-model';
+  $('stage').insertBefore(gpuCanvas, $('cv'));
+  S.session.view.attach(gpuCanvas);
+  S._viewKey = '';
+}
 
 // the OAuth popup lands back on this page with ?code= — report and close
 if (!handleOAuthCallback()) boot();
@@ -326,14 +344,15 @@ async function open(preset, autostart = false) {
   S.prep = null; S.feats = new Map(); S.lastPairEv = null; S.regCams = [];
   S.solveStats = { pairsChecked: 0, pairsUsable: 0, solveSec: 0 };
   S.chartEvents = [];
-  S.maxIters = INITIAL_ITERS;
+  S.maxIters = PERF.on ? PERF.iters : INITIAL_ITERS;
+  S.perfMetrics = [];
   S.holdHist = [];
   S._lastReady = null;
   S.growthStopped = false;
   S.plyBlob = null;
   S._recovering = false;
-  S._dupPresentAt = 0;
   S._viewKey = '';
+  document.getElementById('cv-model')?.remove();
   gpuCanvas = null;
   $('btn-go').textContent = 'Start training';
   $('btn-go').disabled = false;
@@ -391,8 +410,8 @@ async function startPrep() {
       16000 * 256, // per-raster tile-grid cap (16k tiles of 16x16)
     );
     const session = createSession({
-      maxIters: INITIAL_ITERS, holdout: 'auto', evalHoldEvery: 2500,
-      maxViewW: mvW, maxViewH: mvH,
+      maxIters: S.maxIters, holdout: 'auto', evalHoldEvery: 2500,
+      maxViewW: mvW, maxViewH: mvH, perf: PERF.on,
     });
     S.session = session;
     session.on('stage', (e) => { if (S.gen === gen) onStage(e); });
@@ -442,8 +461,7 @@ async function startPrep() {
     if (S.gen !== gen) return;
 
     buildSceneFromSession();
-    gpuCanvas = document.createElement('canvas');
-    session.view.attach(gpuCanvas);
+    mountModelCanvas();
     startTraining();
   } catch (e) {
     if (S.gen !== gen) return;
@@ -572,6 +590,10 @@ function onMetrics(m) {
   S.iter = m.iter;
   S.splats = m.splats;
   S.itersPerSec = m.itersPerSec;
+  if (PERF.on) {
+    (S.perfMetrics ??= []).push([Math.round(performance.now()), m.iter, m.itersPerSec,
+      m.psnrTrain != null ? m.psnrTrain.toFixed(2) : '', m.psnrHold != null ? m.psnrHold.toFixed(2) : '']);
+  }
   if (m.psnrTrain != null) S.psnrTrain = m.psnrTrain;
   if (m.psnrHold != null) S.psnrHold = m.psnrHold;
   if (m.psnrHold != null) (S.holdHist ??= []).push([m.iter, m.psnrHold]);
@@ -621,7 +643,8 @@ async function deviceLostRecovery() {
   }
   if (S.state !== 'train') return;
   S._recovering = true;
-  gpuCanvas = null;   // its WebGPU context died with the device
+  document.getElementById('cv-model')?.remove();   // its context died with the device
+  gpuCanvas = null;
   flash('The system put the GPU to sleep while the tab was in the background — restarting training. Photos and the camera solve are kept.', 15000);
   try {
     // iOS won't hand out a new device while hidden — wait for the tab back
@@ -642,9 +665,7 @@ async function deviceLostRecovery() {
     S.holdHist = []; S.chartEvents = []; S.growthStopped = false;
     S.plyBlob = null;
     buildSceneFromSession();
-    gpuCanvas = document.createElement('canvas');
-    S.session.view.attach(gpuCanvas);
-    S._viewKey = '';
+    mountModelCanvas();
     startTraining();
   } catch (err) {
     console.error(err);
@@ -680,7 +701,77 @@ async function finish() {
   // reclaim it from a backgrounded tab, and the readback path dies with it
   S.plyBlob = null;
   S.session.exportPlyBlob().then((b) => { S.plyBlob = b; }).catch(() => {});
+  if (PERF.on) perfCard();
   scoreFrames();
+}
+
+// ── ?perf: the timing log as a downloadable text file ───────────────────────
+function pctl(arr, p) {
+  if (!arr.length) return 0;
+  const s = [...arr].sort((a, b) => a - b);
+  return s[Math.min(s.length - 1, Math.floor(p * s.length))];
+}
+
+function buildPerfReport() {
+  const ses = S.session;
+  const gi = (ses.gpu && ses.gpu.info) || {};
+  const rows = (ses.perf && ses.perf.frames) || [];
+  const marks = (ses.perf && ses.perf.marks) || [];
+  const fr0 = ses.frames[0] || {};
+  const L = [];
+  L.push(`splat.js perf log — ${new Date().toISOString()}`);
+  L.push(`url: ${location.href}`);
+  L.push(`ua: ${navigator.userAgent}`);
+  L.push(`gpu: ${[gi.vendor, gi.architecture, gi.device].filter(Boolean).join(' ') || 'unknown'}`);
+  L.push(`screen: ${screen.width}x${screen.height} @dpr ${devicePixelRatio}`);
+  L.push(`photos: ${S.photos.length} · training res ${fr0.tw}x${fr0.th}`);
+  L.push(`splats: ${fmt(S.splats)} · holdout psnr ${S.psnrHold != null ? S.psnrHold.toFixed(2) : '—'} dB`);
+  L.push(`tileGrad: ${ses.trainer ? ses.trainer.tileGrad : '?'} · maxIters ${S.maxIters}`);
+  if (rows.length > 1) {
+    const t0 = rows[0][0], t1 = rows[rows.length - 1][0];
+    const iters = rows[rows.length - 1][1] - rows[0][1];
+    L.push(`wall: ${((t1 - t0) / 1000).toFixed(1)}s for ${iters} iters -> ${(iters / Math.max(.001, (t1 - t0) / 1000)).toFixed(1)} it/s`);
+    const col = (i) => rows.map((r) => r[i]);
+    L.push(`per frame (batch med ${pctl(col(2), .5)}):`);
+    const stat = (name, i) =>
+      L.push(`  ${name} med ${pctl(col(i), .5).toFixed(1)}ms  p90 ${pctl(col(i), .9).toFixed(1)}ms  max ${Math.max(...col(i)).toFixed(1)}ms`);
+    stat('encode ', 4);
+    stat('view   ', 5);
+    stat('fence  ', 6);
+    stat('metrics', 7);
+    stat('total  ', 8);
+  }
+  L.push('', 'frames: t_ms iter batch splats enc view fence met total');
+  for (const r of rows) L.push('  ' + r.join(' '));
+  L.push('', 'refines: t_ms iter ms moved grown');
+  for (const m of marks) L.push(`  ${m.t} ${m.iter} ${m.ms} ${m.moved} ${m.grown}`);
+  L.push('', 'metrics: t_ms iter it/s psnrTrain psnrHold');
+  for (const m of S.perfMetrics || []) L.push('  ' + m.join(' '));
+  return L.join('\n');
+}
+
+function perfCard() {
+  document.getElementById('perfcard')?.remove();
+  const txt = buildPerfReport();
+  const card = document.createElement('div');
+  card.className = 'upcard';
+  card.id = 'perfcard';
+  card.innerHTML = `
+    <b>Perf run complete</b>
+    <pre class="perfpre">${txt.split('\nframes:')[0].replace(/</g, '&lt;')}</pre>
+    <div class="upcard-row">
+      <button class="btn btn-quiet" id="perf-close">Close</button>
+      <button class="btn btn-accent" id="perf-dl">Download log</button>
+    </div>`;
+  $('stage').appendChild(card);
+  card.querySelector('#perf-close').addEventListener('click', () => card.remove());
+  card.querySelector('#perf-dl').addEventListener('click', () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([txt], { type: 'text/plain' }));
+    a.download = `splatjs_perf_${new Date().toISOString().replace(/\W/g, '').slice(0, 15)}.txt`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  });
 }
 
 /** after the run: an honest per-photograph score, filled in the background */
@@ -1195,18 +1286,11 @@ function draw() {
         f: pose.f * sc, cx: pose.cx * sc, cy: pose.cy * sc, w: gw, h: gh,
       });
       S.session.view.renderNow();
-      // present the final pose a second time: iOS Safari's drawImage can
-      // alternate between the canvas's last two presented frames, which
-      // reads as the view "jumping" after a touch drag ends
-      S._dupPresentAt = now + 150;
-    } else if (S._dupPresentAt && now >= S._dupPresentAt) {
-      S._dupPresentAt = 0;
-      S.session.view.renderNow();
     }
   }
 
   vp.draw({
-    modelCanvas: gpuCanvas,
+    model: !!gpuCanvas,
     cams: S.scene.cams,
     showCams: true,
     showPath: S.state === 'train' && !onFrame,

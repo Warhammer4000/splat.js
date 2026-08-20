@@ -20,7 +20,9 @@ export const camCentre = ({ R, t }) => [
 export class Viewport {
   constructor(canvas) {
     this.cv = canvas;
-    this.ctx = canvas.getContext('2d', { alpha: false });
+    // alpha: the model is a separate WebGPU canvas composited UNDERNEATH by
+    // the browser — this canvas carries only overlays (and opaque solve views)
+    this.ctx = canvas.getContext('2d');
     this.scene = null;          // { xyz, rgb, center, radius }
     this.lock = null;           // a camera whose pose the view sits on
     this.yaw = 0.6; this.pitch = 0.22; this.dist = 8; this.target = [0, 0, 0];
@@ -172,7 +174,10 @@ export class Viewport {
 
   /**
    * @param {object} o
-   *   modelCanvas  the trainer's rendered frame (drawn as the base layer)
+   *   model        true: the trainer's WebGPU canvas sits under this one in
+   *                the DOM — clear to transparent so it shows through.
+   *                (Never drawImage a WebGPU canvas: iOS Safari can hand back
+   *                either of the last two presented frames, which flickers.)
    *   points       true: draw the sparse cloud instead (during the solve)
    *   cams / showCams / reveal / active / sel / skip / faint / dimOthers /
    *   showPath     frustum overlays, as in the mockup
@@ -180,10 +185,8 @@ export class Viewport {
   draw(o = {}) {
     const { ctx, w, h } = this;
     const P = this.viewPose();
-    if (o.modelCanvas) {
-      ctx.fillStyle = '#070909';
-      ctx.fillRect(0, 0, w, h);
-      ctx.drawImage(o.modelCanvas, 0, 0, w, h);
+    if (o.model) {
+      ctx.clearRect(0, 0, w, h);
     } else if (o.points && this.scene && this.scene.xyz) {
       this._points(P);
     } else {
