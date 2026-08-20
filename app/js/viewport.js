@@ -7,8 +7,9 @@
 // the exact same projection the trainer used — so the two layers register.
 //
 // Adapted from the mockup's painter viewport; the fake splat rasterizer is
-// gone, and the orbit understands COLMAP-style worlds where +Y points DOWN
-// (upSign = -1) without touching the data.
+// gone, and the orbit is built around a measured dominant-up axis (SfM's
+// world frame is arbitrary — detectUp levels the horizon) without touching
+// the data.
 
 /** world position of a camera from its world-to-camera pose */
 export const camCentre = ({ R, t }) => [
@@ -26,7 +27,7 @@ export class Viewport {
     this.scene = null;          // { xyz, rgb, center, radius }
     this.lock = null;           // a camera whose pose the view sits on
     this.yaw = 0.6; this.pitch = 0.22; this.dist = 8; this.target = [0, 0, 0];
-    this.upSign = 1;            // +1: world +Y is up; -1: COLMAP (+Y down)
+    this.setUp([0, -1, 0]);     // COLMAP-ish default until detectUp measures
     this.dirty = true;
     this.w = 1; this.h = 1;
     this.enabled = true;
@@ -94,9 +95,9 @@ export class Viewport {
       if (mode === 'pan') {
         panBy(dx, dy);
       } else {
-        // upSign keeps the orbit feel identical in y-down worlds, where the
-        // screen-x axis is mirrored relative to yaw
-        this.yaw -= dx * 0.006 * this.upSign;
+        // the up-frame flips its handedness with the up axis, so one drag
+        // direction feels identical in y-up and y-down worlds
+        this.yaw -= dx * 0.006;
         this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch - dy * 0.005));
       }
       this.dirty = true;
@@ -142,11 +143,44 @@ export class Viewport {
     this.frameScene();
   }
 
-  /** derive up from the cameras: each one's world up is minus its second row */
+  /** The world frame out of SfM is arbitrary — "up" is not gravity. The
+   *  dominant up over ALL cameras (each one's world up is minus its second
+   *  row; photographers hold the camera roughly level on average) becomes
+   *  the orbit's axis, so horizons sit balanced. */
   detectUp(cams) {
-    let y = 0;
-    for (const c of cams) { if (c.R) y += -c.R[4]; }
-    this.upSign = y >= 0 ? 1 : -1;
+    const acc = [0, 0, 0];
+    let n = 0;
+    for (const c of cams) {
+      if (!c.R) continue;
+      acc[0] -= c.R[3]; acc[1] -= c.R[4]; acc[2] -= c.R[5];
+      n++;
+    }
+    const m = Math.hypot(acc[0], acc[1], acc[2]);
+    if (!n || m < 1e-6) return;
+    this.setUp([acc[0] / m, acc[1] / m, acc[2] / m]);
+  }
+
+  /** set the orbit's up axis and its horizontal reference frame */
+  setUp(u) {
+    const m = Math.hypot(u[0], u[1], u[2]) || 1;
+    this.up = [u[0] / m, u[1] / m, u[2] / m];
+    const X = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    let A = X(this.up, [0, 0, 1]);
+    let am = Math.hypot(A[0], A[1], A[2]);
+    if (am < 1e-3) { A = X(this.up, [1, 0, 0]); am = Math.hypot(A[0], A[1], A[2]); }
+    this._A = [A[0] / am, A[1] / am, A[2] / am];
+    this._B = X(this.up, this._A);
+  }
+
+  /** yaw/pitch of a unit forward vector in the current up-frame */
+  anglesOf(fwd) {
+    const u = this.up;
+    const d = fwd[0] * u[0] + fwd[1] * u[1] + fwd[2] * u[2];
+    const h = [fwd[0] - u[0] * d, fwd[1] - u[1] * d, fwd[2] - u[2] * d];
+    const yaw = Math.atan2(
+      h[0] * this._A[0] + h[1] * this._A[1] + h[2] * this._A[2],
+      h[0] * this._B[0] + h[1] * this._B[1] + h[2] * this._B[2]);
+    return { yaw, pitch: Math.asin(Math.max(-1, Math.min(1, d))) };
   }
 
   frameScene() {
@@ -195,22 +229,31 @@ export class Viewport {
     const d = this._pivotDist(cam);
     this.target = [C[0] + fwd[0] * d, C[1] + fwd[1] * d, C[2] + fwd[2] * d];
     this.dist = d;
-    this.yaw = Math.atan2(-fwd[0], -fwd[2]);
-    this.pitch = Math.asin(Math.max(-1, Math.min(1, this.upSign * fwd[1])));
+    const ang = this.anglesOf(fwd);
+    this.yaw = ang.yaw;
+    this.pitch = Math.max(-1.45, Math.min(1.45, ang.pitch));
     this.dirty = true;
   }
 
-  /** the free camera's orthonormal frame. In a y-down world the RIGHT
-   *  vector flips (never the down vector by itself: negating one row of an
-   *  orthonormal triple makes a REFLECTION — det -1 — and the whole scene
-   *  renders mirrored). down = fwd x right is proper by construction for
-   *  either convention. */
+  /** the free camera's orthonormal frame, built around the measured up axis
+   *  (down = fwd x right keeps it a proper rotation, det +1 — negating a
+   *  single row would be a reflection and the scene would mirror) */
   _basis() {
     const cp = Math.cos(this.pitch), sp = Math.sin(this.pitch);
     const cy = Math.cos(this.yaw), sy = Math.sin(this.yaw);
-    const u = this.upSign;
-    const fwd = [-sy * cp, u * sp, -cy * cp];
-    const right = [u * cy, 0, -u * sy];
+    const u = this.up, A = this._A, B = this._B;
+    const fwd = [
+      A[0] * sy * cp + B[0] * cy * cp + u[0] * sp,
+      A[1] * sy * cp + B[1] * cy * cp + u[1] * sp,
+      A[2] * sy * cp + B[2] * cy * cp + u[2] * sp,
+    ];
+    let right = [
+      fwd[1] * u[2] - fwd[2] * u[1],
+      fwd[2] * u[0] - fwd[0] * u[2],
+      fwd[0] * u[1] - fwd[1] * u[0],
+    ];
+    const rm = Math.hypot(right[0], right[1], right[2]) || 1;
+    right = [right[0] / rm, right[1] / rm, right[2] / rm];
     const down = [
       fwd[1] * right[2] - fwd[2] * right[1],
       fwd[2] * right[0] - fwd[0] * right[2],

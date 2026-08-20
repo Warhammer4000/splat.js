@@ -1589,8 +1589,9 @@ function tourStep(dt) {
   const d = da + (db - da) * f;
   vp.target = [pos[0] + fwd[0] * d, pos[1] + fwd[1] * d, pos[2] + fwd[2] * d];
   vp.dist = d;
-  vp.yaw = Math.atan2(-fwd[0], -fwd[2]);
-  vp.pitch = Math.asin(clamp(vp.upSign * fwd[1], -1, 1));
+  const ang = vp.anglesOf(fwd);
+  vp.yaw = ang.yaw;
+  vp.pitch = clamp(ang.pitch, -1.45, 1.45);
   vp.dirty = true;
 }
 
@@ -2029,7 +2030,7 @@ function renderDetails() {
   if (S.detailTab === 'cams' && !dvp) {
     dvp = new Viewport($('d-cv'));
     dvp.setScene(S.scene);
-    dvp.upSign = vp.upSign;
+    dvp.setUp(vp.up);
   }
   if (dvp) dvp.resize();
 }
