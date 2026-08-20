@@ -36,7 +36,9 @@ export class Chart {
     return Math.max(0, Math.min(1, (xf * w - l) / (w - l - r)));
   }
 
-  _box() { return { l: 8 * this.dpr, r: 42 * this.dpr, t: 12 * this.dpr, b: 16 * this.dpr }; }
+  // top just fits the event dots; there are no x labels, so the bottom is
+  // nearly flush — the plot gets the height
+  _box() { return { l: 8 * this.dpr, r: 42 * this.dpr, t: 8 * this.dpr, b: 4 * this.dpr }; }
 
   resize() {
     const rect = this.cv.getBoundingClientRect();
