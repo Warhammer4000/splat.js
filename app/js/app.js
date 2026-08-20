@@ -764,8 +764,7 @@ function startTraining() {
   if (first && first.R) {
     S.sel = first.i;
     vp.freeF = null;
-    vp.syncTo(first);
-    vp.dist *= 1.25;   // a step back from the photographer, not a radius jump
+    vp.syncTo(first);   // exactly the first photographer's viewpoint
     paintStrip();
   }
   renderControls();
