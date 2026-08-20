@@ -527,7 +527,7 @@ async function open(preset, autostart = false) {
   $('strip').innerHTML = '';
   dock('');
   vp.resize();
-  vp.lock = null; vp.enabled = true; vp.scene = null;
+  vp.lock = null; vp.pose = null; vp.enabled = true; vp.scene = null;
 
   // the photographs: URLs only — decoding happens when the run starts
   if (preset.files) {
@@ -1046,7 +1046,10 @@ function renderControls() {
   play.title = 'Fly the capture path';
   play.setAttribute('aria-label', 'Fly the capture path');
   play.innerHTML = '<svg viewBox="0 0 24 24" class="pl" aria-hidden="true"><path d="M8.5 5.5v13l10-6.5z"/></svg>';
-  play.addEventListener('click', () => startTour(true));
+  play.addEventListener('click', () => {
+    if (S.atFrame >= 0) leaveFrame();   // play works from the compare modes too
+    startTour(true);
+  });
   c.appendChild(play);
 
   const stats = document.createElement('button');
@@ -1424,6 +1427,49 @@ let lastPulse = 0;
 let lastLoopT = performance.now();
 
 // ── done-state intro: glide along the capture path until the user acts ──────
+// rotation interpolation: quaternions of the SOLVED camera matrices, so the
+// replay carries the photographer's true roll (an orbit camera cannot)
+function quatFromR(R) {
+  const tr = R[0] + R[4] + R[8];
+  if (tr > 0) {
+    const s = Math.sqrt(tr + 1) * 2;
+    return [(R[7] - R[5]) / s, (R[2] - R[6]) / s, (R[3] - R[1]) / s, 0.25 * s];
+  }
+  if (R[0] > R[4] && R[0] > R[8]) {
+    const s = Math.sqrt(1 + R[0] - R[4] - R[8]) * 2;
+    return [0.25 * s, (R[1] + R[3]) / s, (R[2] + R[6]) / s, (R[7] - R[5]) / s];
+  }
+  if (R[4] > R[8]) {
+    const s = Math.sqrt(1 + R[4] - R[0] - R[8]) * 2;
+    return [(R[1] + R[3]) / s, 0.25 * s, (R[5] + R[7]) / s, (R[2] - R[6]) / s];
+  }
+  const s = Math.sqrt(1 + R[8] - R[0] - R[4]) * 2;
+  return [(R[2] + R[6]) / s, (R[5] + R[7]) / s, 0.25 * s, (R[3] - R[1]) / s];
+}
+
+function quatToR(q) {
+  const [x, y, z, w] = q;
+  return [
+    1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w),
+    2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w),
+    2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y),
+  ];
+}
+
+function qslerp(a, b, t) {
+  let d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+  let bb = b;
+  if (d < 0) { d = -d; bb = [-b[0], -b[1], -b[2], -b[3]]; }
+  if (d > 0.9995) {
+    const o = a.map((v, i) => v + (bb[i] - v) * t);
+    const n = Math.hypot(o[0], o[1], o[2], o[3]) || 1;
+    return o.map((v) => v / n);
+  }
+  const th = Math.acos(Math.min(1, d)), s = Math.sin(th);
+  const wa = Math.sin((1 - t) * th) / s, wb = Math.sin(t * th) / s;
+  return [0, 1, 2, 3].map((i) => a[i] * wa + bb[i] * wb);
+}
+
 function startTour(fromNearest = false) {
   const cams = S.scene ? S.scene.cams.filter((c) => c.R) : [];
   const n = cams.length;
@@ -1444,8 +1490,19 @@ function startTour(fromNearest = false) {
     return [acc[0] / w, acc[1] / w, acc[2] / w];
   });
   const pts = smooth3(raw);
-  const sfwd = smooth3(cams.map((c) => [c.R[6], c.R[7], c.R[8]]))
-    .map((v) => { const m = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / m, v[1] / m, v[2] / m]; });
+
+  // true rotations, sign-aligned then lightly smoothed towards the midpoint
+  // of the neighbours — handheld roll jitter, not the roll itself, goes away
+  const qs = cams.map((c) => quatFromR(c.R));
+  for (let i = 1; i < qs.length; i++) {
+    if (qs[i - 1][0] * qs[i][0] + qs[i - 1][1] * qs[i][1] + qs[i - 1][2] * qs[i][2] + qs[i - 1][3] * qs[i][3] < 0) {
+      qs[i] = qs[i].map((v) => -v);
+    }
+  }
+  const sq = qs.map((q, i) => {
+    if (i === 0 || i === qs.length - 1) return q;
+    return qslerp(q, qslerp(qs[i - 1], qs[i + 1], 0.5), 0.4);
+  });
 
   // Catmull-Rom, densely resampled into an arc-length table: playback walks
   // the table at EXACTLY constant velocity, whatever the gap sizes
@@ -1470,7 +1527,7 @@ function startTour(fromNearest = false) {
   const total = cum[cum.length - 1] || 1e-6;
   const duration = clamp(1.4 * n, 10, 30);   // one full pass, 30 s at most
 
-  S.tour = { cams, sfwd, samples, us, cum, total, speed: total / duration, s: 0, k: 0, dir: 1, pd: [] };
+  S.tour = { cams, sq, samples, us, cum, total, speed: total / duration, s: 0, k: 0, dir: 1, pd: [] };
 
   // replay picks up from wherever the user flew to — no jump-cut to the start
   if (fromNearest) {
@@ -1486,7 +1543,12 @@ function startTour(fromNearest = false) {
   }
 }
 
-function stopTour() { S.tour = null; }
+function stopTour() {
+  if (!S.tour) return;
+  S.tour = null;
+  vp.pose = null;   // hand the view back to the orbit (which has no roll)
+  vp.dirty = true;
+}
 
 function tourStep(dt) {
   const T = S.tour;
@@ -1507,14 +1569,24 @@ function tourStep(dt) {
   const u = T.us[T.k] + (T.us[T.k + 1] - T.us[T.k]) * a;
   const i = clamp(Math.floor(u), 0, T.cams.length - 2);
   const f = u - i;
-  const fa = T.sfwd[i], fb = T.sfwd[i + 1];
-  let fwd = [fa[0] + (fb[0] - fa[0]) * f, fa[1] + (fb[1] - fa[1]) * f, fa[2] + (fb[2] - fa[2]) * f];
-  const nrm = Math.hypot(fwd[0], fwd[1], fwd[2]) || 1;
-  fwd = [fwd[0] / nrm, fwd[1] / nrm, fwd[2] / nrm];
+
+  // the TRUE pose, roll included, rendered via the viewport's pose override
+  const Rq = quatToR(qslerp(T.sq[i], T.sq[i + 1], f));
+  vp.pose = {
+    R: Rq,
+    t: [
+      -(Rq[0] * pos[0] + Rq[1] * pos[1] + Rq[2] * pos[2]),
+      -(Rq[3] * pos[0] + Rq[4] * pos[1] + Rq[5] * pos[2]),
+      -(Rq[6] * pos[0] + Rq[7] * pos[1] + Rq[8] * pos[2]),
+    ],
+  };
+
+  // keep the orbit tracking underneath (minus roll) so any user takeover
+  // continues seamlessly from here
+  const fwd = [Rq[6], Rq[7], Rq[8]];
   const da = (T.pd[i] ??= vp._pivotDist(T.cams[i]));
   const db = (T.pd[i + 1] ??= vp._pivotDist(T.cams[i + 1]));
   const d = da + (db - da) * f;
-
   vp.target = [pos[0] + fwd[0] * d, pos[1] + fwd[1] * d, pos[2] + fwd[2] * d];
   vp.dist = d;
   vp.yaw = Math.atan2(-fwd[0], -fwd[2]);

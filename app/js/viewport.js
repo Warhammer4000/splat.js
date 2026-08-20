@@ -241,6 +241,15 @@ export class Viewport {
 
   /** the pose the stage renders with (canvas-resolution intrinsics) */
   viewPose() {
+    // full pose override (the capture-path tour): true rotation incl. roll,
+    // which the yaw/pitch orbit cannot express
+    if (this.pose) {
+      return {
+        R: this.pose.R, t: this.pose.t,
+        cx: this.w / 2, cy: this.h / 2,
+        f: this.freeF || Math.min(this.w, this.h) * 0.86,
+      };
+    }
     if (!this.lock) return this.freePose();
     const c = this.lock;
     const s = Math.min(this.w / c.w, this.h / c.h);
