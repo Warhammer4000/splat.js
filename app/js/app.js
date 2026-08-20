@@ -1041,6 +1041,14 @@ function renderControls() {
 
   if (S.state !== 'done') return;
 
+  const play = document.createElement('button');
+  play.className = 'iconbtn';
+  play.title = 'Fly the capture path';
+  play.setAttribute('aria-label', 'Fly the capture path');
+  play.innerHTML = '<svg viewBox="0 0 24 24" class="pl" aria-hidden="true"><path d="M8.5 5.5v13l10-6.5z"/></svg>';
+  play.addEventListener('click', () => startTour(true));
+  c.appendChild(play);
+
   const stats = document.createElement('button');
   stats.className = 'statchip';
   stats.innerHTML = `<span><b>${fmt(S.splats)}</b> splats</span>` +
@@ -1416,7 +1424,7 @@ let lastPulse = 0;
 let lastLoopT = performance.now();
 
 // ── done-state intro: glide along the capture path until the user acts ──────
-function startTour() {
+function startTour(fromNearest = false) {
   const cams = S.scene ? S.scene.cams.filter((c) => c.R) : [];
   const n = cams.length;
   if (n < 2) return;
@@ -1463,6 +1471,19 @@ function startTour() {
   const duration = clamp(1.4 * n, 10, 30);   // one full pass, 30 s at most
 
   S.tour = { cams, sfwd, samples, us, cum, total, speed: total / duration, s: 0, k: 0, dir: 1, pd: [] };
+
+  // replay picks up from wherever the user flew to — no jump-cut to the start
+  if (fromNearest) {
+    const { fwd } = vp._basis();
+    const eye = [vp.target[0] - fwd[0] * vp.dist, vp.target[1] - fwd[1] * vp.dist, vp.target[2] - fwd[2] * vp.dist];
+    let best = 0, bd = Infinity;
+    samples.forEach((p, k) => {
+      const dd = (p[0] - eye[0]) ** 2 + (p[1] - eye[1]) ** 2 + (p[2] - eye[2]) ** 2;
+      if (dd < bd) { bd = dd; best = k; }
+    });
+    S.tour.s = cum[best];
+    S.tour.k = Math.min(best, cum.length - 2);
+  }
 }
 
 function stopTour() { S.tour = null; }
