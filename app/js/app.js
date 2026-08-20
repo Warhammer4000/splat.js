@@ -1043,11 +1043,13 @@ function renderControls() {
 
   const play = document.createElement('button');
   play.className = 'iconbtn';
+  play.id = 'c-play';
   play.title = 'Fly the capture path';
   play.setAttribute('aria-label', 'Fly the capture path');
   play.innerHTML = '<svg viewBox="0 0 24 24" class="pl" aria-hidden="true"><path d="M8.5 5.5v13l10-6.5z"/></svg>';
   play.addEventListener('click', () => {
-    if (S.atFrame >= 0) leaveFrame();   // play works from the compare modes too
+    if (S.tour) { stopTour(); return; }  // playing -> the same button stops
+    if (S.atFrame >= 0) leaveFrame();    // play works from the compare modes too
     startTour(true);
   });
   c.appendChild(play);
@@ -1644,6 +1646,15 @@ function loop() {
   if (S.flash && now > S.flash.until) S.flash = null;
   const wlWant = `${S.state}:${!!S.tour}`;
   if (wlWant !== S._wlKey) { S._wlKey = wlWant; updateWakeLock(); }
+  // the tour can stop from any interaction — keep the play button honest
+  const tourBtn = $('c-play');
+  if (tourBtn && tourBtn.dataset.on !== String(!!S.tour)) {
+    tourBtn.dataset.on = String(!!S.tour);
+    tourBtn.title = S.tour ? 'Stop the flight' : 'Fly the capture path';
+    tourBtn.innerHTML = S.tour
+      ? '<svg viewBox="0 0 24 24" class="pl" aria-hidden="true"><rect x="7.5" y="7.5" width="9" height="9" rx="1.5"/></svg>'
+      : '<svg viewBox="0 0 24 24" class="pl" aria-hidden="true"><path d="M8.5 5.5v13l10-6.5z"/></svg>';
+  }
   const grow = $('t-grow');
   if (grow) {
     const txt = (S.growNote && now < S.growNote.until) ? S.growNote.text : '';
