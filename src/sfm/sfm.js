@@ -56,8 +56,9 @@ class UnionFind {
 //           genuinely overlap at those spans and the extra constraints stiffen
 //           the chain: ATE 10% -> 4.5% on train-84.
 function buildPairs(n, profile = 'walk') {
-  const orbit = profile === 'orbit';
-  const win = orbit ? 16 : 10;
+  const dense = profile === 'dense';
+  const orbit = profile === 'orbit' || dense;
+  const win = dense ? 20 : orbit ? 16 : 10;
   const pairs = [];
   if (n <= 30) {
     for (let i = 0; i < n; i++)
@@ -71,9 +72,10 @@ function buildPairs(n, profile = 'walk') {
     };
     for (let i = 0; i < n; i++)
       for (let d = 1; d <= win; d++) add(i, i + d);
-    // long-range pairs for loop closure
-    for (let i = 0; i < n; i += orbit ? 2 : 4)
-      for (let j = i + win + 2; j < n; j += orbit ? 3 : 4) add(i, j);
+    // long-range pairs for loop closure ('dense': every i, every 2nd j —
+    // the subsampled grid left long capture loops pinned too loosely)
+    for (let i = 0; i < n; i += dense ? 1 : orbit ? 2 : 4)
+      for (let j = i + win + 2; j < n; j += dense ? 2 : orbit ? 3 : 4) add(i, j);
   }
   return pairs;
 }
@@ -468,7 +470,11 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
   // limit was a BRIEF pathology: repeated-texture mismatches at wide
   // baselines poisoned tracks — camping went 113 -> 64 registered). SIFT
   // camping with the wide graph: 113/113, best-ever PSNR, tail drift down.
-  const pairs = buildPairs(n, opts.graph || (useSift ? 'orbit' : 'walk'));
+  // 'dense' since 2026-08-21: the subsampled long-range grid left a 250-image
+  // loop pinned so loosely that two 8-16 camera clusters registered ~5 units
+  // off (a ghost truck in training). Dense long-range: truck-250 ATE
+  // 2.18% -> 0.00% vs COLMAP. GPU matching absorbs the extra pairs.
+  const pairs = buildPairs(n, opts.graph || (useSift ? 'dense' : 'walk'));
   log(`matching ${pairs.length} image pairs ...`);
   const pairInfo = []; // { i, j, matches: [[fa, fb], ...] }
   const failedRich = []; // many matches but failed the E-gate (rescue candidates)
