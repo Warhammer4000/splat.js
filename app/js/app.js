@@ -177,7 +177,9 @@ function boot() {
   $('set-sh').value = String(st.sh);
   $('set-iters').value = st.iters ? String(st.iters) : '';
   $('btn-settings').addEventListener('click', () => {
-    $('settings').hidden = !$('settings').hidden;
+    const open = $('settings').hidden;
+    $('settings').hidden = !open;
+    $('btn-settings').setAttribute('aria-expanded', String(open));
   });
   const readSettings = () => {
     st.res = parseInt($('set-res').value, 10) || 0;

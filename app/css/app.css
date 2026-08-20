@@ -359,8 +359,8 @@ body { overflow: hidden; }
 /* run-length hint on the start card */
 .srclinks .approx { color: var(--dim, #6b7877); margin-left: 10px; font-size: 12px; }
 
-/* training settings: a bare name-value table, folded away until asked for */
-.settings { margin: 16px auto 16px; max-width: 320px; text-align: left; }
+/* training settings: a bare name-value table, folded away below Start */
+.settings { margin: 16px auto 2px; max-width: 320px; text-align: left; }
 .setrow {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
   padding: 4px 0;
@@ -384,13 +384,21 @@ body { overflow: hidden; }
 }
 .countv:hover { color: var(--accent); }
 .startrow { display: flex; align-items: center; justify-content: center; gap: 10px; }
-/* same height as .btn.big beside it (12px padding + 15px/19px line + border) */
-.setgear { width: 47px; height: 47px; color: var(--muted); }
+/* same height as .btn.big beside it; the chevron flips down when open */
+.setgear {
+  display: inline-flex; align-items: center; gap: 5px;
+  width: auto; height: 47px; padding: 0 12px 0 14px;
+  border-radius: var(--pill); color: var(--muted);
+}
 .setgear:hover { color: var(--accent); }
 .setgear .gear {
   width: 18px; height: 18px; fill: none; stroke: currentColor;
   stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
 }
+.setgear .chev {
+  font: 400 17px/1 var(--ui); transition: transform .16s ease;
+}
+.setgear[aria-expanded="true"] .chev { transform: rotate(90deg); }
 
 
 /* the run length, inline after the live cycle count */
