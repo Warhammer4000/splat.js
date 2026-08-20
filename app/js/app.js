@@ -193,7 +193,8 @@ function boot() {
     const p = S.preset;
     if (!p || p.files) return;
     const mx = p.maxCount || p.count;
-    const n = clamp(parseInt($('set-count').value, 10) || p.count, 12, mx);
+    // 2 is the solver's own floor, not a policy number
+    const n = clamp(parseInt($('set-count').value, 10) || p.count, 2, mx);
     $('set-count').value = n;
     p.useCount = n;
     applyCount(p);
@@ -338,11 +339,11 @@ function paintCard(preset) {
     (links ? ` ${links}` : '') +
     `<span class="approx">${approxFor(preset, cnt)} on a fast GPU</span>`;
   $('set-desc').hidden = false;
-  // the photo count lives in the settings panel — shown for sets that have
-  // room to move (the full Truck/Train sequences, trimming Camping, ...)
+  // the photo count lives in the settings panel — any fetched set can be
+  // trimmed (or extended up to what exists on disk)
   const mx = preset.files ? 0 : (preset.maxCount || preset.count);
-  $('row-count').hidden = mx <= 12;
-  if (mx > 12) {
+  $('row-count').hidden = mx < 3;
+  if (mx >= 3) {
     $('set-count').max = mx;
     $('set-count').value = cnt;
   }
@@ -575,27 +576,25 @@ async function startPrep() {
     if (S.gen !== gen) return;
     S.solveStats.solveSec = (performance.now() - t0) / 1000;
 
-    // a degenerate solve trains nonsense with full confidence — catch it
-    // here, with advice instead of jargon. Own captures fail on connectivity;
-    // for the KNOWN test sets a fragmentary solve means something else went
-    // wrong (GPU state after many runs, usually) and a retry beats a bad run.
+    // No threshold guessing: below 3 placed cameras there is no multi-view
+    // problem left to solve — stop with advice. Anything above that trains,
+    // and the truth is shown instead: unplaced images carry a red tag in the
+    // strip, and a notice says how many made it.
     const placed = session.recon.cams.length;
     const isOwn = S.preset.id && S.preset.id.startsWith('__');
-    if (isOwn && (placed < 3 || placed < S.photos.length * 0.4)) {
-      solveFailed(`Only ${placed} of ${S.photos.length} photos could be placed — ` +
-        'the set doesn\'t connect well enough to reconstruct.');
+    if (placed < 3) {
+      solveFailed(isOwn
+        ? `Only ${placed} of ${S.photos.length} photos could be placed — ` +
+          'the set doesn\'t connect well enough to reconstruct.'
+        : `Only ${placed} of ${S.photos.length} images could be placed — ` +
+          'that is unusual for this test set. Reloading the page and retrying usually clears it.');
       S.state = 'ready';
       dock('');
       $('start').hidden = false;
       return;
     }
-    if (!isOwn && placed < S.photos.length * 0.6) {
-      solveFailed(`Only ${placed} of ${S.photos.length} images could be placed — ` +
-        'that is unusual for this test set. Reloading the page and starting again usually clears it.');
-      S.state = 'ready';
-      dock('');
-      $('start').hidden = false;
-      return;
+    if (placed < S.photos.length) {
+      flash(`${placed} of ${S.photos.length} images placed — the ones tagged in the strip never connected.`, 9000);
     }
 
     // 3) seed + trainer
