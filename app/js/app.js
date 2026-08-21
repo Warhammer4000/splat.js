@@ -905,6 +905,8 @@ function toggleTrain() {
   const b = $('t-play');
   const on = S.session.training;
   if (b) { b.dataset.state = on ? 'pause' : 'play'; b.textContent = on ? '❚❚' : '▶'; }
+  const tt = $('t-title');
+  if (tt) tt.textContent = on ? 'Training…' : 'Paused';
   const f = $('t-finish');
   if (f) f.hidden = on;   // paused = the moment "stop here" makes sense
 }
@@ -1491,14 +1493,15 @@ function dock(kind) {
   if (!kind) { d.innerHTML = ''; return; }
 
   if (kind === 'prep') {
+    // the stage sequence IS the header: the current beat reads as the title,
+    // the others wait in line around it
     d.innerHTML = `
       <div>
-        <div class="prep-label" id="p-label">Reading photographs</div>
+        <div class="prep-stages" id="p-steps">${BEATS.map((s, i) =>
+          `<span data-k="${i}">${s.label}</span>`).join('')}</div>
         <div class="prep-sub" id="p-sub">—</div>
         <div class="prep-meter"><i id="p-bar" style="width:0%"></i></div>
-      </div>
-      <div class="prep-steps" id="p-steps">${BEATS.map((s, i) =>
-        `<span data-k="${i}"><b>${s.label}</b></span>`).join('')}</div>`;
+      </div>`;
     return;
   }
 
@@ -1508,6 +1511,7 @@ function dock(kind) {
         <button class="play" id="t-play" data-state="pause">❚❚</button>
         <button class="tbtn-sm" id="t-finish" hidden title="Stop here and keep the model as it is">Finish</button>
         <div class="tmeta">
+          <span class="t-title" id="t-title">Training…</span>
           <span class="tmeta-1"><span id="t-iter">${fmt(S.iter)}</span> <span class="tmeta-max">/ <span id="t-max">${fmt(S.maxIters)}</span></span></span>
           <span class="tmeta-2"><span id="t-splats">${S.splats ? fmt(S.splats) : '—'}</span> splats · <span id="t-ips">${S.itersPerSec ? fmt(S.itersPerSec) : '—'}</span>/s</span>
           <span class="tmeta-grow" id="t-grow"></span>
@@ -1813,7 +1817,6 @@ function paintPrepDock() {
   const bi = beatIndex(S.prep.stage);
   const frac = S.prep.total ? S.prep.done / S.prep.total : 0;
   bar.style.width = `${((bi + Math.min(1, frac)) / BEATS.length) * 100}%`;
-  $('p-label').textContent = BEATS[bi].label;
   $('p-sub').textContent = prepSub();
   [...$('p-steps').children].forEach((el, k) =>
     el.dataset.on = k < bi ? 'done' : k === bi ? '1' : '0');
@@ -1831,7 +1834,7 @@ function prepSub() {
   if (e.stage === 'matching') {
     return `${fmt(e.done)} of ${fmt(e.total)} pairs · ${fmt(e.detail?.usable ?? 0)} survived the geometry test`;
   }
-  if (e.stage === 'focal') return `no lens data in the files — trying focal ${e.done + 1} of ${e.total}`;
+  if (e.stage === 'focal') return `no lens data in the files — measuring the lens from the geometry · ${e.done + 1} of ${e.total}`;
   if (e.stage === 'register') {
     return `${e.done} of ${e.total} photos placed` +
       (S.regPtsCount ? ` · ${fmt(S.regPtsCount)} points triangulated` : '');
