@@ -911,8 +911,11 @@ function toggleTrain() {
   const b = $('t-play');
   const on = S.session.training;
   if (b) { b.dataset.state = on ? 'pause' : 'play'; b.textContent = on ? '❚❚' : '▶'; }
+  const label = on ? 'Training…' : 'Paused';
   const tt = $('t-title');
-  if (tt) tt.textContent = on ? 'Training…' : 'Paused';
+  if (tt) tt.textContent = label;
+  const tm = $('t-title-m');
+  if (tm) tm.textContent = label;
   const f = $('t-finish');
   if (f) f.hidden = on;   // paused = the moment "stop here" makes sense
 }
@@ -1514,9 +1517,9 @@ function dock(kind) {
   if (kind === 'train') {
     d.innerHTML = `
       <div class="tcontrols">
-        <button class="play" id="t-play" data-state="pause">❚❚</button>
+        <span class="playwrap"><button class="play" id="t-play" data-state="pause">❚❚</button><button class="tbtn-sm" id="t-finish" hidden title="End the run here — the model is kept as it is and ready to export">Stop &amp; keep</button></span>
         <div class="tmeta">
-          <span class="t-top"><span class="t-title" id="t-title">Training…</span><button class="tbtn-sm" id="t-finish" hidden title="End the run here — the model is kept as it is and ready to export">Stop &amp; keep</button></span>
+          <span class="t-title" id="t-title">Training…</span>
           <span class="tmeta-1"><span id="t-iter">${fmt(S.iter)}</span> <span class="tmeta-max">/ <span id="t-max">${fmt(S.maxIters)}</span></span></span>
           <span class="tmeta-2"><span id="t-splats">${S.splats ? fmt(S.splats) : '—'}</span> splats · <span id="t-ips">${S.itersPerSec ? fmt(S.itersPerSec) : '—'}</span>/s</span>
           <span class="tmeta-grow" id="t-grow"></span>
@@ -1524,6 +1527,7 @@ function dock(kind) {
       </div>
       <div class="chartwrap"><canvas id="chart"></canvas><div class="chart-tip" id="chart-tip" hidden></div></div>
       <div class="tscores">
+        <span class="t-title-m" id="t-title-m">Training…</span>
         <div class="score" data-tone="accent"><div class="score-v" id="t-ptrain">${S.psnrTrain != null ? S.psnrTrain.toFixed(2) : '—'}</div><div class="score-k">trained dB</div></div>
         ${S.session && S.session.holdout >= 0 ? `<div class="score" data-tone="alt"><div class="score-v" id="t-phold">${S.psnrHold != null ? S.psnrHold.toFixed(2) : '—'}</div><div class="score-k">hidden dB</div></div>` : ''}
       </div>`;

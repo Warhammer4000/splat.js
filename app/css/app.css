@@ -235,6 +235,7 @@ body { overflow: hidden; }
 
 .dock-train {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 18px; align-items: center;
+  position: relative; z-index: 5;   /* the stop-and-keep chip overhangs the stage */
 }
 .dock-prep { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; }
 
@@ -487,21 +488,29 @@ body { overflow: hidden; }
 /* the state header floats above the numbers WITHOUT moving them (out of
    flow); phones have no headroom above the controls row — hidden there */
 .tmeta { position: relative; }
-/* the state row floats above the numbers WITHOUT moving them: the title,
-   and (paused) the stop-and-keep action beside it */
-.t-top {
+/* the state title floats above the numbers WITHOUT moving them; the
+   stop-and-keep action hangs below the pause circle (also out of flow) */
+.t-title {
   position: absolute; bottom: calc(100% + 9px); left: 0;
-  display: flex; align-items: center; gap: 12px; white-space: nowrap;
+  font: 500 15px var(--ui); color: var(--accent); white-space: nowrap;
 }
-.t-title { font: 500 15px var(--ui); color: var(--accent); }
-#t-finish { padding: 3px 10px; }
+.playwrap { position: relative; display: inline-flex; }
+#t-finish {
+  position: absolute; top: calc(100% + 5px); left: 0;
+  padding: 3px 10px;
+  white-space: nowrap; z-index: 6;         /* floats over the stage edge */
+  background: var(--panel);
+}
 /* the pause circle breathes */
 .dock-train .play { margin: 0 10px 0 6px; }
-/* phones: no headroom above the controls — the title goes, the stop-and-keep
-   action drops into the flow so it stays reachable */
+/* the phone's state title lives on the right, before the dB score */
+.t-title-m { display: none; }
+/* phones: no headroom above the controls — the state moves to the right
+   before the dB score, and stop-and-keep sits inline next to the pause */
 @media (max-width: 720px) {
-  .t-top { position: static; }
   .t-title { display: none; }
+  .t-title-m { display: block; align-self: center; font: 500 14px var(--ui); color: var(--accent); }
+  #t-finish { position: static; transform: none; margin-left: 8px; }
   .dock-train .play { margin: 0; }
 }
 
