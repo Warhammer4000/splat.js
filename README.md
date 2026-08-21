@@ -23,7 +23,8 @@ Gaussians trained, all live in one Chrome tab.*
 
 ## Try it
 
-Live: **https://nightly.arrival.space/splatjs/index.html**
+Live: **https://arrival.space/splat-js/index.html**
+(bleeding edge: https://nightly.arrival.space/splatjs/index.html)
 
 Or locally:
 
@@ -34,10 +35,11 @@ node serve.mjs 8734
 
 Needs a browser with WebGPU — current Chrome, Edge, Firefox and Safari
 (iPhones included) all run it, vanilla. Drop 20–200 overlapping
-photos of one place into the app — or a video (the sharpest frames are picked
-automatically), or record one with the device camera — or start from a test
-set (a clone bundles the synthetic set; the photo sets are served on the
-hosted demo).
+photos of one place into the app — or capture them straight from the device
+camera — or start from a test set (a clone bundles the synthetic set; the
+photo sets are served on the hosted demo). Video input exists in the library
+(`extractSharpFrames`) but is switched off in the app until the frame
+selection is up to the quality bar.
 
 The gear next to **Start training** holds one-knob quality presets — *Draft*
 for a fast first look, *Showcase* for a long run at the full 1 M splat budget —

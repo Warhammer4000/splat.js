@@ -489,11 +489,17 @@ function closePicker() {
 
 async function useOwnPhotos(list) {
   const all = [...list];
+  // video intake is OFF for now — the sharp-frame extraction is not good
+  // enough yet. The whole path (useOwnVideo, extractSharpFrames, the camera's
+  // video mode) is kept working; re-enable by routing the file again here.
   const video = all.find(isVideoFile);
-  if (video) { useOwnVideo(video); return; }
   const files = all.filter((f) => f.type.startsWith('image/'));
+  if (video && files.length < 2) {
+    flash('Video input is off for now — take photos instead.', 6000);
+    return;
+  }
   if (files.length < 2) {
-    flash('Pick at least a couple of overlapping photos of the same place — or one video.', 4500);
+    flash('Pick at least a couple of overlapping photos of the same place.', 4500);
     return;
   }
   if (S.ownUrls) S.ownUrls.forEach(URL.revokeObjectURL);

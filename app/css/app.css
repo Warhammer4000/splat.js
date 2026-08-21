@@ -595,11 +595,12 @@ body { overflow: hidden; }
 .upload { justify-content: center; }
 .upload-btns { align-items: center; }
 
-/* the record dot */
+/* the record dot (kept for when video capture returns) */
 .recdot {
   display: inline-block; width: 8px; height: 8px; border-radius: 50%;
   background: #e5484d; margin-right: 7px; vertical-align: 0;
 }
+.capicon { width: 15px; height: 15px; margin-right: 7px; vertical-align: -3px; }
 
 /* bright only when actually available — disabled reads as a quiet outline */
 #btn-go[disabled] {

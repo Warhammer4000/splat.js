@@ -78,11 +78,9 @@ h1, h2, h3 { margin: 0; font-weight: 600; }
   background: linear-gradient(var(--ink-2), var(--ink));
 }
 
-.brand { display: flex; align-items: baseline; gap: 9px; letter-spacing: -.01em; }
-.brand-mark {
-  font-size: 17px; color: var(--accent);
-  transform: translateY(1px);
-}
+.brand { display: flex; align-items: center; gap: 9px; letter-spacing: -.01em; }
+.brand-mark { color: var(--paper); }
+.brand-mark svg { width: 19px; height: 19px; display: block; }
 .brand-name { font: 700 17px var(--display); }
 .brand-name em { font-style: normal; color: var(--muted); font-weight: 400; }
 

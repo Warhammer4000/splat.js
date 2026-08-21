@@ -100,6 +100,10 @@ export async function recordCaptureVideo() {
   };
 
   return new Promise((resolve) => {
+    // video capture is OFF for now — the sharp-frame extraction downstream is
+    // not good enough yet. All video code below is kept working; flip this to
+    // bring the mode pill and recording back.
+    const VIDEO_CAPTURE = false;
     let mode = 'video';
     let rec = null, chunks = [], t0 = 0, timer = 0;
     const photos = [];
@@ -135,6 +139,12 @@ export async function recordCaptureVideo() {
       el('cam-time').textContent = mode === 'photos' ? `${photos.length} shots` : '0:00';
       el('cam-done').hidden = !(mode === 'photos' && photos.length >= 2);
     });
+    if (!VIDEO_CAPTURE) {
+      // photos only: land in the stills mode through the normal switch, then
+      // take the choice away
+      el('cam-mode').querySelector('[data-m="photos"]').click();
+      el('cam-mode').hidden = true;
+    }
 
     el('cam-cancel').addEventListener('click', () => {
       if (rec && rec.state !== 'inactive') rec.stop();
