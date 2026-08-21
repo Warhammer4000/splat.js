@@ -501,8 +501,9 @@ body { overflow: hidden; }
   white-space: nowrap; z-index: 6;         /* floats over the stage edge */
   background: var(--panel);
 }
-/* the pause circle breathes */
-.dock-train .play { margin: 0 10px 0 6px; }
+/* the pause circle breathes — enough on the left that the stop-and-keep
+   chip below it clears the window edge */
+.dock-train .play { margin: 0 10px 0 16px; }
 /* the phone's state title lives on the right, before the dB score */
 .t-title-m { display: none; }
 /* phones: no headroom above the controls — the state moves to the right
