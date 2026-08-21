@@ -33,7 +33,9 @@ node serve.mjs 8734
 ```
 
 Needs a browser with WebGPU — current Chrome, Edge, Firefox and Safari
-(iPhones included) all run it, vanilla. Drop 20–200 overlapping
+(iPhones included) all run it, vanilla. It installs as a PWA too: the
+browser's install button (or *Add to Home Screen* on iOS) gives the capture
+tool its own icon and window — same pipeline, nothing extra. Drop 20–200 overlapping
 photos of one place into the app — or capture them straight from the device
 camera — or start from a test set (a clone bundles the synthetic set; the
 photo sets are served on the hosted demo). Video input exists in the library
