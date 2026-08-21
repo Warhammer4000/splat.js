@@ -315,9 +315,7 @@ function boot() {
     if (!e.target.closest('.about-card')) $('about').hidden = true;
   });
 
-  if (!navigator.gpu) {
-    flash('This demo needs WebGPU — use a current Chrome or Edge.', 60000);
-  }
+  checkGpu();
   // a refresh mid-run would throw away the model (and, before storage
   // landed, the capture) — ask first
   addEventListener('beforeunload', (e) => {
@@ -336,6 +334,49 @@ function boot() {
   open(PRESETS.find((p) => p.id === 'truck'));
   offerLastCapture();
   requestAnimationFrame(loop);
+}
+
+// WebGPU probe: navigator.gpu can EXIST while the adapter is unavailable
+// (Safari before macOS/iOS 26 keeps it behind a feature flag, Linux builds,
+// hardware acceleration switched off). Probe the real adapter and, when it
+// fails, say exactly how to switch it on in THIS browser instead of a
+// generic shrug. `?nogpu` forces the card for testing.
+async function checkGpu() {
+  let ok = false;
+  try {
+    ok = !!(navigator.gpu && await navigator.gpu.requestAdapter());
+  } catch { /* the probe itself failing is the same answer */ }
+  if (location.search.includes('nogpu')) ok = false;
+  if (ok) return;
+  S.noGpu = true;
+  $('btn-go').disabled = true;
+  const ua = navigator.userAgent;
+  const iosLike = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  const safari = /Safari\//.test(ua) && !/Chrome|Chromium|CriOS|Edg|Android|Firefox|FxiOS/.test(ua);
+  const firefox = /Firefox|FxiOS/.test(ua);
+  const linux = /Linux/.test(ua) && !/Android/.test(ua);
+  let how;
+  if (safari && iosLike) {
+    how = 'iOS 26 has it on by default — updating is the easy fix. On earlier iOS: ' +
+      '<b>Settings → Apps → Safari → Advanced → Feature Flags</b>, switch on <b>WebGPU</b>, reload this page.';
+  } else if (safari) {
+    how = 'Safari on macOS 26 has it on by default — updating is the easy fix. On earlier macOS: ' +
+      '<b>Safari → Settings → Advanced</b>, tick “Show features for web developers”, then ' +
+      '<b>Develop → Feature Flags</b>, switch on <b>WebGPU</b> and reload.';
+  } else if (firefox) {
+    how = 'Current Firefox ships it on Windows and macOS — updating usually fixes this.' +
+      (linux ? ' On Linux, switch <b>dom.webgpu.enabled</b> on in <b>about:config</b> and restart.' : '');
+  } else {
+    how = 'Update the browser and make sure hardware acceleration is on ' +
+      '(<b>Settings → System</b> in Chrome and Edge).' +
+      (linux ? ' On Linux, also enable <b>chrome://flags/#enable-unsafe-webgpu</b> and restart.' : '');
+  }
+  const d = document.createElement('div');
+  d.className = 'gpuwarn';
+  d.innerHTML = `<b>The GPU is out of reach in this browser</b><span>` +
+    `Everything here — the camera solve and the training — runs on WebGPU, ` +
+    `and this browser is not exposing it yet. ${how}</span>`;
+  $('start').insertBefore(d, $('upload'));
 }
 
 /** the untouched start card: header static, no selection, no caption */
@@ -635,7 +676,7 @@ async function open(preset, autostart = false) {
   document.getElementById('cv-model')?.remove();
   gpuCanvas = null;
   $('btn-go').textContent = 'Start training';
-  $('btn-go').disabled = false;
+  $('btn-go').disabled = !!S.noGpu;
   $('btn-settings').disabled = false;
   $('card-x').hidden = true;
   $('start').hidden = true;
