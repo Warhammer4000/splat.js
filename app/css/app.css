@@ -178,7 +178,9 @@ body { overflow: hidden; }
 .setpick {
   display: flex; gap: 6px; overflow-x: auto;
   touch-action: pan-x pan-y;
-  padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px solid var(--line);
+  /* top padding = headroom for the selected tile's scale-up (transforms
+     don't grow layout, but the scroll box would clip them) */
+  padding: 4px 0 12px; margin-bottom: 14px; border-bottom: 1px solid var(--line);
 }
 .setpick > :first-child { margin-left: auto; }
 .setpick > :last-child { margin-right: auto; }
@@ -194,7 +196,8 @@ body { overflow: hidden; }
 }
 .setpick button {
   padding: 4px 4px 5px; border: 1px solid transparent; border-radius: 12px;
-  overflow: hidden; text-align: center; transition: border-color .14s, background .14s;
+  overflow: hidden; text-align: center;
+  transition: background .14s, transform .14s ease;
 }
 .setpick img, .setpick .ph {
   display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover;
@@ -207,7 +210,8 @@ body { overflow: hidden; }
 }
 .setpick button:hover { background: var(--panel-2); }
 .setpick button:hover img { opacity: .85; }
-.setpick button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-14); }
+/* selection reads as presence, not a frame: a touch larger, tinted ground */
+.setpick button[aria-pressed="true"] { background: var(--accent-14); transform: scale(1.05); }
 .setpick button[aria-pressed="true"] img { opacity: 1; }
 .setpick button[aria-pressed="true"] span { color: var(--paper); }
 
