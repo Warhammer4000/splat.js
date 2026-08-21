@@ -24,7 +24,6 @@ Gaussians trained, all live in one Chrome tab.*
 ## Try it
 
 Live: **https://arrival.space/splat-js**
-(bleeding edge: https://nightly.arrival.space/splatjs/index.html)
 
 Or locally:
 
