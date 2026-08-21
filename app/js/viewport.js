@@ -328,8 +328,9 @@ export class Viewport {
     // drawn under the frustums in a single soft tone
     if (o.cloud && o.cloud.length) {
       const { R, t, f, cx, cy } = P;
-      ctx.fillStyle = 'rgba(47, 212, 193, .38)';
-      const s = 1.5 * (this.dpr || 1);
+      const rgb = o.cloudRgb;   // real sampled colours when the solver sends them
+      ctx.fillStyle = 'rgba(47, 212, 193, .8)';
+      const s = 2 * (this.dpr || 1);
       for (let i = 0; i < o.cloud.length; i += 3) {
         const X = o.cloud[i], Y = o.cloud[i + 1], Z = o.cloud[i + 2];
         const zc = R[6] * X + R[7] * Y + R[8] * Z + t[2];
@@ -337,6 +338,8 @@ export class Viewport {
         const px = f * (R[0] * X + R[1] * Y + R[2] * Z + t[0]) / zc + cx;
         const py = f * (R[3] * X + R[4] * Y + R[5] * Z + t[1]) / zc + cy;
         if (px < 0 || py < 0 || px > w || py > h) continue;
+        // frames store normalized 0..1 floats — CSS wants 0..255
+        if (rgb) ctx.fillStyle = `rgb(${rgb[i] * 255 | 0},${rgb[i + 1] * 255 | 0},${rgb[i + 2] * 255 | 0})`;
         ctx.fillRect(px - s / 2, py - s / 2, s, s);
       }
     }
@@ -419,7 +422,10 @@ export class Viewport {
       if (pc) path.push(pc);
 
       const isActive = i === o.active, isSel = i === o.sel;
-      let col = 'rgba(147,161,160,.42)', lw = 1 * dpr;
+      // bright: the solve's register beat — frustums are the subject there,
+      // not an overlay on a model
+      let col = o.bright ? 'rgba(200,212,210,.8)' : 'rgba(147,161,160,.42)';
+      let lw = (o.bright ? 1.3 : 1) * dpr;
       if (c.state === 'holdout') col = 'rgba(242,160,63,.75)';
       if (isSel) { col = 'rgba(230,236,235,.95)'; lw = 1.4 * dpr; }
       if (isActive) { col = 'rgba(47,212,193,1)'; lw = 1.8 * dpr; }

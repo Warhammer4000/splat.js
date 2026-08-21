@@ -441,6 +441,8 @@ async function loadPresetList(p) {
  *  pointer and swallows the click that would otherwise hit a tile. */
 function dragScroll(el) {
   let x0 = 0, s0 = 0, moved = 0, down = false;
+  // images/tiles must not become native drag payloads — that ate the swipe
+  el.addEventListener('dragstart', (e) => e.preventDefault());
   el.addEventListener('pointerdown', (e) => {
     if (e.pointerType !== 'mouse' || e.button !== 0) return;
     down = true; moved = 0; x0 = e.clientX; s0 = el.scrollLeft;
@@ -450,12 +452,15 @@ function dragScroll(el) {
     const dx = e.clientX - x0;
     if (Math.abs(dx) > 4 && moved <= 4) {
       try { el.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
+      el.style.cursor = 'grabbing';
+      document.body.style.cursor = 'grabbing';   // capture outlives the row
     }
     moved = Math.max(moved, Math.abs(dx));
     if (moved > 4) el.scrollLeft = s0 - dx;
   });
-  el.addEventListener('pointerup', () => { down = false; });
-  el.addEventListener('pointercancel', () => { down = false; });
+  const end = () => { down = false; el.style.cursor = ''; document.body.style.cursor = ''; };
+  el.addEventListener('pointerup', end);
+  el.addEventListener('pointercancel', end);
   el.addEventListener('click', (e) => {
     if (moved > 4) { e.stopPropagation(); e.preventDefault(); moved = 0; }
   }, true);
@@ -819,6 +824,7 @@ function onStage(e) {
     });
     if (e.detail.cloud && e.detail.cloud.length) {
       S.regPts = e.detail.cloud;
+      S.regRgb = e.detail.cloudRgb || null;
       S.regPtsCount = e.detail.points || 0;
     }
     // an overview that keeps FOLLOWING the growing reconstruction — framing
@@ -1508,8 +1514,7 @@ function dock(kind) {
   if (kind === 'train') {
     d.innerHTML = `
       <div class="tcontrols">
-        <button class="play" id="t-play" data-state="pause">❚❚</button>
-        <button class="tbtn-sm" id="t-finish" hidden title="Stop here and keep the model as it is">Finish</button>
+        <span class="playwrap"><button class="play" id="t-play" data-state="pause">❚❚</button><button class="tbtn-sm t-finish" id="t-finish" hidden title="Stop here and keep the model as it is">Finish</button></span>
         <div class="tmeta">
           <span class="t-title" id="t-title">Training…</span>
           <span class="tmeta-1"><span id="t-iter">${fmt(S.iter)}</span> <span class="tmeta-max">/ <span id="t-max">${fmt(S.maxIters)}</span></span></span>
@@ -1857,12 +1862,16 @@ function draw() {
   if (S.state === 'prep') {
     const st = S.prep && S.prep.stage;
     if (st === 'decode' || st === 'features') return photoStage(ctx, w, h, dpr, st === 'features');
-    if (st === 'matching') return pairStage(ctx, w, h, dpr);
-    // focal / register / ba / solved / seed: the camera solve, live
+    // the focal search draws nothing of its own — keep the last matching
+    // frame on stage instead of cutting to black
+    if (st === 'matching' || st === 'focal') return pairStage(ctx, w, h, dpr);
+    // register / ba / solved / seed: the camera solve, live
     if (S.scene) {
       vp.draw({ points: true, cams: S.scene.cams, showCams: true, showPath: true, sel: S.sel, active: -1 });
+    } else if (S.regCams.length) {
+      vp.draw({ cams: S.regCams, showCams: true, bright: true, reveal: S.regCams.length, active: -1, sel: -1, cloud: S.regPts, cloudRgb: S.regRgb });
     } else {
-      vp.draw({ cams: S.regCams, showCams: true, showPath: true, reveal: S.regCams.length, active: -1, sel: -1, cloud: S.regPts });
+      pairStage(ctx, w, h, dpr);   // nothing registered yet — hold the photos
     }
     return;
   }

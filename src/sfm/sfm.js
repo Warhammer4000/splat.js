@@ -1089,19 +1089,26 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
         vlog(`registered image ${bestImg} (${reg.inliers}/${bestCount} inliers, +${newPts} points)`);
         if (withBA) {
           // a downsampled snapshot of the triangulated cloud rides along so a
-          // UI can show the reconstruction growing, not just the frustums
+          // UI can show the reconstruction growing, not just the frustums —
+          // with real colours (sampleColor is a plain array read, ~free)
           const cloud = [];
+          const cloudRgb = [];
           let nPts = 0;
           const stride = Math.max(1, (tracks.length / 4000) | 0);
           for (let ti = 0; ti < tracks.length; ti++) {
             const X = tracks[ti].X;
             if (!X) continue;
-            if (nPts % stride === 0) cloud.push(X[0], X[1], X[2]);
+            if (nPts % stride === 0) {
+              cloud.push(X[0], X[1], X[2]);
+              const o = tracks[ti].obs.find((ob) => ob.ok) || tracks[ti].obs[0];
+              const c = sampleColor(o.img, feats[o.img].x[o.feat], feats[o.img].y[o.feat]);
+              cloudRgb.push(c[0], c[1], c[2]);
+            }
             nPts++;
           }
           ev({ stage: 'register', done: registered.size, total: n, detail: {
             image: bestImg, R: Array.from(reg.R), t: Array.from(reg.t), f: K[bestImg].f,
-            cloud, points: nPts,
+            cloud, cloudRgb, points: nPts,
           } });
         }
 

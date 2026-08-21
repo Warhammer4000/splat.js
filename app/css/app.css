@@ -222,6 +222,7 @@ body { overflow: hidden; }
 .strip:empty { display: none; }
 .strip-scroll { display: flex; gap: 4px; padding: 7px 12px; overflow-x: auto; scrollbar-width: none; }
 .setpick::-webkit-scrollbar, .strip-scroll::-webkit-scrollbar { display: none; }
+.setpick img, .strip-scroll img { -webkit-user-drag: none; user-select: none; }
 .strip .frame { width: 62px; }
 
 /* ── dock ────────────────────────────────────────────────────────────────── */
@@ -246,7 +247,7 @@ body { overflow: hidden; }
 }
 .prep-stages span { transition: color .2s; }
 .prep-stages [data-on="1"] { font: 500 15px var(--ui); color: var(--accent); }
-.prep-stages [data-on="done"] { color: var(--alt); }
+.prep-stages [data-on="done"] { color: var(--accent-30); }
 .prep-sub { font: 400 12px var(--mono); color: var(--dim); }
 .prep-meter { height: 5px; background: var(--panel-2); border-radius: var(--pill); overflow: hidden; margin-top: 9px; }
 .prep-meter i { display: block; height: 100%; background: var(--accent); transition: width .12s linear; }
@@ -486,9 +487,15 @@ body { overflow: hidden; }
 /* the state header floats above the numbers WITHOUT moving them (out of
    flow); phones have no headroom above the controls row — hidden there */
 .tmeta { position: relative; }
+/* Finish hangs below the pause button, out of flow so nothing shifts */
+.playwrap { position: relative; display: inline-flex; }
+.t-finish {
+  position: absolute; top: calc(100% + 7px); left: 50%;
+  transform: translateX(-50%);
+}
 .t-title {
-  position: absolute; bottom: calc(100% + 5px); left: 0;
-  font: 500 13px var(--ui); color: var(--paper); white-space: nowrap;
+  position: absolute; bottom: calc(100% + 9px); left: 0;
+  font: 500 15px var(--ui); color: var(--accent); white-space: nowrap;
 }
 @media (max-width: 720px) { .t-title { display: none; } }
 

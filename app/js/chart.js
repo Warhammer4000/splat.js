@@ -66,7 +66,10 @@ export class Chart {
     const ys = [...this.train, ...this.hold, ...(this.ghost?.train || [])].map((p) => p[1]);
     let lo = ys.length ? Math.min(...ys) : 10, hi = ys.length ? Math.max(...ys) : 30;
     if (hi - lo < 6) { const m = (hi + lo) / 2; lo = m - 3; hi = m + 3; }
-    lo = Math.floor(lo - 1); hi = Math.ceil(hi + 1);
+    // hug the data: the first sample sits a hair off the floor, so the climb
+    // uses the full plot height instead of floating on rounded padding
+    const pad = (hi - lo) * .03;
+    lo -= pad; hi += pad;
 
     const X = (i) => l + (i / this.maxIter) * pw;
     const Y = (v) => t + ph - ((v - lo) / (hi - lo)) * ph;
