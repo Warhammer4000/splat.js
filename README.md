@@ -5,14 +5,19 @@ camera poses solved → a 3D Gaussian splat trained against your photos → a
 standard `.ply` out. No server, no upload, no account, no build step — the whole
 pipeline is vanilla ES modules on WebGPU, running in a tab.
 
+![The Tanks & Temples Truck scene in Splat.js](docs/truck.jpg)
+*The Tanks & Temples **Truck** scene — features found, poses solved, and 600,000
+Gaussians trained, all live in one Chrome tab.*
+
 - **Structure from motion in JavaScript**: scale-space SIFT (worker pool),
   GPU brute-force matching, incremental registration with interim bundle
   adjustment, sparse Schur BA with shared focal + radial distortion. On the
-  Tanks & Temples *Truck* scene it lands within **0.02% of the path length** of
-  COLMAP's own reconstruction — a tie.
+  full Tanks & Temples *Truck* scene its poses are **pixel-identical to
+  COLMAP's** (0.00% of path length, table below).
 - **A WebGPU 3DGS trainer**: anisotropic Gaussians, global sorted binning,
   spherical harmonics (degree 2 by default), MCMC-style relocation and growth,
-  Mip-Splatting opacity compensation, FD-validated analytic gradients.
+  Mip-Splatting opacity compensation, FD-validated analytic gradients. Scales
+  past **1,000,000 splats**.
 - **A standard `.ply` export** (INRIA layout, SH included, opacity compensation
   baked) that opens in any splat viewer.
 
@@ -27,11 +32,63 @@ node serve.mjs 8734
 # http://localhost:8734/app/
 ```
 
-Needs a browser with WebGPU (current Chrome or Edge). Drop 20–200 overlapping photos of one place into the app — or a video (the
-sharpest frames are picked automatically, the same policy the arrival.space
-server pipeline uses), or record one with the device camera — or start from a
-test set (a clone bundles the
-synthetic set; the photo sets are served on the hosted demo).
+Needs a browser with WebGPU — current Chrome, Edge, Firefox and Safari
+(iPhones included) all run it, vanilla. Drop 20–200 overlapping
+photos of one place into the app — or a video (the sharpest frames are picked
+automatically), or record one with the device camera — or start from a test
+set (a clone bundles the synthetic set; the photo sets are served on the
+hosted demo).
+
+The gear next to **Start training** holds one-knob quality presets — *Draft*
+for a fast first look, *Showcase* for a long run at the full 1 M splat budget —
+plus the individual knobs (resolution, spherical harmonics, splat budget,
+cycles) they drive.
+
+## Measured quality
+
+### Novel-view synthesis, the standard protocol
+
+Append **`?eval`** to the app URL and every 8th photo is held out of training
+and scored at the end — photographs the model has never seen, the metric the
+research papers report. On the full 251-image Tanks & Temples *Truck* scene
+(1 M splats, 100 k cycles, ~18 minutes in one tab on a desktop NVIDIA GPU):
+
+| method | Truck test PSNR |
+|---|---|
+| 3DGS (SIGGRAPH 2023) | 25.18 dB |
+| **Splat.js — in a browser tab** | **25.61 dB** |
+| Mip-Splatting (CVPR 2024) | 25.74 dB |
+| Scaffold-GS (CVPR 2024) | 25.77 dB |
+| 3DGS-MCMC (NeurIPS 2024) | 26.11 dB |
+| Student Splatting & Scooping (CVPR 2025) | 26.41 dB |
+
+Same images, same resolution, same held-out-every-8th protocol. The published
+methods run 2–2.6 M Gaussians with degree-3 spherical harmonics on native
+CUDA; Splat.js runs 1 M with degree 2 — in a tab.
+
+### Camera poses
+
+The solver is measured against COLMAP (and exact ground truth where it
+exists). ATE = absolute trajectory error as a fraction of the capture path
+length:
+
+| scene | registered | vs reference |
+|---|---|---|
+| Synthetic (12 rendered views, exact GT) | 12/12 | focal within 0.33% of ground truth |
+| Truck (Tanks & Temples, 250 photos) | 250/250 | **0.00% ATE** vs COLMAP (max deviation 0.006%) |
+| Camping (handheld video, 113 frames) | 113/113 | 0.23% ATE vs COLMAP |
+| Playroom (Deep Blending, 225 DSLR photos) | **207/225** | 0.03% ATE vs COLMAP; 0.13% vs official GT |
+| Bicycle (Mip-NeRF 360, 194 photos) | 192/194 | 0.63 px reprojection rms |
+
+Playroom is the interesting row: at the same image resolution, stock COLMAP
+3.11 registers only 154–157 of the 225 photos (blank painted walls starve the
+features); Splat.js places 207 — and where both place a camera, they agree to
+0.03% of the path.
+
+The synthetic, Truck and Camping rows are asserted by the test suite on every
+change (`npm test`, `npm run test:quality` — the quality gates drive the
+public API in headless Chrome). The remaining rows are measured with the same
+tooling (`tests/compare_colmap.mjs`).
 
 ## Use the library
 
@@ -53,6 +110,10 @@ s.start();                // training loop (auto-stops, emits metrics)
 const ply = await s.exportPlyBlob();
 ```
 
+Benchmark mode is one option away: `createSession({ evalSplit: 8 })` holds
+every 8th frame out of training, and `await s.evalTestPsnr()` returns the
+novel-view PSNR (mean + per-frame) after the run.
+
 Or compose the pieces yourself:
 
 ```js
@@ -69,22 +130,6 @@ const trainer = await createTrainer({ gpu });
 The library reads no globals, touches no DOM (OffscreenCanvas for decoding),
 and shares one WebGPU device between the matcher and the trainer — a host that
 already owns a device can hand it in.
-
-## Measured quality
-
-Every number below is reproduced by the test suite (`npm test`,
-`npm run test:quality` — the quality gates drive the public API in headless
-Chrome and assert documented thresholds):
-
-| scene | cameras | ATE vs reference | holdout PSNR @40k |
-|---|---|---|---|
-| Truck (Tanks & Temples, 42) | 42/42 | **0.02%** of path (COLMAP: 0.02%) | 27.0 dB |
-| Train (Tanks & Temples, 84) | 84/84 | 0.03% | 24.9 dB |
-| Camping (handheld video, 113) | 113/113 | 0.17% (server COLMAP ref) | 29.3 dB |
-| Synthetic (12 rendered views) | 12/12 | focal within 0.4% of GT | — |
-
-The holdout PSNR is scored on a photograph excluded from training — the honest
-metric.
 
 ## Tree
 
