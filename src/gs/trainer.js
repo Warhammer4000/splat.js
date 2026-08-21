@@ -42,9 +42,17 @@ export class GSTrainer {
       label: 'project', layout: 'auto',
       compute: { module: mk(makeProjectSrc(this.opts.eCut, this.opts.aMin, this.opts.radClamp, this.shDeg), 'project'), entryPoint: 'main' },
     });
+    // the (key,id) entry budget scales with an explicit splat ceiling — the
+    // fixed 12M cap silently dropped tiles at 800k splats (fast iterations,
+    // collapsing PSNR); default unchanged unless maxSplats is raised
+    this.entriesCap = this.opts.entriesCap ??
+      (this.opts.maxSplats ? Math.max(ENTRIES_CAP, this.opts.maxSplats * 24) : ENTRIES_CAP);
     this.pipeScan = d.createComputePipeline({
       label: 'tile-scan', layout: 'auto',
-      compute: { module: mk(SCAN_SRC, 'tile-scan'), entryPoint: 'main' },
+      compute: {
+        module: mk(SCAN_SRC, 'tile-scan'), entryPoint: 'main',
+        constants: { ENTCAP: this.entriesCap },
+      },
     });
     this.pipeScatter = d.createComputePipeline({
       label: 'tile-scatter', layout: 'auto',
@@ -154,7 +162,7 @@ export class GSTrainer {
     this.bufTileCnt = buf(maxTiles * 4, B.STORAGE | B.COPY_DST | B.COPY_SRC, 'tileCnt');
     this.bufTileStart = buf((maxTiles + 1) * 4, B.STORAGE | B.COPY_SRC, 'tileStart');
     this.bufTileCursor = buf(maxTiles * 4, B.STORAGE | B.COPY_SRC, 'tileCursor');
-    this.bufEntries = buf(ENTRIES_CAP * 2 * 4, B.STORAGE | B.COPY_SRC, 'entries');
+    this.bufEntries = buf(this.entriesCap * 2 * 4, B.STORAGE | B.COPY_SRC, 'entries');
     this.bufOut = buf(maxPix * 4 * 4, B.STORAGE | B.COPY_SRC, 'outImg');
     this.bufTarget = buf(Math.max(16, total * 4), B.STORAGE | B.COPY_DST, 'targets');
     d.queue.writeBuffer(this.bufTarget, 0, targetData);
@@ -426,13 +434,25 @@ export class GSTrainer {
     p.setPipeline(this.pipeChain);
     p.setBindGroup(0, this.bgChain);
     p.dispatchWorkgroups(Math.ceil(this.n / 256));
+    // 2D-safe dispatch: at high splat counts these linear passes exceed the
+    // 65535 workgroups-per-dimension limit (SH-Adam broke first: n*24/256 >
+    // 65535 above ~620k splats — invalid command buffers, whole frames
+    // silently no-oping)
+    const dispatch1D = (pass, total) => {
+      const groups = Math.ceil(total / 256);
+      if (groups <= 65535) pass.dispatchWorkgroups(groups);
+      else {
+        const x = 65535;
+        pass.dispatchWorkgroups(x, Math.ceil(groups / x));
+      }
+    };
     p.setPipeline(this.pipeAdam);
     p.setBindGroup(0, this.bgAdam);
-    p.dispatchWorkgroups(Math.ceil((this.n * STRIDE) / 256));
+    dispatch1D(p, this.n * STRIDE);
     if (this.shK) {
       p.setPipeline(this.pipeSHAdam);
       p.setBindGroup(0, this.bgSHAdam);
-      p.dispatchWorkgroups(Math.ceil((this.n * this.shK * 3) / 256));
+      dispatch1D(p, this.n * this.shK * 3);
     }
     p.end();
     d.queue.submit([enc.finish()]);

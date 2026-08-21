@@ -152,7 +152,7 @@ struct Cam {
 @group(0) @binding(0) var<uniform> cam: Cam;
 const TILEF = ${TILE}.0;
 const SHSORT = ${SHARED_SORT}u;
-const ENTCAP = ${ENTRIES_CAP}u;
+override ENTCAP: u32 = ${ENTRIES_CAP}u;
 const FIXED = ${FIXED.toExponential()};
 const FIXEDC = ${FIXED_CONIC.toExponential()};
 const FIXCAM = 64.0; // camera grads sum over all splats: coarse fixed point
@@ -961,8 +961,10 @@ struct SHA {
 @group(0) @binding(4) var<storage, read_write> vBuf: array<f32>;
 
 @compute @workgroup_size(256)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-  let j = gid.x;
+fn main(@builtin(global_invocation_id) gid: vec3u,
+        @builtin(num_workgroups) nw: vec3u) {
+  // 2D dispatch: big splat counts exceed 65535 workgroups in one dimension
+  let j = gid.x + gid.y * nw.x * 256u;
   if (j >= u32(au.cfg.y)) { return; }
   var gr = g[j];
   if (!(abs(gr) < 1e18)) { gr = 0.0; }
@@ -996,8 +998,10 @@ struct AdamU {
 @group(0) @binding(4) var<storage, read_write> vBuf: array<f32>;
 
 @compute @workgroup_size(256)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-  let j = gid.x;
+fn main(@builtin(global_invocation_id) gid: vec3u,
+        @builtin(num_workgroups) nw: vec3u) {
+  // 2D dispatch: big splat counts exceed 65535 workgroups in one dimension
+  let j = gid.x + gid.y * nw.x * 256u;
   if (j >= u32(au.cl.w)) { return; }
   let slot = j % 16u;
   var lr: f32;
