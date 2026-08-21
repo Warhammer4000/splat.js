@@ -44,15 +44,25 @@ const PERF = { on: PERF_Q != null, iters: Math.max(200, parseInt(PERF_Q, 10) || 
 // PSNR — an experiment flag, off by default.
 const BUF2X = new URLSearchParams(location.search).has('2x');
 
+// ?eval runs the standard benchmark protocol: every Nth photo (default 8,
+// ?eval=4 etc.) is held out of training and scored together at the end — the
+// novel-view PSNR that quality papers report. Normal visitors train on every
+// photo; this flag exists for honest measurement.
+const EVAL_Q = new URLSearchParams(location.search).get('eval');
+const EVAL = { on: EVAL_Q != null, split: Math.max(2, parseInt(EVAL_Q, 10) || 8) };
+
 // training settings (start-card panel), persisted across visits.
 // res 0 = auto, iters 0 = the 20k default, buf = working-buffer scale.
 // Phones start from lighter defaults; anything saved wins.
-function loadSettings() {
+function deviceDefaults() {
   const phone = matchMedia('(any-pointer: coarse)').matches &&
     Math.min(screen.width, screen.height) <= 820;
-  const d = phone
-    ? { v: 2, res: 480, buf: 1, sh: 0, iters: 0 }
-    : { v: 2, res: 0, buf: 1, sh: 2, iters: 0 };
+  return phone
+    ? { v: 2, res: 480, buf: 1, sh: 0, iters: 0, splats: 0 }
+    : { v: 2, res: 0, buf: 1, sh: 2, iters: 0, splats: 0 };
+}
+function loadSettings() {
+  const d = deviceDefaults();
   try {
     const saved = JSON.parse(localStorage.getItem('splatjs_settings') || 'null');
     // v gates out saves from older panel layouts (e.g. the phone-preset
@@ -64,6 +74,26 @@ function loadSettings() {
 }
 function saveSettings() {
   try { localStorage.setItem('splatjs_settings', JSON.stringify(S.settings)); } catch { /* private mode */ }
+}
+
+// quality macros: the one-knob row that drives the individual rows below it.
+// Standard = this device's defaults; anything that matches no macro shows as
+// Custom. Macros never touch the 2× working buffer (an experiment flag).
+const QKEYS = ['res', 'buf', 'sh', 'iters', 'splats'];
+function qualityMacros() {
+  const d = deviceDefaults();
+  return {
+    draft:    { res: 480,   buf: 1, sh: 0,    iters: 10000,  splats: 300000 },
+    standard: { res: d.res, buf: 1, sh: d.sh, iters: 0,      splats: 0 },
+    high:     { res: 1280,  buf: 1, sh: 2,    iters: 40000,  splats: 600000 },
+    showcase: { res: 1280,  buf: 1, sh: 2,    iters: 100000, splats: 1000000 },
+  };
+}
+function qualityOf(st) {
+  for (const [k, m] of Object.entries(qualityMacros())) {
+    if (QKEYS.every((f) => st[f] === m[f])) return k;
+  }
+  return 'custom';
 }
 
 const S = {
@@ -173,10 +203,22 @@ function boot() {
 
   // the settings panel: values in, values out, persisted
   const st = S.settings;
-  $('set-res').value = st.res ? String(st.res) : '';
-  $('set-buf').value = String(st.buf);
-  $('set-sh').value = String(st.sh);
-  $('set-iters').value = st.iters ? String(st.iters) : '';
+  const showSettings = () => {
+    $('set-res').value = st.res ? String(st.res) : '';
+    $('set-buf').value = String(st.buf);
+    $('set-sh').value = String(st.sh);
+    $('set-iters').value = st.iters ? String(st.iters) : '';
+    $('set-splats').value = st.splats ? String(st.splats) : '';
+    $('set-q').value = qualityOf(st);
+  };
+  showSettings();
+  $('set-q').addEventListener('change', () => {
+    const m = qualityMacros()[$('set-q').value];
+    if (!m) return;           // Custom is a display state, not a choice
+    Object.assign(st, m);
+    showSettings();
+    saveSettings();
+  });
   $('btn-settings').addEventListener('click', () => {
     const open = $('settings').hidden;
     const card = $('start');
@@ -200,9 +242,11 @@ function boot() {
     st.buf = parseFloat($('set-buf').value) || 1;
     st.sh = parseInt($('set-sh').value, 10);
     st.iters = parseInt($('set-iters').value, 10) || 0;
+    st.splats = parseInt($('set-splats').value, 10) || 0;
+    $('set-q').value = qualityOf(st);
     saveSettings();
   };
-  for (const id of ['set-res', 'set-buf', 'set-sh', 'set-iters']) {
+  for (const id of ['set-res', 'set-buf', 'set-sh', 'set-iters', 'set-splats']) {
     $(id).addEventListener('change', readSettings);
   }
   // count slider: live label while dragging, the (cheaper) photo-list rebuild
@@ -604,11 +648,19 @@ async function startPrep() {
       trainMaxDim: st.res || undefined,
       trainScale: st.buf !== 1 ? st.buf : undefined,
     } : undefined;
+    // every photo trains by default — held-out scoring is the ?eval
+    // benchmark protocol (every Nth photo scored, never learned from)
+    const trainerOpts = {};
+    if (st.sh !== 2) trainerOpts.shDeg = st.sh;
+    if (st.splats) trainerOpts.maxSplats = st.splats;
     const session = createSession({
-      maxIters: S.maxIters, holdout: 'auto', evalHoldEvery: 2500,
+      maxIters: S.maxIters, evalHoldEvery: 2500,
+      holdout: -1,
+      evalSplit: EVAL.on ? EVAL.split : 0,
+      initTarget: st.splats ? Math.round(st.splats / 4) : undefined,
       maxViewW: mvW, maxViewH: mvH,
       frames,
-      trainer: st.sh !== 2 ? { shDeg: st.sh } : undefined,
+      trainer: Object.keys(trainerOpts).length ? trainerOpts : undefined,
     });
     S.session = session;
     session.on('stage', (e) => { if (S.gen === gen) onStage(e); });
@@ -771,7 +823,7 @@ function buildSceneFromSession() {
     Object.assign(c, {
       R: m.R, t: m.t, f: recon.cams.find((rc) => rc.imgIdx === m.imgIdx).f,
       w: fr.fw, h: fr.fh, cx: fr.fw / 2, cy: fr.fh / 2,
-      state: ci === ses.holdout ? 'holdout' : 'placed', ci,
+      state: ci === ses.holdout || ses.testCams.includes(ci) ? 'holdout' : 'placed', ci,
       feats: (S.feats.get(m.imgIdx) || {}).n || 0,
     });
   });
@@ -837,7 +889,8 @@ function onMetrics(m) {
       $('t-splats').textContent = fmt(S.splats);
       $('t-ips').textContent = fmt(S.itersPerSec);
       $('t-ptrain').textContent = S.psnrTrain != null ? S.psnrTrain.toFixed(2) : '—';
-      $('t-phold').textContent = S.psnrHold != null ? S.psnrHold.toFixed(2) : '—';
+      const ph = $('t-phold');   // only rendered in ?eval benchmark mode
+      if (ph) ph.textContent = S.psnrHold != null ? S.psnrHold.toFixed(2) : '—';
     }
   }
 }
@@ -926,6 +979,14 @@ async function finish() {
   startTour();
   const hold = S.psnrHold != null ? ` · ${S.psnrHold.toFixed(1)} dB on the photograph it never saw` : '';
   flash(`Done${hold}`, 6000);
+  if (EVAL.on) {
+    // the ?eval benchmark verdict: mean PSNR over every held-out photo
+    S.session.evalTestPsnr().then((r) => {
+      if (!r || S.state !== 'done') return;
+      S.psnrTest = r;
+      flash(`Test PSNR ${r.psnr.toFixed(2)} dB over ${r.frames.length} held-out photos`, 12000);
+    }).catch(() => {});
+  }
   // cache the export now, while the device is certainly alive — iOS can
   // reclaim it from a backgrounded tab, and the readback path dies with it
   S.plyBlob = null;
@@ -1412,7 +1473,7 @@ function dock(kind) {
       <div class="chartwrap"><canvas id="chart"></canvas><div class="chart-tip" id="chart-tip" hidden></div></div>
       <div class="tscores">
         <div class="score" data-tone="accent"><div class="score-v" id="t-ptrain">${S.psnrTrain != null ? S.psnrTrain.toFixed(2) : '—'}</div><div class="score-k">trained dB</div></div>
-        <div class="score" data-tone="alt"><div class="score-v" id="t-phold">${S.psnrHold != null ? S.psnrHold.toFixed(2) : '—'}</div><div class="score-k">hidden dB</div></div>
+        ${S.session && S.session.holdout >= 0 ? `<div class="score" data-tone="alt"><div class="score-v" id="t-phold">${S.psnrHold != null ? S.psnrHold.toFixed(2) : '—'}</div><div class="score-k">hidden dB</div></div>` : ''}
       </div>`;
     $('t-play').addEventListener('click', toggleTrain);
     $('t-finish').addEventListener('click', async () => {
@@ -1803,8 +1864,9 @@ function draw() {
     model: !!gpuCanvas,
     cams: S.scene.cams,
     // on a photograph (compare modes) the overlays read as artefacts in the
-    // image — frustums only while moving around freely
-    showCams: !onFrame,
+    // image — frustums only while moving around freely, and never during the
+    // intro flight (the scene should speak for itself there)
+    showCams: !onFrame && !S.tour,
     showPath: S.state === 'train' && !onFrame,
     faint: S.state === 'done',
     skip: S.atFrame,
@@ -1952,35 +2014,42 @@ function renderDetails() {
   const ipsAll = pf.length > 1
     ? (pf[pf.length - 1][1] - pf[0][1]) / Math.max(.001, (pf[pf.length - 1][0] - pf[0][0]) / 1000) : 0;
   const metCosts = colv(7).filter((v) => v > 0);
+  const bench = !!(S.session && S.session.holdout >= 0);   // ?eval mode
 
   const T = {
     score: {
-      cap: 'Turquoise: the photos it trained on. Amber: the one it never saw.',
+      cap: bench
+        ? 'Turquoise: the photos it trained on. Amber: the held-out test photos.'
+        : 'How closely the splats match the photographs.',
       title: 'Score over the run',
       body: [
         'Each cycle renders the splats from one photo\'s viewpoint and nudges them to ' +
         'shrink the difference to that photograph. Higher dB is better; +3 dB halves the error.',
-        'The amber photo never trained the model, so its score only rises when the 3D is ' +
-        'actually right — the turquoise curve can also rise by memorising.',
+        bench
+          ? 'The amber photos never trained the model, so their score only rises when the 3D is ' +
+            'actually right — the turquoise curve can also rise by memorising.'
+          : 'Every photo trains the model here. Add ?eval to the address to hold every 8th ' +
+            'photo out of training and score those instead — the honest benchmark number.',
       ],
       rows: [
         stat('Cycles', fmt(S.iter)),
         S.psnrTrain != null ? stat('Trained photos', `${S.psnrTrain.toFixed(1)} <small>dB</small>`, 'accent') : '',
         S.psnrHold != null ? stat('Hidden photo', `${S.psnrHold.toFixed(1)} <small>dB</small>`, 'alt') : '',
+        S.psnrTest != null ? stat(`Test photos (${S.psnrTest.frames.length})`, `${S.psnrTest.psnr.toFixed(2)} <small>dB</small>`, 'alt') : '',
         gap != null ? stat('Gap', `${gap.toFixed(1)} <small>dB</small>`, Math.abs(gap) < 1.5 ? 'accent' : undefined) : '',
         stat('Splats', fmt(S.splats)),
         stat('Exported file', `${(S.splats * 164 / 1e6).toFixed(1)} <small>MB</small>`),
         stat('Time', `${S.minutes} <small>min</small>`),
       ].filter(Boolean),
-      btns: [{
-        label: 'Look at the frame it never saw',
+      btns: bench ? [{
+        label: 'Look at a frame it never saw',
         fn: () => {
           const h = S.scene.cams.find((c) => c.state === 'holdout');
           $('details').hidden = true;
           S.compare = 'swipe';
           select(h ? h.i : S.sel);
         },
-      }],
+      }] : [],
     },
     marks: {
       cap: `Photo ${S.sel + 1} of ${n} — flat sky and plain walls stay empty.`,

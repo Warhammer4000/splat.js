@@ -57,6 +57,14 @@
       <div class="setrow setrow-range" id="row-count" hidden title="How many of the set's images to use. More images, longer solve — pair matching grows with the square of the count."><label for="set-count">Images</label>
         <input id="set-count" type="range" min="2" step="1" value="42">
         <button class="countv" id="set-count-v" title="Use every image">42 / 251</button></div>
+      <div class="setrow" title="One knob for the rows below. Draft is quick and light, Showcase trains long at the largest splat budget. Editing a row below shows Custom."><label for="set-q">Quality</label>
+        <select id="set-q">
+          <option value="draft">Draft</option>
+          <option value="standard">Standard</option>
+          <option value="high">High</option>
+          <option value="showcase">Showcase</option>
+          <option value="custom" hidden>Custom</option>
+        </select></div>
       <div class="setrow" title="Largest image dimension the photos are downscaled to for training. Auto picks from image size, count and GPU memory."><label for="set-res">Training resolution</label>
         <select id="set-res">
           <option value="">Auto</option>
@@ -77,11 +85,19 @@
           <option value="1">1</option>
           <option value="2">2</option>
         </select></div>
+      <div class="setrow" title="Splat budget the model grows toward. More splats, finer detail — and a larger export file and more GPU memory. Auto sizes from the solve."><label for="set-splats">Splats</label>
+        <select id="set-splats">
+          <option value="">Auto</option>
+          <option value="300000">300,000</option>
+          <option value="600000">600,000</option>
+          <option value="1000000">1,000,000</option>
+        </select></div>
       <div class="setrow" title="Training cycles. A finished run can always continue with +10,000 more."><label for="set-iters">Cycles</label>
         <select id="set-iters">
           <option value="10000">10,000</option>
           <option value="">20,000</option>
           <option value="40000">40,000</option>
+          <option value="100000">100,000</option>
         </select></div>
     </div>
   </div>

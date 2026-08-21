@@ -87,6 +87,9 @@ export function undistortFrames(frames, recon) {
  * @property {number|'auto'|null} [holdout='auto']  frame excluded from training
  *   and scored as the novel-view metric; 'auto' picks a sharp mid-sequence frame
  * @property {number} [evalHoldEvery=4000]  holdout PSNR cadence (iterations)
+ * @property {number} [evalSplit=0]  the standard benchmark protocol: every Nth
+ *   frame of the input order is excluded from training and scored together via
+ *   evalTestPsnr() (papers use N=8); 0 = off
  * @property {object} [sfm]              SfmOptions passed to solve()
  * @property {object} [trainer]          extra GSTrainer options (shDeg, ...)
  * @property {object} [frames]           FrameOptions passed to load()
@@ -115,6 +118,7 @@ export class Session {
     this.trainer = null;
     this.gpu = null;
     this.holdout = -1;
+    this.testCams = [];
     this.training = false;
     this.lossHistory = [];  // [iter, psnrTrain]
     this._fences = [];      // in-flight batch fences (see _frameLoop)
@@ -233,6 +237,24 @@ export class Session {
       this.holdout = (want == null || want < 0) ? -1 : want;
     }
     this.trainer.holdout = this.holdout;
+
+    // benchmark protocol: every Nth frame joins the test set — excluded from
+    // the loss (poses kept, same as the blur exclusions) and scored together
+    // by evalTestPsnr(). The single chart holdout follows a mid-set test
+    // frame so live progress tracks the same distribution.
+    const split = extra.evalSplit ?? this.opts.evalSplit ?? 0;
+    this.testCams = [];
+    if (split >= 2) {
+      this.trainer.camMeta.forEach((m, i) => {
+        if (m.imgIdx % split === 0) { this.trainer.excluded.add(i); this.testCams.push(i); }
+      });
+      if (this.testCams.length && this.holdout < 0) {
+        this.holdout = this.testCams[this.testCams.length >> 1];
+        this.trainer.holdout = this.holdout;
+      }
+      this._log(`evaluation split: ${this.testCams.length} of ${this.trainer.camMeta.length} ` +
+        `cameras (every ${split}th) held out of training`);
+    }
 
     this._stage({ stage: 'seed', done: 1, total: 1, detail: { splats: this.model.n } });
     return this.model;
@@ -523,6 +545,22 @@ export class Session {
    *  the other metric readbacks; safe to call while training). */
   evalFramePsnr(ci) {
     return this._locked(() => this.trainer.evalCamPsnr(ci));
+  }
+
+  /** Mean PSNR over the evalSplit test cameras — the number quality papers
+   *  report. Resolves null when no eval split was requested. */
+  evalTestPsnr() {
+    if (!this.testCams || !this.testCams.length) return Promise.resolve(null);
+    return this._locked(async () => {
+      const frames = [];
+      let sum = 0;
+      for (const c of this.testCams) {
+        const psnr = await this.trainer.evalCamPsnr(c);
+        frames.push({ cam: c, imgIdx: this.trainer.camMeta[c].imgIdx, psnr });
+        sum += psnr;
+      }
+      return { psnr: sum / frames.length, frames };
+    });
   }
 
   /** Index of the camera the trainer most recently stepped on (UI pulse). */
