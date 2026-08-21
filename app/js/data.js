@@ -60,11 +60,11 @@ export const PRESETS = [
   {
     id: 'synthetic', name: 'Synthetic Corner',
     kind: 'Rendered test set',
-    origin: '12 rendered views with exact known camera positions. The clean case, for comparison.',
+    origin: '12 rendered views of a small scene. The clean case, for comparison.',
     links: [],
     dir: 'synthetic', pattern: 'synthetic_{i:2}.png', start: 0, count: 12,
-    blurb: 'A synthetic scene with known camera positions. Nothing is noisy, nothing is ' +
-           'blurry — the ceiling everything else gets measured against.',
+    blurb: 'Nothing is noisy, nothing is blurry. The cameras are solved from scratch ' +
+           'like everywhere else — rendered input just makes every error visible.',
     approx: '~2 min',
   },
 ];
