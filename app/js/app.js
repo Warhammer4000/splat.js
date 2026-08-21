@@ -324,7 +324,10 @@ function boot() {
   });
   window.__splat = S;          // console access
   window.__vp = () => vp;      // console access (camera state)
-  showIntro();                 // nothing preselected — the visitor chooses
+  showIntro();
+  // Truck opens preselected: its photo strip makes a good backdrop and the
+  // card is one click from training. Everything stays swappable.
+  open(PRESETS.find((p) => p.id === 'truck'));
   offerLastCapture();
   requestAnimationFrame(loop);
 }
