@@ -177,6 +177,7 @@ body { overflow: hidden; }
    under overflow, so scrolling stays intact (justify-content would clip). */
 .setpick {
   display: flex; gap: 6px; overflow-x: auto;
+  scrollbar-width: none;   /* rows swipe/drag — no bar (see dragScroll) */
   touch-action: pan-x pan-y;
   /* top padding = headroom for the selected tile's scale-up (transforms
      don't grow layout, but the scroll box would clip them) */
@@ -219,7 +220,8 @@ body { overflow: hidden; }
 
 .strip { display: block; border-top: 1px solid var(--line); background: var(--ink-2); }
 .strip:empty { display: none; }
-.strip-scroll { display: flex; gap: 4px; padding: 7px 12px; overflow-x: auto; }
+.strip-scroll { display: flex; gap: 4px; padding: 7px 12px; overflow-x: auto; scrollbar-width: none; }
+.setpick::-webkit-scrollbar, .strip-scroll::-webkit-scrollbar { display: none; }
 .strip .frame { width: 62px; }
 
 /* ── dock ────────────────────────────────────────────────────────────────── */

@@ -144,6 +144,7 @@ if (!handleOAuthCallback()) boot();
 // ── boot ────────────────────────────────────────────────────────────────────
 function boot() {
   buildSetPicker();
+  dragScroll($('setpick'));
 
   vp = new Viewport($('cv'));
   vp.onLeave = leaveFrame;
@@ -433,6 +434,31 @@ async function loadPresetList(p) {
   const t = await (await fetch(`${DATA}${p.dir}/${p.list}`)).text();
   p.names = JSON.parse(t.replace(/^﻿/, ''));
   p.maxCount = Math.min(p.maxCount || p.names.length, p.names.length);
+}
+
+/** mouse drag-to-scroll for the horizontal rows (their scrollbars are
+ *  hidden; touch pans natively via touch-action). A real drag captures the
+ *  pointer and swallows the click that would otherwise hit a tile. */
+function dragScroll(el) {
+  let x0 = 0, s0 = 0, moved = 0, down = false;
+  el.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'mouse' || e.button !== 0) return;
+    down = true; moved = 0; x0 = e.clientX; s0 = el.scrollLeft;
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (!down) return;
+    const dx = e.clientX - x0;
+    if (Math.abs(dx) > 4 && moved <= 4) {
+      try { el.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
+    }
+    moved = Math.max(moved, Math.abs(dx));
+    if (moved > 4) el.scrollLeft = s0 - dx;
+  });
+  el.addEventListener('pointerup', () => { down = false; });
+  el.addEventListener('pointercancel', () => { down = false; });
+  el.addEventListener('click', (e) => {
+    if (moved > 4) { e.stopPropagation(); e.preventDefault(); moved = 0; }
+  }, true);
 }
 
 /** wall-time estimate: each set's measured time at its default count,
@@ -1405,6 +1431,7 @@ function buildStrip() {
   const strip = $('strip');
   strip.innerHTML = '<div class="strip-scroll" id="strip-scroll"></div>';
   const sc = $('strip-scroll');
+  dragScroll(sc);
   const io = new IntersectionObserver((es) => {
     es.forEach(async (e) => {
       if (!e.isIntersecting) return;
