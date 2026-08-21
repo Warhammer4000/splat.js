@@ -172,12 +172,16 @@ body { overflow: hidden; }
 .srclinks a:hover { color: #5ee7d6; }
 .srclinks a::after { content: ' ↗'; text-decoration: none; opacity: .6; }
 
-/* the set chooser: ONE row, slides horizontally when the room runs out */
+/* the set chooser: ONE row, slides horizontally when the room runs out.
+   Spare width centres the group: auto margins on the ends resolve to 0
+   under overflow, so scrolling stays intact (justify-content would clip). */
 .setpick {
   display: flex; gap: 6px; overflow-x: auto;
   touch-action: pan-x pan-y;
   padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px solid var(--line);
 }
+.setpick > :first-child { margin-left: auto; }
+.setpick > :last-child { margin-right: auto; }
 .setpick button { flex: 0 0 92px; position: relative; }
 /* the last-capture tile carries a badge — its thumbnail can look exactly
    like a preset's when the capture WAS of that scene */
@@ -601,6 +605,33 @@ body { overflow: hidden; }
   background: #e5484d; margin-right: 7px; vertical-align: 0;
 }
 .capicon { width: 15px; height: 15px; margin-right: 7px; vertical-align: -3px; }
+
+/* the primary CTA: gradient accent, inner sheen, soft glow, gentle lift —
+   modern without theatrics (transform + shadow only, ~150ms) */
+#btn-go:not([disabled]) {
+  background: linear-gradient(180deg, #4be0cd, #23c2af);
+  color: #032420;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .28),
+    0 4px 16px var(--accent-30),
+    0 1px 2px rgba(0, 0, 0, .35);
+  transition: transform .12s ease, box-shadow .16s ease, filter .16s ease;
+}
+#btn-go:not([disabled]):hover {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .3),
+    0 7px 22px rgba(47, 212, 193, .42),
+    0 2px 4px rgba(0, 0, 0, .3);
+}
+#btn-go:not([disabled]):active {
+  transform: translateY(0);
+  filter: brightness(.98);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .18),
+    0 2px 8px rgba(47, 212, 193, .3);
+}
 
 /* bright only when actually available — disabled reads as a quiet outline */
 #btn-go[disabled] {
