@@ -487,17 +487,23 @@ body { overflow: hidden; }
 /* the state header floats above the numbers WITHOUT moving them (out of
    flow); phones have no headroom above the controls row — hidden there */
 .tmeta { position: relative; }
-/* Finish hangs below the pause button, out of flow so nothing shifts */
-.playwrap { position: relative; display: inline-flex; }
-.t-finish {
-  position: absolute; top: calc(100% + 7px); left: 50%;
-  transform: translateX(-50%);
-}
-.t-title {
+/* the state row floats above the numbers WITHOUT moving them: the title,
+   and (paused) the stop-and-keep action beside it */
+.t-top {
   position: absolute; bottom: calc(100% + 9px); left: 0;
-  font: 500 15px var(--ui); color: var(--accent); white-space: nowrap;
+  display: flex; align-items: center; gap: 12px; white-space: nowrap;
 }
-@media (max-width: 720px) { .t-title { display: none; } }
+.t-title { font: 500 15px var(--ui); color: var(--accent); }
+#t-finish { padding: 3px 10px; }
+/* the pause circle breathes */
+.dock-train .play { margin: 0 10px 0 6px; }
+/* phones: no headroom above the controls — the title goes, the stop-and-keep
+   action drops into the flow so it stays reachable */
+@media (max-width: 720px) {
+  .t-top { position: static; }
+  .t-title { display: none; }
+  .dock-train .play { margin: 0; }
+}
 
 /* the upload dialog + the result link chip */
 .upcard {

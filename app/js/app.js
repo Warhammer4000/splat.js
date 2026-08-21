@@ -1514,9 +1514,9 @@ function dock(kind) {
   if (kind === 'train') {
     d.innerHTML = `
       <div class="tcontrols">
-        <span class="playwrap"><button class="play" id="t-play" data-state="pause">❚❚</button><button class="tbtn-sm t-finish" id="t-finish" hidden title="Stop here and keep the model as it is">Finish</button></span>
+        <button class="play" id="t-play" data-state="pause">❚❚</button>
         <div class="tmeta">
-          <span class="t-title" id="t-title">Training…</span>
+          <span class="t-top"><span class="t-title" id="t-title">Training…</span><button class="tbtn-sm" id="t-finish" hidden title="End the run here — the model is kept as it is and ready to export">Stop &amp; keep</button></span>
           <span class="tmeta-1"><span id="t-iter">${fmt(S.iter)}</span> <span class="tmeta-max">/ <span id="t-max">${fmt(S.maxIters)}</span></span></span>
           <span class="tmeta-2"><span id="t-splats">${S.splats ? fmt(S.splats) : '—'}</span> splats · <span id="t-ips">${S.itersPerSec ? fmt(S.itersPerSec) : '—'}</span>/s</span>
           <span class="tmeta-grow" id="t-grow"></span>
