@@ -613,7 +613,7 @@ body { overflow: hidden; }
   color: #032420;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, .28),
-    0 4px 16px var(--accent-30),
+    0 0 18px 2px var(--accent-30),
     0 1px 2px rgba(0, 0, 0, .35);
   transition: transform .12s ease, box-shadow .16s ease, filter .16s ease;
 }
@@ -622,7 +622,7 @@ body { overflow: hidden; }
   transform: translateY(-1px);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, .3),
-    0 7px 22px rgba(47, 212, 193, .42),
+    0 0 26px 4px rgba(47, 212, 193, .42),
     0 2px 4px rgba(0, 0, 0, .3);
 }
 #btn-go:not([disabled]):active {
@@ -630,7 +630,7 @@ body { overflow: hidden; }
   filter: brightness(.98);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, .18),
-    0 2px 8px rgba(47, 212, 193, .3);
+    0 0 10px 1px rgba(47, 212, 193, .3);
 }
 
 /* bright only when actually available — disabled reads as a quiet outline */
