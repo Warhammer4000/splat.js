@@ -435,11 +435,13 @@ async function loadPresetList(p) {
   p.maxCount = Math.min(p.maxCount || p.names.length, p.names.length);
 }
 
-/** rough wall-time tier for a chosen photo count (pair matching is O(n²)) */
+/** wall-time estimate: each set's measured time at its default count,
+ *  scaled for other counts (training is ~fixed, pair matching is O(n²)) */
 function approxFor(preset, n) {
-  if (!preset.maxCount) return preset.approx;
-  return n <= 60 ? '~6 min' : n <= 100 ? '~10 min' : n <= 160 ? '~18 min'
-    : n <= 220 ? '~30 min' : '~45 min';
+  const base = parseInt((preset.approx || '').replace(/\D+/g, ''), 10);
+  if (!base || !preset.count || n === preset.count) return preset.approx;
+  const q = (n * n) / (preset.count * preset.count);
+  return `~${Math.max(2, Math.round(base * (0.4 + 0.6 * q)))} min`;
 }
 
 function paintCard(preset) {

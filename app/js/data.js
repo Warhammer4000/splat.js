@@ -58,6 +58,18 @@ export const PRESETS = [
     approx: '~10 min',
   },
   {
+    id: 'bicycle', name: 'Bicycle',
+    kind: 'Standard test set',
+    origin: 'The Bicycle scene from the Mip-NeRF 360 benchmark — a garden orbit around a bench.',
+    links: [
+      { label: 'Mip-NeRF 360', url: 'https://jonbarron.info/mipnerf360/' },
+    ],
+    dir: 'bicycle', list: 'files.json', count: 194,
+    blurb: 'Spokes, grass and leaves — the thin geometry that breaks most ' +
+           'reconstructions. A couple of photos sit out; the rest chain cleanly.',
+    approx: '~6 min',
+  },
+  {
     id: 'synthetic', name: 'Synthetic Corner',
     kind: 'Rendered test set',
     origin: '12 rendered views of a small scene. The clean case, for comparison.',
