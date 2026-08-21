@@ -324,6 +324,11 @@ function boot() {
   });
   window.__splat = S;          // console access
   window.__vp = () => vp;      // console access (camera state)
+  // installable PWA: the worker is a no-op (no caching), the manifest does
+  // the rest. Relative URL -> correct scope on every deploy base path.
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
   showIntro();
   // Truck opens preselected: its photo strip makes a good backdrop and the
   // card is one click from training. Everything stays swappable.
