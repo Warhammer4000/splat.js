@@ -70,6 +70,19 @@ export const PRESETS = [
     approx: '~6 min',
   },
   {
+    id: 'bar', name: 'Bar',
+    kind: '360 panorama walk',
+    badge: '360',
+    origin: 'The Bar scene from 360Roam — a real bar walked with a 360 camera (CC BY-NC-SA).',
+    links: [
+      { label: '360Roam', url: 'https://huajianup.github.io/research/360Roam/' },
+    ],
+    dir: 'bar360/web', pattern: '0_{i:4}.jpg', start: 0, count: 30, maxCount: 152,
+    blurb: 'Equirectangular panoramas, sliced into six-camera rigs on the fly — each pano ' +
+           'is one pose looking everywhere at once. Dim light, glass and mirrors included.',
+    approx: '~7 min',
+  },
+  {
     id: 'synthetic', name: 'Synthetic Corner',
     kind: 'Rendered test set',
     origin: '12 rendered views of a small scene. The clean case, for comparison.',
