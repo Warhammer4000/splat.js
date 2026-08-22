@@ -21,7 +21,7 @@ import { matchDescriptors } from './matching.js';
 import {
   I3, ransacE, decomposeE, selectPose, triangulateN, parallaxAngle,
   pnpRansac, refinePose, reprojError, makeRng, m3t, m3mulv,
-  rodrigues, m3mul, solveLinear,
+  rodrigues, m3mul, solveLinear, p3pBearings,
 } from './geometry.js';
 import { bundleAdjust } from './ba.js';
 import { rotationAveraging, globalPositionsJoint } from './global.js';
@@ -713,7 +713,7 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
      *  in the RIG frame — one face is a narrow ambiguous view, the union
      *  looks in every direction (a central omnidirectional camera). */
     function corrsForRig(rid) {
-      const obj = [], brg = [];
+      const obj = [], brg = [], face = [];
       for (let i = 0; i < n; i++) {
         if (!rigOf[i] || rigOf[i].id !== rid) continue;
         const Rf = rigOf[i].R;
@@ -734,9 +734,10 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
             (Rf[2] * xn + Rf[5] * yn + Rf[8]) * inv,
           ]);
           obj.push(tr.X);
+          face.push(i);
         }
       }
-      return { obj, brg };
+      return { obj, brg, face };
     }
 
     /** 6-DOF rig pose refinement on bearing vectors: Gauss-Newton with
@@ -799,6 +800,98 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
         }
       }
       return { R, C, inliers };
+    }
+
+    /** Angular inlier flags of a rig pose over union correspondences. */
+    function rigInlierFlags(R, C, u, thAng) {
+      const flags = new Uint8Array(u.obj.length);
+      for (let k = 0; k < u.obj.length; k++) {
+        const o = u.obj[k], b = u.brg[k];
+        const dx = o[0] - C[0], dy = o[1] - C[1], dz = o[2] - C[2];
+        const vx = R[0] * dx + R[1] * dy + R[2] * dz;
+        const vy = R[3] * dx + R[4] * dy + R[5] * dz;
+        const vz = R[6] * dx + R[7] * dy + R[8] * dz;
+        const inv = 1 / (Math.hypot(vx, vy, vz) || 1e-12);
+        if (Math.hypot(vx * inv - b[0], vy * inv - b[1], vz * inv - b[2]) < thAng * 1.5) flags[k] = 1;
+      }
+      return flags;
+    }
+
+    // per-rig registration diagnostics, returned on the recon for measurement
+    const rigStats = [];
+
+    /** Rig pose from the union of all faces' 2D-3D matches. The entry face's
+     *  narrow-cone PnP is only a HYPOTHESIS: a wrong pose can fit matches in
+     *  one 90-degree cone, but not bearings spread over the sphere. So
+     *  spherical P3P RANSAC over the union proposes alternatives, the best
+     *  start (by angular inliers) is refined jointly, and acceptance is gated
+     *  on sphere-wide support BEFORE anything is committed to the map.
+     *  Returns { R, C, inliers } (world->rig, centre) or null (rejected). */
+    function solveRigPose(img, reg) {
+      const rf = rigOf[img];
+      const u = corrsForRig(rf.id);
+      const R0 = tmul3(rf.R, reg.R);
+      const C0 = centreOf(reg.R, reg.t);
+      if (u.obj.length < 24) {
+        // bootstrap: too few map points to judge sphere-wide support —
+        // joint-refine if possible but keep the entry ungated (early rigs;
+        // interim BA corrects)
+        if (u.obj.length >= 12) {
+          const jr0 = refineRigAngular(R0, C0, u.obj, u.brg, thN(img));
+          if (jr0) return { R: jr0.R, C: jr0.C, inliers: jr0.inliers };
+        }
+        return { R: R0, C: C0, inliers: reg.inliers };
+      }
+      const thAng = thN(img);
+      const count = (R, C) => {
+        const fl = rigInlierFlags(R, C, u, thAng);
+        let c2 = 0;
+        for (let k = 0; k < fl.length; k++) c2 += fl[k];
+        return c2;
+      };
+      let bestR = R0, bestC = C0, bestIn = count(R0, C0);
+      const entryIn = bestIn;
+      // spherical P3P RANSAC over the union
+      const N = u.obj.length;
+      let iters = 250;
+      for (let it = 0; it < iters; it++) {
+        const s0 = (rng() * N) | 0;
+        let s1 = (rng() * N) | 0, s2 = (rng() * N) | 0;
+        while (s1 === s0) s1 = (rng() * N) | 0;
+        while (s2 === s0 || s2 === s1) s2 = (rng() * N) | 0;
+        const cands = p3pBearings([u.obj[s0], u.obj[s1], u.obj[s2]], [u.brg[s0], u.brg[s1], u.brg[s2]]);
+        for (const c2 of cands) {
+          const inl = count(c2.R, c2.C);
+          if (inl > bestIn) {
+            bestIn = inl; bestR = c2.R; bestC = c2.C;
+            const w = inl / N;
+            const p = Math.max(1e-9, 1 - w * w * w);
+            iters = Math.min(250, Math.max(it + 1, Math.ceil(Math.log(1e-3) / Math.log(p))));
+          }
+        }
+      }
+      const jr = refineRigAngular(bestR, bestC, u.obj, u.brg, thAng);
+      if (!jr) return null;
+      const flags = rigInlierFlags(jr.R, jr.C, u, thAng);
+      let inl = 0;
+      const inFaces = new Set(), unionFaces = new Set();
+      for (let k = 0; k < flags.length; k++) {
+        unionFaces.add(u.face[k]);
+        if (flags[k]) { inl++; inFaces.add(u.face[k]); }
+      }
+      const st = {
+        rig: rf.id, union: N, inliers: inl, frac: +(inl / N).toFixed(3),
+        faces: inFaces.size, unionFaces: unionFaces.size, entryIn, ransacIn: bestIn,
+      };
+      rigStats.push(st);
+      vlog(`rig ${rf.id}: joint pose over ${N} bearings (${inl} in, ${inFaces.size}/${unionFaces.size} faces, entry ${entryIn}, ransac ${bestIn})`);
+      // NO acceptance gate here: measured on the bar360 walk, entry-time
+      // inlier fractions of healthy frontier rigs (0.21-0.69) OVERLAP the
+      // misregistered ones (0.28-0.61) — and rejecting a rig mid-growth
+      // starves its neighbours (sequential walks died in cascades). Bad
+      // rigs are caught by the sphere-wide audit AFTER the final BA, where
+      // the separation is 40x (see the rig audit below).
+      return { R: jr.R, C: jr.C, inliers: inl, frac: inl / N };
     }
 
     // ---- initialization pair: ranked by shared tracks ----
@@ -1191,6 +1284,23 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
 
         const reg = registerImage(bestImg);
         if (!reg) { failed.add(bestImg); continue; }
+        // rig entry: solve the RIG pose sphere-wide BEFORE committing —
+        // a wrong narrow-cone pose must not triangulate junk points or
+        // drag five siblings along with it (see solveRigPose)
+        let rigPose = null;
+        if (rigOf && rigOf[bestImg]) {
+          rigPose = solveRigPose(bestImg, reg);
+          if (!rigPose) { failed.add(bestImg); continue; }
+          const Rb = mul3(rigOf[bestImg].R, rigPose.R);
+          const C = rigPose.C;
+          reg.R = Rb;
+          reg.t = [
+            -(Rb[0] * C[0] + Rb[1] * C[1] + Rb[2] * C[2]),
+            -(Rb[3] * C[0] + Rb[4] * C[1] + Rb[5] * C[2]),
+            -(Rb[6] * C[0] + Rb[7] * C[1] + Rb[8] * C[2]),
+          ];
+          reg.inliers = rigPose.inliers;
+        }
         poses[bestImg] = { R: reg.R, t: reg.t };
         registered.add(bestImg);
         addedThisPass++;
@@ -1229,31 +1339,15 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
         }
 
         // rig propagation: siblings share the centre and sit at fixed, known
-        // rotations — pose them all now. The single face's PnP is an ambiguous
-        // narrow view, so the rig pose is REFINED jointly on the union of all
-        // faces' bearings (a central omnidirectional camera) before the
-        // propagation. Sibling observations then join the map and triangulate
-        // against OTHER rigs (the parallax gate rejects the zero-baseline
-        // same-rig combinations).
-        if (rigOf && rigOf[bestImg]) {
+        // rotations — pose them all from the sphere-wide rig pose (already
+        // hypothesized, refined, and gated in solveRigPose before commit).
+        // Sibling observations then join the map and triangulate against
+        // OTHER rigs (the parallax gate rejects the zero-baseline same-rig
+        // combinations).
+        if (rigPose) {
           const rf = rigOf[bestImg];
-          let Rr = tmul3(rf.R, reg.R);              // world->rig
-          let C = centreOf(reg.R, reg.t);
-          const u = corrsForRig(rf.id);
-          if (u.obj.length >= 12) {
-            const jr = refineRigAngular(Rr, C, u.obj, u.brg, thN(bestImg));
-            if (jr) {
-              Rr = jr.R; C = jr.C;
-              // rewrite the entry face from the joint pose too
-              const Rb = mul3(rf.R, Rr);
-              poses[bestImg] = { R: Rb, t: [
-                -(Rb[0] * C[0] + Rb[1] * C[1] + Rb[2] * C[2]),
-                -(Rb[3] * C[0] + Rb[4] * C[1] + Rb[5] * C[2]),
-                -(Rb[6] * C[0] + Rb[7] * C[1] + Rb[8] * C[2]),
-              ] };
-              vlog(`rig ${rf.id}: joint pose over ${u.obj.length} bearings (${jr.inliers} in)`);
-            }
-          }
+          const Rr = rigPose.R;                     // world->rig
+          const C = rigPose.C;
           for (let j = 0; j < n; j++) {
             if (j === bestImg || registered.has(j)) continue;
             if (!rigOf[j] || rigOf[j].id !== rf.id) continue;
@@ -1346,6 +1440,112 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
       await tick();
     }
 
+    // ---- sphere-wide rig audit (final map only) ----
+    // A misregistered rig is self-consistent on its own island of points but
+    // reprojects the SHARED map badly. Measured on the bar360 walk (76 rigs):
+    // healthy rigs fit >= 95% of their observations of triangulated tracks
+    // (population median 0.97, median residual 0.22x threshold); the
+    // misregistered ones fit 3-42% at 8-99x threshold — a 40x separation
+    // that entry-time stats never show. Flag rigs under 0.6x the population
+    // median, re-register them against the mature map (spherical P3P RANSAC
+    // + joint refine over the union of all faces), and drop them if the
+    // retry still fails the bar: a wrong rig poisons training harder than a
+    // missing one. Needs enough rigs for the median to mean something.
+    const auditRigs = () => {
+      const audit = new Map();
+      for (const tr of tracks) {
+        if (!tr.X) continue;
+        for (const o of tr.obs) {
+          if (!rigOf[o.img] || !poses[o.img]) continue;
+          const rid = rigOf[o.img].id;
+          let a = audit.get(rid);
+          if (!a) audit.set(rid, a = { nObs: 0, nFit: 0 });
+          a.nObs++;
+          if (reprojError(poses[o.img].R, poses[o.img].t, tr.X, obsNorm(o)) < thN(o.img) * 1.5) a.nFit++;
+        }
+      }
+      return audit;
+    };
+    if (withBA && rigOf && baResult && sfmOpts.rigAudit !== false) {
+      const membersOf = (rid) => {
+        const m = [];
+        for (let i = 0; i < n; i++) if (rigOf[i] && rigOf[i].id === rid) m.push(i);
+        return m;
+      };
+      for (let round = 1; round <= 2; round++) {
+        const audit = auditRigs();
+        if (audit.size < 8) break;
+        const fracs = [...audit.values()].map((a) => a.nFit / a.nObs).sort((x, y) => x - y);
+        const medFit = fracs[fracs.length >> 1];
+        const flagged = [];
+        for (const [rid, a] of audit)
+          if (a.nFit / a.nObs < medFit * 0.6) flagged.push(rid);
+        if (!flagged.length) break;
+        vlog(`rig audit: ${flagged.length} rig(s) under ${(medFit * 0.6).toFixed(2)} fit (median ${medFit.toFixed(2)}): ${flagged.join(', ')}`);
+        // de-register ALL flagged rigs first so none anchors another's retry
+        for (const rid of flagged) {
+          for (const i of membersOf(rid)) { poses[i] = null; registered.delete(i); }
+        }
+        const touched = [];
+        for (const tr of tracks) {
+          let hit = false;
+          for (const o of tr.obs)
+            if (rigOf[o.img] && flagged.includes(rigOf[o.img].id)) { o.ok = false; hit = true; }
+          if (hit) touched.push(tr);
+        }
+        for (const tr of touched) if (tr.X) triangulateTrack(tr);
+        // observations become hypotheses again for the re-registration
+        // (unregistered faces contribute nothing until posed; the post-
+        // rescue BA filter re-drops the liars)
+        for (const tr of touched)
+          for (const o of tr.obs)
+            if (rigOf[o.img] && flagged.includes(rigOf[o.img].id)) o.ok = true;
+        // retry each flagged rig against the mature map
+        let rescued = 0;
+        for (const rid of flagged) {
+          let ok = false;
+          for (const i of membersOf(rid)) {
+            const reg = registerImage(i);
+            if (!reg) continue;
+            const rp = solveRigPose(i, reg);
+            if (!rp || !(rp.frac >= medFit * 0.6)) continue;
+            for (const j of membersOf(rid)) {
+              const Rj = mul3(rigOf[j].R, rp.R);
+              poses[j] = { R: Rj, t: [
+                -(Rj[0] * rp.C[0] + Rj[1] * rp.C[1] + Rj[2] * rp.C[2]),
+                -(Rj[3] * rp.C[0] + Rj[4] * rp.C[1] + Rj[5] * rp.C[2]),
+                -(Rj[6] * rp.C[0] + Rj[7] * rp.C[1] + Rj[8] * rp.C[2]),
+              ] };
+              registered.add(j);
+            }
+            ok = true;
+            rescued++;
+            vlog(`rig ${rid}: re-registered by audit (fit ${rp.frac.toFixed(2)})`);
+            break;
+          }
+          if (!ok) {
+            // stays out — kill its obs for good so triangulations are clean
+            for (const i of membersOf(rid)) {
+              poses[i] = null; registered.delete(i);
+              const ft = featTrack[i];
+              for (let f2 = 0; f2 < feats[i].n; f2++) {
+                const tid = ft[f2];
+                if (tid < 0) continue;
+                for (const o of tracks[tid].obs) if (o.img === i) o.ok = false;
+              }
+            }
+            vlog(`rig ${rid}: DROPPED by audit (re-registration failed)`);
+          }
+        }
+        for (const tr of touched) triangulateTrack(tr);
+        baResult = runGlobalBA(`rig audit ${round}`, { verbose: true }) || baResult;
+        if (sfmOpts.obsFilter !== false) baFilterObs(baResult.k1, baResult.k2, `rig audit ${round}`);
+        for (const tr of tracks) if (tr.X) triangulateTrack(tr);
+        if (!rescued) break;   // nothing re-entered; a second round can't improve
+      }
+      await tick();
+    }
+
     // ---- collect output + median reprojection error ----
     const points = [];
     const errs = [];
@@ -1383,6 +1583,7 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
       k2: baResult ? baResult.k2 : 0,
       fFeat: K[0].f,
       rmsBA: baResult ? baResult.rmsAfter : null,
+      rigStats: rigOf ? rigStats : undefined,
     };
   }
 

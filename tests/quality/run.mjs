@@ -29,7 +29,7 @@ const argv = process.argv.slice(2);
 const headed = argv.includes('--headed');
 let scenes = argv.filter((a) => !a.startsWith('--'));
 if (!scenes.length) {
-  scenes = ['synthetic-solve', 'synthetic-train'];
+  scenes = ['synthetic-solve', 'synthetic-train', 'rig-ate'];
   if (existsSync(join(root, 'data/truck/000001.jpg'))) scenes.push('truck-ate');
   if (existsSync(join(root, 'data/camping/frame_00001.jpg'))) scenes.push('camping-ate');
 }
@@ -132,7 +132,9 @@ try {
     if (th.psnrHoldMin != null) ok = check('holdout PSNR dB', result.psnrHold, th.psnrHoldMin, '>=') && ok;
     if (result.viewPixelSum != null) ok = check('view render pixel sum', result.viewPixelSum, 1000, '>=') && ok;
     if (th.atePctMax != null) {
-      const a = ateFromPoses(scene, result);
+      // scenes with in-page GT (rig-ate) post atePct directly; the photo
+      // sets go through the COLMAP comparer
+      const a = result.atePct != null ? { atePct: result.atePct } : ateFromPoses(scene, result);
       if (a.skip) console.log(`  skip ATE: ${a.skip}`);
       else ok = check('ATE % of path', a.atePct, th.atePctMax) && ok;
     }

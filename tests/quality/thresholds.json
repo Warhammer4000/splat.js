@@ -1,5 +1,5 @@
 {
-  "//": "Every gate is a measured baseline minus an explicit margin. Baselines (2026-08-19, RTX-class GPU): synthetic solve f 617.9 vs GT 620 (0.34%), rms ~0.4px, 12/12; synthetic 3k-iter train ~26 dB; truck-42 ATE 0.02% of path; camping-113 ATE 0.17%.",
+  "//": "Every gate is a measured baseline minus an explicit margin. Baselines (2026-08-19, RTX-class GPU): synthetic solve f 617.9 vs GT 620 (0.34%), rms ~0.4px, 12/12; synthetic 3k-iter train ~26 dB; truck-42 ATE 0.02% of path; camping-113 ATE 0.17%. rig-ate (2026-08-22, spherical-seeding solver): 48/48, rms 0.697, ATE 0.109% of span.",
   "synthetic-solve": {
     "cams": 12,
     "fErrMax": 0.02,
@@ -12,6 +12,12 @@
     "psnrTrainMin": 24,
     "psnrHoldMin": 22,
     "timeoutMin": 8
+  },
+  "rig-ate": {
+    "cams": 48,
+    "rmsMax": 1.0,
+    "atePctMax": 0.25,
+    "timeoutMin": 5
   },
   "truck-ate": {
     "cams": 42,

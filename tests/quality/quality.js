@@ -8,8 +8,14 @@
 //   ?scene=synthetic-train   short training run, PSNR floors
 //   ?scene=truck-ate         truck-42 SfM, poses posted for ATE vs COLMAP GT
 //   ?scene=camping-ate       camping-113 SfM, poses posted for ATE vs GT
+//   ?scene=rig-ate           360 rig SfM on generated pano faces, ATE vs GT
 
 import { createSession } from '../../src/index.js';
+// rig-ate generates its views in-page (48 canvases beat 48 PNGs in the repo)
+import { generatePanoRigRaw } from '../../src/synthetic.js';
+import { processSource } from '../../src/io/frames.js';
+import { FACE_ROTS } from '../../src/io/pano.js';
+import { jacobiEigen } from '../../src/sfm/geometry.js';
 
 const q = new URLSearchParams(location.search);
 const scene = q.get('scene') || 'synthetic-solve';
@@ -34,6 +40,49 @@ async function post(result) {
   result.gpu = !!navigator.gpu;
   await fetch(`/scratch/quality_${runId}.json`, { method: 'POST', body: JSON.stringify(result) });
   say('\nresult posted: ' + JSON.stringify(result, null, 1));
+}
+
+/** ATE after the best global similarity fit (Horn), as % of trajectory span. */
+function hornAtePct(rec, gt) {
+  const N = rec.length;
+  const cen = (a) => [0, 1, 2].map((k) => a.reduce((x, p) => x + p[k], 0) / a.length);
+  const cr = cen(rec), cg = cen(gt);
+  const rc = rec.map((p) => [p[0] - cr[0], p[1] - cr[1], p[2] - cr[2]]);
+  const gc = gt.map((p) => [p[0] - cg[0], p[1] - cg[1], p[2] - cg[2]]);
+  const rms = (a) => Math.sqrt(a.reduce((x, p) => x + p[0] ** 2 + p[1] ** 2 + p[2] ** 2, 0) / a.length);
+  const sc = rms(gc) / rms(rc);
+  let Sxx = 0, Sxy = 0, Sxz = 0, Syx = 0, Syy = 0, Syz = 0, Szx = 0, Szy = 0, Szz = 0;
+  for (let i = 0; i < N; i++) {
+    const a = rc[i], b = gc[i];
+    Sxx += a[0] * b[0]; Sxy += a[0] * b[1]; Sxz += a[0] * b[2];
+    Syx += a[1] * b[0]; Syy += a[1] * b[1]; Syz += a[1] * b[2];
+    Szx += a[2] * b[0]; Szy += a[2] * b[1]; Szz += a[2] * b[2];
+  }
+  const Nm = [
+    Sxx + Syy + Szz, Syz - Szy, Szx - Sxz, Sxy - Syx,
+    Syz - Szy, Sxx - Syy - Szz, Sxy + Syx, Szx + Sxz,
+    Szx - Sxz, Sxy + Syx, -Sxx + Syy - Szz, Syz + Szy,
+    Sxy - Syx, Szx + Sxz, Syz + Szy, -Sxx - Syy + Szz,
+  ];
+  const { vecs } = jacobiEigen(Nm, 4);
+  const [w, x, y, z] = [vecs[0], vecs[4], vecs[8], vecs[12]];
+  const Ra = [
+    1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y),
+    2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x),
+    2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y),
+  ];
+  let se = 0;
+  for (let i = 0; i < N; i++) {
+    const a = rc[i];
+    const p = [
+      sc * (Ra[0] * a[0] + Ra[1] * a[1] + Ra[2] * a[2]),
+      sc * (Ra[3] * a[0] + Ra[4] * a[1] + Ra[5] * a[2]),
+      sc * (Ra[6] * a[0] + Ra[7] * a[1] + Ra[8] * a[2]),
+    ];
+    se += (p[0] - gc[i][0]) ** 2 + (p[1] - gc[i][1]) ** 2 + (p[2] - gc[i][2]) ** 2;
+  }
+  const span = Math.max(...gc.map((p) => Math.hypot(...p))) * 2;
+  return Math.sqrt(se / N) / span * 100;
 }
 
 const SETS = {
@@ -102,6 +151,31 @@ try {
       result.viewPixelSum = sum;
     }
     await post(result);
+  } else if (scene === 'rig-ate') {
+    // 8 panos x 6 cube faces of the synthetic room, solved as rigs with the
+    // known face focal; ATE (Horn similarity fit) vs the exact GT centres
+    say('generating 8 rigs x 6 faces ...');
+    const raw = generatePanoRigRaw(8, 512, 100);
+    session.useFrames(raw.map((v) => processSource(v.canvas, v.w, v.h, v.name, 512)));
+    say('solving 48 faces ...');
+    const t0 = performance.now();
+    const recon = await session.solve({
+      rigs: raw.map((v) => ({ id: v.rig, R: FACE_ROTS[v.face] })),
+      focalPx: raw[0].f,
+    });
+    const solveSec = (performance.now() - t0) / 1000;
+    const rec = [], gt = [];
+    for (const c of recon.cams) {
+      if (c.imgIdx % 6 !== 0) continue;
+      const { R, t } = c;
+      rec.push([
+        -(R[0] * t[0] + R[3] * t[1] + R[6] * t[2]),
+        -(R[1] * t[0] + R[4] * t[1] + R[7] * t[2]),
+        -(R[2] * t[0] + R[5] * t[1] + R[8] * t[2]),
+      ]);
+      gt.push(raw[c.imgIdx].eye);
+    }
+    await post({ cams: recon.cams.length, total: raw.length, rmsBA: recon.rmsBA, solveSec, atePct: hornAtePct(rec, gt) });
   } else if (scene === 'truck-ate' || scene === 'camping-ate') {
     const setName = scene.split('-')[0];
     const { recon, solveSec, total } = await solveSet(setName, session);

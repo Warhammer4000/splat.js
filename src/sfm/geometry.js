@@ -598,6 +598,155 @@ export function pnpRansac(objPts, imgPts, thresh, rng, maxIters = 500) {
   return { R: refined.R, t: refined.t, inliers };
 }
 
+/** All roots of a quartic via Durand-Kerner; returns the real ones. */
+function quarticRealRoots(a4, a3, a2, a1, a0) {
+  const scale = Math.max(Math.abs(a4), Math.abs(a3), Math.abs(a2), Math.abs(a1), Math.abs(a0));
+  if (!(scale > 0)) return [];
+  if (Math.abs(a4) < 1e-13 * scale) {
+    // degenerate leading term: fall back to the cubic/quadratic inside
+    if (Math.abs(a3) < 1e-13 * scale) {
+      if (Math.abs(a2) < 1e-13 * scale) return Math.abs(a1) > 0 ? [-a0 / a1] : [];
+      const D = a1 * a1 - 4 * a2 * a0;
+      if (D < 0) return [];
+      const s = Math.sqrt(D);
+      return [(-a1 + s) / (2 * a2), (-a1 - s) / (2 * a2)];
+    }
+    // cubic: one guaranteed real root by bisection + deflate to quadratic
+    const f = (x) => ((a3 * x + a2) * x + a1) * x + a0;
+    let lo = -1, hi = 1;
+    while (f(lo) * f(hi) > 0 && hi < 1e12) { lo *= 2; hi *= 2; }
+    if (f(lo) * f(hi) > 0) return [];
+    for (let i = 0; i < 200; i++) {
+      const m = (lo + hi) / 2;
+      if (f(lo) * f(m) <= 0) hi = m; else lo = m;
+    }
+    const r = (lo + hi) / 2;
+    const qa = a3, qb = a2 + qa * r, qc = a1 + qb * r;
+    const D = qb * qb - 4 * qa * qc;
+    const out = [r];
+    if (D >= 0) { const s = Math.sqrt(D); out.push((-qb + s) / (2 * qa), (-qb - s) / (2 * qa)); }
+    return out;
+  }
+  const c = [a3 / a4, a2 / a4, a1 / a4, a0 / a4];
+  // Durand-Kerner on z^4 + c0 z^3 + c1 z^2 + c2 z + c3
+  const zr = [1, -0.4, 0.3, -1.1], zi = [0.9, 1.1, -1.2, -0.7];
+  const ev = (x, y) => {   // p(x+iy)
+    let pr = 1, pi = 0;
+    for (let k = 0; k < 4; k++) {
+      const nr = pr * x - pi * y + c[k];
+      pi = pr * y + pi * x;
+      pr = nr;
+    }
+    return [pr, pi];
+  };
+  for (let it = 0; it < 80; it++) {
+    let moved = 0;
+    for (let i = 0; i < 4; i++) {
+      const [pr, pi] = ev(zr[i], zi[i]);
+      let dr = 1, di = 0;
+      for (let j = 0; j < 4; j++) {
+        if (j === i) continue;
+        const ax = zr[i] - zr[j], ay = zi[i] - zi[j];
+        const nr = dr * ax - di * ay, ni = dr * ay + di * ax;
+        dr = nr; di = ni;
+      }
+      const den = dr * dr + di * di || 1e-30;
+      const qr = (pr * dr + pi * di) / den, qi = (pi * dr - pr * di) / den;
+      zr[i] -= qr; zi[i] -= qi;
+      moved = Math.max(moved, Math.hypot(qr, qi));
+    }
+    if (moved < 1e-14) break;
+  }
+  const out = [];
+  for (let i = 0; i < 4; i++)
+    if (Math.abs(zi[i]) < 1e-6 * (1 + Math.abs(zr[i]))) out.push(zr[i]);
+  return out;
+}
+
+/** P3P for a central camera on unit BEARING vectors (any direction, not just
+ *  a forward-facing pinhole) — Grunert's quartic + Horn absolute orientation.
+ *  P: three world points; brg: three unit bearings in the camera/rig frame.
+ *  Returns candidate poses [{R, C}] with R world->camera and C the centre
+ *  (pw maps to R*(pw - C)); [] when degenerate. */
+export function p3pBearings(P, brg) {
+  const d12 = [P[0][0] - P[1][0], P[0][1] - P[1][1], P[0][2] - P[1][2]];
+  const d13 = [P[0][0] - P[2][0], P[0][1] - P[2][1], P[0][2] - P[2][2]];
+  const d23 = [P[1][0] - P[2][0], P[1][1] - P[2][1], P[1][2] - P[2][2]];
+  const a = Math.hypot(...d23), b = Math.hypot(...d13), cc = Math.hypot(...d12);
+  if (a < 1e-12 || b < 1e-12 || cc < 1e-12) return [];
+  // collinear world points span no orientation
+  const cx = d12[1] * d13[2] - d12[2] * d13[1];
+  const cy = d12[2] * d13[0] - d12[0] * d13[2];
+  const cz = d12[0] * d13[1] - d12[1] * d13[0];
+  if (Math.hypot(cx, cy, cz) < 1e-8 * b * cc) return [];
+  const dot = (u, v) => u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+  const cosA = dot(brg[1], brg[2]);   // angle subtended by P2,P3
+  const cosB = dot(brg[0], brg[2]);   // by P1,P3
+  const cosG = dot(brg[0], brg[1]);   // by P1,P2
+  const aSq = a * a, bSq = b * b, cSq = cc * cc;
+  const q1 = (aSq - cSq) / bSq, q2 = (aSq + cSq) / bSq;
+  const A4 = (q1 - 1) ** 2 - 4 * (cSq / bSq) * cosA * cosA;
+  const A3 = 4 * (q1 * (1 - q1) * cosB - (1 - q2) * cosA * cosG + 2 * (cSq / bSq) * cosA * cosA * cosB);
+  const A2 = 2 * (q1 * q1 - 1 + 2 * q1 * q1 * cosB * cosB + 2 * ((bSq - cSq) / bSq) * cosA * cosA
+    - 4 * q2 * cosA * cosB * cosG + 2 * ((bSq - aSq) / bSq) * cosG * cosG);
+  const A1 = 4 * (-q1 * (1 + q1) * cosB + 2 * (aSq / bSq) * cosG * cosG * cosB - (1 - q2) * cosA * cosG);
+  const A0 = (1 + q1) ** 2 - 4 * (aSq / bSq) * cosG * cosG;
+  const out = [];
+  for (const v of quarticRealRoots(A4, A3, A2, A1, A0)) {
+    if (!(v > 0)) continue;
+    const s1sq = bSq / (1 + v * v - 2 * v * cosB);
+    if (!(s1sq > 0)) continue;
+    const s1 = Math.sqrt(s1sq);
+    const s3 = v * s1;
+    // s2 from the c-side law of cosines; the quartic already tied it, so of
+    // the two quadratic roots keep the one(s) consistent with the a-side
+    const disc = s1sq * cosG * cosG - s1sq + cSq;
+    if (disc < 0) continue;
+    const sd = Math.sqrt(disc);
+    for (const s2 of [s1 * cosG + sd, s1 * cosG - sd]) {
+      if (!(s2 > 0)) continue;
+      const aErr = Math.abs(s2 * s2 + s3 * s3 - 2 * s2 * s3 * cosA - aSq);
+      if (aErr > 1e-3 * aSq) continue;
+      // absolute orientation: camera-frame points Q_i = s_i * brg_i vs P_i
+      const Q = [
+        [s1 * brg[0][0], s1 * brg[0][1], s1 * brg[0][2]],
+        [s2 * brg[1][0], s2 * brg[1][1], s2 * brg[1][2]],
+        [s3 * brg[2][0], s3 * brg[2][1], s3 * brg[2][2]],
+      ];
+      const Pc = [(P[0][0] + P[1][0] + P[2][0]) / 3, (P[0][1] + P[1][1] + P[2][1]) / 3, (P[0][2] + P[1][2] + P[2][2]) / 3];
+      const Qc = [(Q[0][0] + Q[1][0] + Q[2][0]) / 3, (Q[0][1] + Q[1][1] + Q[2][1]) / 3, (Q[0][2] + Q[1][2] + Q[2][2]) / 3];
+      let Sxx = 0, Sxy = 0, Sxz = 0, Syx = 0, Syy = 0, Syz = 0, Szx = 0, Szy = 0, Szz = 0;
+      for (let i = 0; i < 3; i++) {
+        const px = P[i][0] - Pc[0], py = P[i][1] - Pc[1], pz = P[i][2] - Pc[2];
+        const qx = Q[i][0] - Qc[0], qy = Q[i][1] - Qc[1], qz = Q[i][2] - Qc[2];
+        Sxx += px * qx; Sxy += px * qy; Sxz += px * qz;
+        Syx += py * qx; Syy += py * qy; Syz += py * qz;
+        Szx += pz * qx; Szy += pz * qy; Szz += pz * qz;
+      }
+      const N = [
+        Sxx + Syy + Szz, Syz - Szy, Szx - Sxz, Sxy - Syx,
+        Syz - Szy, Sxx - Syy - Szz, Sxy + Syx, Szx + Sxz,
+        Szx - Sxz, Sxy + Syx, -Sxx + Syy - Szz, Syz + Szy,
+        Sxy - Syx, Szx + Sxz, Syz + Szy, -Sxx - Syy + Szz,
+      ];
+      const { vecs } = jacobiEigen(N, 4);
+      const w = vecs[0], x = vecs[4], y = vecs[8], z = vecs[12];
+      const R = [
+        1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y),
+        2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x),
+        2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y),
+      ];
+      const C = [
+        Pc[0] - (R[0] * Qc[0] + R[3] * Qc[1] + R[6] * Qc[2]),
+        Pc[1] - (R[1] * Qc[0] + R[4] * Qc[1] + R[7] * Qc[2]),
+        Pc[2] - (R[2] * Qc[0] + R[5] * Qc[1] + R[8] * Qc[2]),
+      ];
+      out.push({ R, C });
+    }
+  }
+  return out;
+}
+
 /** Simple seedable PRNG (mulberry32). */
 export function makeRng(seed) {
   let a = seed >>> 0;
