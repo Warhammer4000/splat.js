@@ -222,7 +222,8 @@ export function generateSyntheticDataset(count = 12, trainCap, opts = {}) {
 // ── 360 rig test data ───────────────────────────────────────────────────────
 // Camera-frame rotations for the six cube faces (x right, y down, z forward):
 // +z, +x, -z, -x are yaw steps; up is -y, down is +y in this convention.
-const FACE_ROTS = [
+// Exported: these are also the rig->face rotations a solver rig option needs.
+export const FACE_ROTS = [
   [1, 0, 0, 0, 1, 0, 0, 0, 1],       // 0: +z (front)
   [0, 0, -1, 0, 1, 0, 1, 0, 0],      // 1: +x (right)
   [-1, 0, 0, 0, 1, 0, 0, 0, -1],     // 2: -z (back)

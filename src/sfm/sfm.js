@@ -692,6 +692,22 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
     const sfmOpts = opts;
     const useGlobal = !!opts.globalInit;
 
+    // camera rigs (360 panos sliced into cubemap faces): opts.rigs[i] =
+    // { id, R } with R the fixed rig->face rotation. All faces of a rig
+    // share one centre, so registering ANY face poses the whole rig.
+    const rigOf = opts.rigs || null;
+    const mul3 = (A, B) => [
+      A[0] * B[0] + A[1] * B[3] + A[2] * B[6], A[0] * B[1] + A[1] * B[4] + A[2] * B[7], A[0] * B[2] + A[1] * B[5] + A[2] * B[8],
+      A[3] * B[0] + A[4] * B[3] + A[5] * B[6], A[3] * B[1] + A[4] * B[4] + A[5] * B[7], A[3] * B[2] + A[4] * B[5] + A[5] * B[8],
+      A[6] * B[0] + A[7] * B[3] + A[8] * B[6], A[6] * B[1] + A[7] * B[4] + A[8] * B[7], A[6] * B[2] + A[7] * B[5] + A[8] * B[8],
+    ];
+    const tmul3 = (A, B) => mul3([A[0], A[3], A[6], A[1], A[4], A[7], A[2], A[5], A[8]], B);
+    const centreOf = (R, t) => [
+      -(R[0] * t[0] + R[3] * t[1] + R[6] * t[2]),
+      -(R[1] * t[0] + R[4] * t[1] + R[7] * t[2]),
+      -(R[2] * t[0] + R[5] * t[1] + R[8] * t[2]),
+    ];
+
     // ---- initialization pair: ranked by shared tracks ----
     const candPairs = [...sharedCount.entries()]
       .map(([k, c]) => ({ i: (k / 10000) | 0, j: k % 10000, c }))
@@ -806,6 +822,10 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
 
     const scored = [];
     for (const p of useGlobal ? [] : candPairs) {
+      // same-rig faces share a centre: zero baseline, no triangulation —
+      // never a seed (the parallax gate below also rejects them, this just
+      // saves the RANSAC)
+      if (rigOf && rigOf[p.i] && rigOf[p.j] && rigOf[p.i].id === rigOf[p.j].id) continue;
       const { x1s, x2s } = trackCorrs(p.i, p.j);
       if (x1s.length < 30) continue;
       const favg = (K[p.i].f + K[p.j].f) / 2;
@@ -1110,6 +1130,43 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
             image: bestImg, R: Array.from(reg.R), t: Array.from(reg.t), f: K[bestImg].f,
             cloud, cloudRgb, points: nPts,
           } });
+        }
+
+        // rig propagation: siblings share the centre and sit at fixed, known
+        // rotations — pose them all now. Their observations join the map and
+        // triangulate against OTHER rigs (the parallax gate rejects the
+        // zero-baseline same-rig combinations).
+        if (rigOf && rigOf[bestImg]) {
+          const rf = rigOf[bestImg];
+          const Rr = tmul3(rf.R, reg.R);            // world->rig
+          const C = centreOf(reg.R, reg.t);
+          for (let j = 0; j < n; j++) {
+            if (j === bestImg || registered.has(j)) continue;
+            if (!rigOf[j] || rigOf[j].id !== rf.id) continue;
+            const Rj = mul3(rigOf[j].R, Rr);
+            const tj = [
+              -(Rj[0] * C[0] + Rj[1] * C[1] + Rj[2] * C[2]),
+              -(Rj[3] * C[0] + Rj[4] * C[1] + Rj[5] * C[2]),
+              -(Rj[6] * C[0] + Rj[7] * C[1] + Rj[8] * C[2]),
+            ];
+            poses[j] = { R: Rj, t: tj };
+            registered.add(j);
+            failed.delete(j);      // a face that failed PnP is still rig-posed
+            addedThisPass++;
+            let np = 0;
+            const ftj = featTrack[j];
+            for (let f2 = 0; f2 < feats[j].n; f2++) {
+              const tid = ftj[f2];
+              if (tid < 0 || tracks[tid].X) continue;
+              if (triangulateTrack(tracks[tid])) np++;
+            }
+            vlog(`rig ${rf.id}: pose propagated to image ${j} (+${np} points)`);
+            if (withBA) {
+              ev({ stage: 'register', done: registered.size, total: n, detail: {
+                image: j, R: Array.from(Rj), t: tj.slice(), f: K[j].f,
+              } });
+            }
+          }
         }
 
         if (++sinceRefine >= 3) { globalRefine(1); sinceRefine = 0; }
