@@ -1227,6 +1227,23 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
   // invented k1=0.70 to cope. There the PIXEL median is the right metric
   // (detector noise is in pixels; model misfit adds to it).
   const useGlobalSearch = !!opts.globalInit;
+
+  // known focal (sliced cubemap faces know f exactly; EXIF one day): skip
+  // the search — it also only sweeps photo-like FOVs (0.78-1.56x maxDim),
+  // which a 100-degree face (0.42x) sits far outside of.
+  if (opts.focalPx) {
+    const knownScale = opts.focalPx / (1.2 * Math.max(images[0].fw, images[0].fh));
+    log(`focal known: ${opts.focalPx.toFixed(1)}px (${(knownScale * 1.2).toFixed(2)}x maxDim) — search skipped`);
+    const final = await runGeometry(knownScale, true, true);
+    if (!final) throw new Error('known-focal reconstruction failed — need more parallax/overlap');
+    log(`SfM done: ${final.cams.length}/${n} cameras registered, ${final.points.length} points, ` +
+        (final.rmsBA != null ? `BA rms ${final.rmsBA.toFixed(2)}px` : `median reproj ${final.medErr.toFixed(2)}px`));
+    if (final.cams.length < 2 || final.points.length < 50) {
+      throw new Error('reconstruction too sparse');
+    }
+    return final;
+  }
+
   const candidates = [];
   let fi = 0;
   for (const s of FOCAL_SCALES) {

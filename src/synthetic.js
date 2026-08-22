@@ -24,7 +24,10 @@ const lerp3 = (o, u, v, a, b) => [
 ];
 
 // world: y points DOWN (matches the camera convention), scene centered at origin
-function buildScene(rng) {
+// `closed` adds the other three walls + ceiling — a full room, for camera
+// rigs INSIDE the scene (360 experiments). Looking out from inside a convex
+// room, every ray hits exactly one wall, so the painter's order still holds.
+function buildScene(rng, closed = false) {
   const planeDefs = [
     // floor: y = +1.0
     { o: [-1.6, 1.0, -1.6], u: [3.2, 0, 0], v: [0, 0, 3.2], base: '#8a7f6d' },
@@ -33,6 +36,16 @@ function buildScene(rng) {
     // side wall: x = +1.6
     { o: [1.6, 1.0, 1.6], u: [0, 0, -3.2], v: [0, -2.4, 0], base: '#94847d' },
   ];
+  if (closed) {
+    planeDefs.push(
+      // ceiling: y = -1.4
+      { o: [-1.6, -1.4, -1.6], u: [3.2, 0, 0], v: [0, 0, 3.2], base: '#6d7a8a' },
+      // front wall: z = -1.6
+      { o: [-1.6, 1.0, -1.6], u: [3.2, 0, 0], v: [0, -2.4, 0], base: '#6d8a7f' },
+      // left wall: x = -1.6
+      { o: [-1.6, 1.0, -1.6], u: [0, 0, 3.2], v: [0, -2.4, 0], base: '#8a6d7f' },
+    );
+  }
   const planes = [];
   for (const pl of planeDefs) {
     const base = {
@@ -102,37 +115,50 @@ function buildScene(rng) {
   return { planes, boxFaces };
 }
 
-function renderView(scene, pose, jitterRng) {
+function renderView(scene, pose, jitterRng, w = W, h = H, f = F) {
   const cv = document.createElement('canvas');
-  cv.width = W; cv.height = H;
+  cv.width = w; cv.height = h;
   const ctx = cv.getContext('2d');
   ctx.fillStyle = '#1c1c20';
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillRect(0, 0, w, h);
 
   const { R, t } = pose;
-  const proj = (p) => {
-    const x = R[0] * p[0] + R[1] * p[1] + R[2] * p[2] + t[0];
-    const y = R[3] * p[0] + R[4] * p[1] + R[5] * p[2] + t[1];
-    const z = R[6] * p[0] + R[7] * p[1] + R[8] * p[2] + t[2];
-    return [F * x / z + W / 2, F * y / z + H / 2, z];
-  };
   const camPos = [
     -(R[0] * t[0] + R[3] * t[1] + R[6] * t[2]),
     -(R[1] * t[0] + R[4] * t[1] + R[7] * t[2]),
     -(R[2] * t[0] + R[5] * t[1] + R[8] * t[2]),
   ];
 
+  // camera-space transform + Sutherland-Hodgman clip against z = NEAR, then
+  // project. Dropping quads with any vertex behind the camera was fine for
+  // the outside-looking-in arc, but a rig INSIDE the room sees every adjacent
+  // surface partially behind the near plane.
+  const NEAR = 0.05;
+  const toCam = (p) => [
+    R[0] * p[0] + R[1] * p[1] + R[2] * p[2] + t[0],
+    R[3] * p[0] + R[4] * p[1] + R[5] * p[2] + t[1],
+    R[6] * p[0] + R[7] * p[1] + R[8] * p[2] + t[2],
+  ];
   const drawQuad = (q) => {
-    const pp = [];
-    for (const p of q.pts) {
-      const s = proj(p);
-      if (s[2] < 0.2) return;
-      pp.push(s);
+    let poly = q.pts.map(toCam);
+    const out = [];
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i], b = poly[(i + 1) % poly.length];
+      const ain = a[2] >= NEAR, bin = b[2] >= NEAR;
+      if (ain) out.push(a);
+      if (ain !== bin) {
+        const s = (NEAR - a[2]) / (b[2] - a[2]);
+        out.push([a[0] + (b[0] - a[0]) * s, a[1] + (b[1] - a[1]) * s, NEAR]);
+      }
     }
+    poly = out;
+    if (poly.length < 3) return;
     ctx.fillStyle = q.color;
     ctx.beginPath();
-    ctx.moveTo(pp[0][0], pp[0][1]);
-    for (let i = 1; i < 4; i++) ctx.lineTo(pp[i][0], pp[i][1]);
+    poly.forEach((p, i) => {
+      const px = f * p[0] / p[2] + w / 2, py = f * p[1] / p[2] + h / 2;
+      if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+    });
     ctx.closePath();
     ctx.fill();
   };
@@ -143,15 +169,15 @@ function renderView(scene, pose, jitterRng) {
     for (const d of pl.decals) drawQuad(d);
   }
   // 2. box: front-facing faces only, each followed by its dots
-  for (const f of scene.boxFaces) {
-    const toCam = [camPos[0] - f.mid[0], camPos[1] - f.mid[1], camPos[2] - f.mid[2]];
-    if (f.nrm[0] * toCam[0] + f.nrm[1] * toCam[1] + f.nrm[2] * toCam[2] <= 0) continue;
-    drawQuad(f);
-    for (const d of f.dots) drawQuad(d);
+  for (const bf of scene.boxFaces) {
+    const view = [camPos[0] - bf.mid[0], camPos[1] - bf.mid[1], camPos[2] - bf.mid[2]];
+    if (bf.nrm[0] * view[0] + bf.nrm[1] * view[1] + bf.nrm[2] * view[2] <= 0) continue;
+    drawQuad(bf);
+    for (const d of bf.dots) drawQuad(d);
   }
 
   // mild sensor-like noise so BRIEF has gradients everywhere
-  const id = ctx.getImageData(0, 0, W, H);
+  const id = ctx.getImageData(0, 0, w, h);
   for (let i = 0; i < id.data.length; i += 4) {
     const nz = (jitterRng() - 0.5) * 6;
     id.data[i] += nz; id.data[i + 1] += nz; id.data[i + 2] += nz;
@@ -191,6 +217,66 @@ export function generateSyntheticRaw(count = 12) {
 export function generateSyntheticDataset(count = 12, trainCap, opts = {}) {
   const cap = trainCap || adaptiveTrainCap(count, W, H, opts);
   return generateSyntheticRaw(count).map((v) => processSource(v.canvas, W, H, v.name, cap, opts));
+}
+
+// ── 360 rig test data ───────────────────────────────────────────────────────
+// Camera-frame rotations for the six cube faces (x right, y down, z forward):
+// +z, +x, -z, -x are yaw steps; up is -y, down is +y in this convention.
+const FACE_ROTS = [
+  [1, 0, 0, 0, 1, 0, 0, 0, 1],       // 0: +z (front)
+  [0, 0, -1, 0, 1, 0, 1, 0, 0],      // 1: +x (right)
+  [-1, 0, 0, 0, 1, 0, 0, 0, -1],     // 2: -z (back)
+  [0, 0, 1, 0, 1, 0, -1, 0, 0],      // 3: -x (left)
+  [1, 0, 0, 0, 0, -1, 0, 1, 0],      // 4: -y (up)
+  [1, 0, 0, 0, 0, 1, 0, -1, 0],      // 5: +y (down)
+];
+
+/** Generate a 360 rig dataset: `rigs` positions on a loop INSIDE the closed
+ *  room, six square pinhole faces each (the cubemap a real equirect pano
+ *  would be sliced into). fovDeg > 90 gives adjacent faces a small overlap,
+ *  the way real slicers do. Ground truth: every face carries its exact pose,
+ *  its rig index and the shared rig centre. Deterministic (seed 42). */
+export function generatePanoRigRaw(rigs = 8, size = 512, fovDeg = 100) {
+  const rng = makeRng(42);
+  const scene = buildScene(rng, true);
+  const f = (size / 2) / Math.tan((fovDeg / 2) * Math.PI / 180);
+  const out = [];
+  for (let r = 0; r < rigs; r++) {
+    const a = (r / rigs) * 2 * Math.PI;
+    const eye = [Math.sin(a) * 0.9, 0.15 + 0.1 * Math.sin(a * 2), Math.cos(a) * 0.9];
+    // a per-rig yaw so faces are not axis-aligned with the walls
+    const yaw = a + 0.35;
+    const cy0 = Math.cos(yaw), sy0 = Math.sin(yaw);
+    const Rrig = [cy0, 0, sy0, 0, 1, 0, -sy0, 0, cy0];
+    for (let k = 0; k < 6; k++) {
+      const Fk = FACE_ROTS[k];
+      // world-to-camera: face rotation applied on top of the rig yaw
+      const R = [
+        Fk[0] * Rrig[0] + Fk[1] * Rrig[3] + Fk[2] * Rrig[6],
+        Fk[0] * Rrig[1] + Fk[1] * Rrig[4] + Fk[2] * Rrig[7],
+        Fk[0] * Rrig[2] + Fk[1] * Rrig[5] + Fk[2] * Rrig[8],
+        Fk[3] * Rrig[0] + Fk[4] * Rrig[3] + Fk[5] * Rrig[6],
+        Fk[3] * Rrig[1] + Fk[4] * Rrig[4] + Fk[5] * Rrig[7],
+        Fk[3] * Rrig[2] + Fk[4] * Rrig[5] + Fk[5] * Rrig[8],
+        Fk[6] * Rrig[0] + Fk[7] * Rrig[3] + Fk[8] * Rrig[6],
+        Fk[6] * Rrig[1] + Fk[7] * Rrig[4] + Fk[8] * Rrig[7],
+        Fk[6] * Rrig[2] + Fk[7] * Rrig[5] + Fk[8] * Rrig[8],
+      ];
+      const t = [
+        -(R[0] * eye[0] + R[1] * eye[1] + R[2] * eye[2]),
+        -(R[3] * eye[0] + R[4] * eye[1] + R[5] * eye[2]),
+        -(R[6] * eye[0] + R[7] * eye[1] + R[8] * eye[2]),
+      ];
+      const pose = { R, t };
+      const cv = renderView(scene, pose, rng, size, size, f);
+      out.push({
+        name: `rig${String(r).padStart(2, '0')}_f${k}`,
+        canvas: cv, pose, eye, rig: r, face: k,
+        f, cx: size / 2, cy: size / 2, w: size, h: size,
+      });
+    }
+  }
+  return out;
 }
 
 function lookAtPose(eye, center) {
