@@ -14,6 +14,8 @@
 
 import { processSource, adaptiveTrainCap } from './io/frames.js';
 import { makeRng } from './sfm/geometry.js';
+import { FACE_ROTS } from './io/pano.js';
+export { FACE_ROTS };
 
 const W = 640, H = 480, F = 620;
 
@@ -220,17 +222,8 @@ export function generateSyntheticDataset(count = 12, trainCap, opts = {}) {
 }
 
 // ── 360 rig test data ───────────────────────────────────────────────────────
-// Camera-frame rotations for the six cube faces (x right, y down, z forward):
-// +z, +x, -z, -x are yaw steps; up is -y, down is +y in this convention.
-// Exported: these are also the rig->face rotations a solver rig option needs.
-export const FACE_ROTS = [
-  [1, 0, 0, 0, 1, 0, 0, 0, 1],       // 0: +z (front)
-  [0, 0, -1, 0, 1, 0, 1, 0, 0],      // 1: +x (right)
-  [-1, 0, 0, 0, 1, 0, 0, 0, -1],     // 2: -z (back)
-  [0, 0, 1, 0, 1, 0, -1, 0, 0],      // 3: -x (left)
-  [1, 0, 0, 0, 0, -1, 0, 1, 0],      // 4: -y (up)
-  [1, 0, 0, 0, 0, 1, 0, -1, 0],      // 5: +y (down)
-];
+// FACE_ROTS (imported from io/pano.js): camera-frame rotations for the six
+// cube faces — +z, +x, -z, -x, up (-y), down (+y).
 
 /** Generate a 360 rig dataset: `rigs` positions on a loop INSIDE the closed
  *  room, six square pinhole faces each (the cubemap a real equirect pano

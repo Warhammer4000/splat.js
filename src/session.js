@@ -21,6 +21,7 @@
 // conversion, and the hidden-tab watchdog.
 
 import { decodeFrames } from './io/frames.js';
+import { isEquirect, sliceEquirect, faceSizeFor, probeImageSize, FACE_ROTS } from './io/pano.js';
 import { runSfM } from './sfm/sfm.js';
 import { initGaussians } from './gs/init.js';
 import { GSTrainer } from './gs/trainer.js';
@@ -135,15 +136,69 @@ export class Session {
   _log(m) { this._em.emit('log', m); }
   _stage(e) { this._em.emit('stage', e); }
 
-  /** Decode photographs into Frames. files: File[]/Blob[]/{source,name}[] */
+  /** Decode photographs into Frames. files: File[]/Blob[]/{source,name}[]
+   *  360 equirectangular panos (2:1 aspect) are detected here and sliced
+   *  into six-face cubemap rigs — the solver then treats each pano as ONE
+   *  camera pose and the trainer sees ordinary pinhole faces. */
   async load(files) {
     this._stage({ stage: 'decode', done: 0, total: files.length });
-    this.frames = await decodeFrames(files, {
+    const { prepared, rigs, focalNative, faceSize } = await this._slicePanos(files);
+    this.frames = await decodeFrames(prepared, {
       ...this.opts.frames, log: (m) => this._log(m),
     });
     this._stage({ stage: 'decode', done: this.frames.length, total: files.length });
     if (this.frames.length < 2) throw new Error('need at least 2 decodable images');
+    if (rigs) {
+      // the sliced focal is exact but lives in face-native pixels; the
+      // solver works at feature scale
+      this.rigInfo = rigs;
+      this.rigFocalPx = focalNative * this.frames[0].fw / faceSize;
+      this._log(`camera rigs active: ${new Set(rigs.filter(Boolean).map((r) => r.id)).size} panos, ` +
+        `focal ${this.rigFocalPx.toFixed(1)}px (known from the slice)`);
+    }
     return this.frames;
+  }
+
+  /** Detect equirect panos in the input and slice them into rig faces.
+   *  Detection reads image HEADERS only (probeImageSize) — a normal photo
+   *  set pays nothing here; panos are decoded once, sliced, released. */
+  async _slicePanos(files) {
+    const meta = [];
+    let panos = 0, sized = 0, maxW = 0;
+    for (const f of files) {
+      const src = f && f.source !== undefined ? f.source : f;
+      const name = (f && f.name) || (src && src.name) || `image_${meta.length}`;
+      const dims = await probeImageSize(src);
+      const pano = !!dims && isEquirect(dims.w, dims.h);
+      if (dims) sized++;
+      if (pano) { panos++; maxW = Math.max(maxW, dims.w); }
+      meta.push({ src, name, pano });
+    }
+    if (!panos) return { prepared: files, rigs: null };
+    if (panos < sized) {
+      throw new Error('mixed input: 360 panoramas and regular photos in one set are not ' +
+        'supported yet — drop either panos or photos, not both');
+    }
+    // one shared face size + fov for the whole set (the solver's focal is shared)
+    const size = faceSizeFor(maxW);
+    this._log(`360 input: slicing ${panos} equirectangular panos into ${size}px cubemap rigs`);
+    const prepared = [], rigs = [];
+    let f = 0, rigId = 0;
+    for (const b of meta) {
+      const bmp = await createImageBitmap(b.src);
+      const sl = sliceEquirect(bmp, size);
+      bmp.close?.();
+      f = sl.f;
+      const base = b.name.replace(/\.[^.]+$/, '');
+      sl.faces.forEach((cv, k) => {
+        prepared.push({ source: cv, name: `${base}_f${k}` });
+        rigs.push({ id: rigId, R: FACE_ROTS[k] });
+      });
+      rigId++;
+      this._stage({ stage: 'decode', done: rigId, total: meta.length });
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    return { prepared, rigs, focalNative: f, faceSize: size };
   }
 
   /** Use frames prepared elsewhere (e.g. processSource on fetched bitmaps). */
@@ -152,6 +207,10 @@ export class Session {
   /** Structure from motion: camera poses + sparse points from the frames. */
   async solve(extra = {}) {
     const opts = { ...this.opts.sfm, ...extra };
+    if (this.rigInfo && !opts.rigs) {
+      opts.rigs = this.rigInfo;
+      opts.focalPx = opts.focalPx ?? this.rigFocalPx;
+    }
     this.recon = await runSfM(
       this.frames,
       (m) => this._log(m),
