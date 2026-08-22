@@ -54,3 +54,43 @@ export async function plyToSog(plyBytes, { iterations = 10, onProgress = () => {
   if (!bytes) throw new Error('SOG writer produced no output');
   return new Blob([bytes], { type: 'application/octet-stream' });
 }
+
+/**
+ * Trained detail levels -> a Streamed SOG (multi-LOD, spatially chunked).
+ * plyLevels: Uint8Array[] with the FINEST level first (LOD 0), then coarser.
+ * Returns [name, Uint8Array] entries of the streamed-SOG file set (lod-meta
+ * + chunk files) — zip them for a download.
+ */
+export async function plysToLodEntries(plyLevels, { iterations = 10, onProgress = () => {} } = {}) {
+  const st = await loadST();
+  st.logger.setRenderer({
+    handle(e) {
+      if (e.kind === 'barTick') onProgress({ label: e.name, frac: e.total ? e.current / e.total : 0 });
+      else if (e.kind === 'scopeStart') onProgress({ label: e.name, frac: null });
+    },
+  });
+  const rfs = new st.MemoryReadFileSystem();
+  const sources = [];
+  for (let i = 0; i < plyLevels.length; i++) {
+    rfs.set(`l${i}.ply`, plyLevels[i]);
+    const [src] = await st.readFile({ filename: `l${i}.ply`, inputFormat: 'ply', fileSystem: rfs });
+    sources.push(src);
+  }
+  const main = st.stackLods(sources);
+  const out = new st.MemoryFileSystem();
+  let device = null;
+  const createDevice = async () => {
+    device = await st.createGraphicsDevice(document.createElement('canvas'), { deviceTypes: ['webgpu'] });
+    return device;
+  };
+  try {
+    await st.writeLodSource({
+      filename: 'lod-meta.json', mainSource: main, envSource: null,
+      iterations, createDevice, chunkCount: 512, chunkExtent: 16,
+    }, out);
+  } finally {
+    sources.forEach((s2) => s2.close?.());
+    device?.destroy?.();
+  }
+  return [...out.results.entries()];
+}

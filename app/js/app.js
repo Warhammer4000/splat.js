@@ -58,8 +58,8 @@ function deviceDefaults() {
   const phone = matchMedia('(any-pointer: coarse)').matches &&
     Math.min(screen.width, screen.height) <= 820;
   return phone
-    ? { v: 2, res: 480, buf: 1, sh: 0, iters: 0, splats: 0 }
-    : { v: 2, res: 0, buf: 1, sh: 2, iters: 0, splats: 0 };
+    ? { v: 2, res: 480, buf: 1, sh: 0, iters: 0, splats: 0, lod: false }
+    : { v: 2, res: 0, buf: 1, sh: 2, iters: 0, splats: 0, lod: false };
 }
 function loadSettings() {
   const d = deviceDefaults();
@@ -211,6 +211,10 @@ function boot() {
     $('set-iters').value = st.iters ? String(st.iters) : '';
     $('set-splats').value = st.splats ? String(st.splats) : '';
     $('set-q').value = qualityOf(st);
+    // LOD levels only make sense from 1M splats up
+    const lodOk = st.splats >= 1000000;
+    $('set-lod').disabled = !lodOk;
+    $('set-lod').value = lodOk && st.lod ? '1' : '';
   };
   showSettings();
   $('set-q').addEventListener('change', () => {
@@ -244,10 +248,11 @@ function boot() {
     st.sh = parseInt($('set-sh').value, 10);
     st.iters = parseInt($('set-iters').value, 10) || 0;
     st.splats = parseInt($('set-splats').value, 10) || 0;
-    $('set-q').value = qualityOf(st);
+    st.lod = !!$('set-lod').value && st.splats >= 1000000;
+    showSettings();
     saveSettings();
   };
-  for (const id of ['set-res', 'set-buf', 'set-sh', 'set-iters', 'set-splats']) {
+  for (const id of ['set-res', 'set-buf', 'set-sh', 'set-iters', 'set-splats', 'set-lod']) {
     $(id).addEventListener('change', readSettings);
   }
   // count slider: live label while dragging, the (cheaper) photo-list rebuild
@@ -744,11 +749,26 @@ async function startPrep() {
     // big budgets: growth must be able to reach the cap even when the sparse
     // cloud can't seed budget/4 (measured: bar panos init ~500k, cap 4M)
     if (st.splats >= 1000000) trainerOpts.capMult = 16;
+    // LOD training (opt-in, >= 1M budgets): the model pauses at halving
+    // detail levels (250k, 500k, ...) for a polish-and-snapshot before
+    // growing on — so it must START below the lowest level
+    const lodOn = !!st.lod && st.splats >= 1000000;
+    if (lodOn) {
+      const levels = [];
+      for (let n2 = st.splats; n2 >= 250000; n2 = Math.round(n2 / 2)) levels.unshift(n2);
+      // polish scales with the run: every level must be reached AND polished
+      // before growth freezes at 0.75x the horizon
+      const polish = Math.min(12000, Math.max(3000, Math.floor(S.maxIters * 0.05)));
+      S.lodPlan = { levels, idx: 0, holdUntil: null, polish, snaps: [] };
+      trainerOpts.capMult = Math.ceil(st.splats / 250000) + 1;
+    } else {
+      S.lodPlan = null;
+    }
     const session = createSession({
       maxIters: S.maxIters, evalHoldEvery: 2500,
       holdout: -1,
       evalSplit: EVAL.on ? EVAL.split : 0,
-      initTarget: st.splats ? Math.round(st.splats / 4) : undefined,
+      initTarget: lodOn ? 250000 : (st.splats ? Math.round(st.splats / 4) : undefined),
       maxViewW: mvW, maxViewH: mvH,
       frames,
       trainer: Object.keys(trainerOpts).length ? trainerOpts : undefined,
@@ -807,6 +827,7 @@ async function startPrep() {
     S.prep = { stage: 'seed', done: 0, total: 1 };
     await session.seed();
     if (S.gen !== gen) return;
+    if (S.lodPlan) session.trainer.growLimit = S.lodPlan.levels[0];
 
     buildSceneFromSession();
     mountModelCanvas();
@@ -968,6 +989,25 @@ function onMetrics(m) {
   S.iter = m.iter;
   S.splats = m.splats;
   S.itersPerSec = m.itersPerSec;
+  // LOD training: hold the model at each detail level for a polish window,
+  // snapshot it, then raise the growth limit and move on
+  const LP = S.lodPlan;
+  if (LP && S.session?.trainer && LP.idx < LP.levels.length - 1) {
+    const tr = S.session.trainer;
+    if (LP.holdUntil == null && tr.n >= LP.levels[LP.idx]) {
+      LP.holdUntil = m.iter + LP.polish;
+    } else if (typeof LP.holdUntil === 'number' && m.iter >= LP.holdUntil) {
+      LP.holdUntil = 'snapping';
+      const lvl = LP.levels[LP.idx];
+      S.session.exportPlyBlob().then((blob) => {
+        LP.snaps.push({ n: lvl, blob });
+        LP.idx++;
+        LP.holdUntil = null;
+        tr.growLimit = LP.levels[LP.idx];
+        flash(`LOD level ${fmt(lvl)} snapshotted — growing on`, 3500);
+      }).catch(() => { LP.holdUntil = null; });
+    }
+  }
   (S.perfMetrics ??= []).push([Math.round(performance.now()), m.iter, m.itersPerSec,
     m.psnrTrain != null ? m.psnrTrain.toFixed(2) : '', m.psnrHold != null ? m.psnrHold.toFixed(2) : '']);
   if (m.psnrTrain != null) S.psnrTrain = m.psnrTrain;
@@ -1324,6 +1364,7 @@ function buildExport() {
     <div class="menu" hidden>
       <button data-act="arr"><b>Upload to Arrival.Space</b><span>Straight into a space of yours</span></button>
       <button data-act="sog"><b>Download .sog</b><span>Compressed for the web · ~${sogMb} MB</span></button>
+      ${S.lodPlan && S.lodPlan.snaps.length ? `<button data-act="lod"><b>Download LOD</b><span>Streamed SOG, ${S.lodPlan.snaps.length + 1} detail levels · zip</span></button>` : ''}
       <button data-act="ply"><b>Download .ply</b><span>Standard splat file · ${mb} MB</span></button>
       <button data-act="imgs"><b>Download photos</b><span>The ${S.loadedFiles ? S.loadedFiles.length : 0} training images · zip</span></button>
     </div>`;
@@ -1355,6 +1396,47 @@ function buildExport() {
     } catch (e) {
       console.error(e);
       flash(`SOG compression failed: ${e.message}`, 6000);
+    }
+  });
+  wrap.querySelector('[data-act="lod"]')?.addEventListener('click', async () => {
+    menu.hidden = true;
+    try {
+      document.getElementById('sogcard')?.remove();
+      const card = document.createElement('div');
+      card.className = 'upcard';
+      card.id = 'sogcard';
+      card.innerHTML = `
+        <b>Building the streamed LOD</b>
+        <span class="sog-status" id="sog-status">Reading the levels …</span>
+        <div class="prep-meter"><i id="sog-bar" style="width:0%"></i></div>`;
+      $('stage').appendChild(card);
+      const { plysToLodEntries } = await import('./sog.js');
+      // finest first (LOD 0 = the full model), then the snapshots descending
+      const full = S.plyBlob || await S.session.exportPlyBlob();
+      const levels = [new Uint8Array(await full.arrayBuffer())];
+      for (const snap of [...S.lodPlan.snaps].reverse()) {
+        levels.push(new Uint8Array(await snap.blob.arrayBuffer()));
+      }
+      const entries = await plysToLodEntries(levels, {
+        onProgress: ({ label, frac }) => {
+          const st2 = document.getElementById('sog-status');
+          const bar = document.getElementById('sog-bar');
+          if (st2 && label) st2.textContent = label;
+          if (bar && frac != null) bar.style.width = `${(frac * 100).toFixed(1)}%`;
+        },
+      });
+      const zip = zipStore(entries.map(([name, data]) => ({ name: name.replace(/^\//, ''), data })));
+      document.getElementById('sogcard')?.remove();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(zip);
+      a.download = `${(S.preset.name || 'splat').toLowerCase().replace(/\W+/g, '_')}_lod.zip`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      flash(`Streamed LOD with ${levels.length} levels · ${(zip.size / 1e6).toFixed(1)} MB zipped.`, 5000);
+    } catch (e) {
+      document.getElementById('sogcard')?.remove();
+      console.error(e);
+      flash(`LOD build failed: ${e.message}`, 6000);
     }
   });
   wrap.querySelector('[data-act="arr"]').addEventListener('click', () => {

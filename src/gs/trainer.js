@@ -756,8 +756,11 @@ export class GSTrainer {
     // 0.15/step with the 1e-4 minScale floor: capacity converts to real
     // sharpness now (truck 52k -> 235k splats = +0.84dB holdout); the old
     // timid 0.05 predates the floor fix, when extra splats bought nothing
+    // growLimit: a soft, raisable ceiling below cap — LOD training holds the
+    // model at each detail level, snapshots it, then lets it grow on
+    const limit = Math.min(this.cap, this.growLimit || this.cap);
     const grown = this.iter < (this.opts.growUntil ?? 0.75 * this.horizon)
-      ? Math.min(Math.ceil(this.n * (this.opts.growRate ?? 0.15)), this.cap - this.n) : 0;
+      ? Math.max(0, Math.min(Math.ceil(this.n * (this.opts.growRate ?? 0.15)), limit - this.n)) : 0;
     for (let k = 0; k < grown; k++) spawnAt((this.n + k) * STRIDE, true);
     if (grown > 0) {
       this.n += grown;
