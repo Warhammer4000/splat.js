@@ -667,7 +667,7 @@ async function open(preset, autostart = false) {
   S.holdHist = [];
   S._lastReady = null;
   S.growthStopped = false;
-  S.plyBlob = null;
+  S.plyBlob = null; S.sogBlob = null;
   S._recovering = false;
   S._dragPaused = false;
   S._errRender = null;
@@ -741,6 +741,9 @@ async function startPrep() {
     const trainerOpts = {};
     if (st.sh !== 2) trainerOpts.shDeg = st.sh;
     if (st.splats) trainerOpts.maxSplats = st.splats;
+    // big budgets: growth must be able to reach the cap even when the sparse
+    // cloud can't seed budget/4 (measured: bar panos init ~500k, cap 4M)
+    if (st.splats >= 1000000) trainerOpts.capMult = 16;
     const session = createSession({
       maxIters: S.maxIters, evalHoldEvery: 2500,
       holdout: -1,
@@ -1038,7 +1041,7 @@ async function deviceLostRecovery() {
     if (S.gen !== gen) return;
     S.iter = 0; S.psnrTrain = null; S.psnrHold = null;
     S.holdHist = []; S.chartEvents = []; S.growthStopped = false;
-    S.plyBlob = null;
+    S.plyBlob = null; S.sogBlob = null;
     buildSceneFromSession();
     mountModelCanvas();
     startTraining();
@@ -1083,7 +1086,7 @@ async function finish() {
   }
   // cache the export now, while the device is certainly alive — iOS can
   // reclaim it from a backgrounded tab, and the readback path dies with it
-  S.plyBlob = null;
+  S.plyBlob = null; S.sogBlob = null;
   S.session.exportPlyBlob().then((b) => { S.plyBlob = b; }).catch(() => {});
   if (PERF.on) perfCard();
   scoreFrames();
@@ -1255,7 +1258,7 @@ function renderControls() {
 function continueTraining() {
   if (!S.session || S.state !== 'done') return;
   stopTour();
-  S.plyBlob = null;   // the cached export goes stale the moment training resumes
+  S.plyBlob = null; S.sogBlob = null;   // the cached export goes stale the moment training resumes
   S.maxIters = S.session.continueFor(MORE_ITERS);
   S.state = 'train';
   S.trainT0 = performance.now() - S.minutes * 60000;   // minutes stay cumulative
@@ -1278,14 +1281,49 @@ const DL_ICON = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true" class="
   '<path d="M22 15.3333V19.7777C22 20.3671 21.7659 20.9323 21.3491 21.349C20.9324 21.7658 20.3671 21.9999 19.7778 21.9999H4.22222C3.63285 21.9999 3.06762 21.7658 2.65087 21.349C2.23413 20.9323 2 20.3671 2 19.7777V15.3333"/>' +
   '<path d="M6.44449 9.77745L12 15.333M12 15.333L17.5556 9.77745M12 15.333L12 1.99967"/></svg>';
 
+/** The model as a compressed .sog Blob — converted once per run (cached),
+ *  with a proper progress card: the compression takes real time on big
+ *  models and the writer reports its stages. */
+async function getSogBlob() {
+  if (S.sogBlob) return S.sogBlob;
+  const ply = S.plyBlob || await S.session.exportPlyBlob();
+  document.getElementById('sogcard')?.remove();
+  const card = document.createElement('div');
+  card.className = 'upcard';
+  card.id = 'sogcard';
+  card.innerHTML = `
+    <b>Compressing to .sog</b>
+    <span class="sog-status" id="sog-status">Reading the model …</span>
+    <div class="prep-meter"><i id="sog-bar" style="width:0%"></i></div>`;
+  $('stage').appendChild(card);
+  try {
+    const { plyToSog } = await import('./sog.js');
+    const bytes = new Uint8Array(await ply.arrayBuffer());
+    const blob = await plyToSog(bytes, {
+      onProgress: ({ label, frac }) => {
+        const st = document.getElementById('sog-status');
+        const bar = document.getElementById('sog-bar');
+        if (st && label) st.textContent = label;
+        if (bar && frac != null) bar.style.width = `${(frac * 100).toFixed(1)}%`;
+      },
+    });
+    S.sogBlob = blob;
+    return blob;
+  } finally {
+    document.getElementById('sogcard')?.remove();
+  }
+}
+
 function buildExport() {
   const mb = (S.splats * 164 / 1e6).toFixed(1); // 41 float properties per splat (SH deg 2)
+  const sogMb = (S.splats * 164 / 1e6 / 15).toFixed(1); // SOG lands around 1/15th
   const wrap = document.createElement('div');
   wrap.className = 'exportwrap';
   wrap.innerHTML = `
     <button class="iconbtn" title="Export" aria-label="Export">${DL_ICON}</button>
     <div class="menu" hidden>
       <button data-act="arr"><b>Upload to Arrival.Space</b><span>Straight into a space of yours</span></button>
+      <button data-act="sog"><b>Download .sog</b><span>Compressed for the web · ~${sogMb} MB</span></button>
       <button data-act="ply"><b>Download .ply</b><span>Standard splat file · ${mb} MB</span></button>
       <button data-act="imgs"><b>Download photos</b><span>The ${S.loadedFiles ? S.loadedFiles.length : 0} training images · zip</span></button>
     </div>`;
@@ -1296,15 +1334,28 @@ function buildExport() {
     document.querySelectorAll('.menu').forEach((m) => { if (m !== menu) m.hidden = true; });
     menu.hidden = !menu.hidden;
   });
-  wrap.querySelector('[data-act="ply"]').addEventListener('click', async () => {
-    menu.hidden = true;
-    const blob = S.plyBlob || await S.session.exportPlyBlob();
+  const download = (blob, ext) => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `${(S.preset.name || 'splat').toLowerCase().replace(/\W+/g, '_')}.ply`;
+    a.download = `${(S.preset.name || 'splat').toLowerCase().replace(/\W+/g, '_')}.${ext}`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  };
+  wrap.querySelector('[data-act="ply"]').addEventListener('click', async () => {
+    menu.hidden = true;
+    download(S.plyBlob || await S.session.exportPlyBlob(), 'ply');
     flash(`${fmt(S.splats)} splats on their way to your downloads.`, 3500);
+  });
+  wrap.querySelector('[data-act="sog"]').addEventListener('click', async () => {
+    menu.hidden = true;
+    try {
+      const blob = await getSogBlob();
+      download(blob, 'sog');
+      flash(`${fmt(S.splats)} splats compressed to ${(blob.size / 1e6).toFixed(1)} MB.`, 4000);
+    } catch (e) {
+      console.error(e);
+      flash(`SOG compression failed: ${e.message}`, 6000);
+    }
   });
   wrap.querySelector('[data-act="arr"]').addEventListener('click', () => {
     menu.hidden = true;
@@ -1369,8 +1420,11 @@ function uploadDialog() {
     }
     S.uploading = true;
     try {
-      const blob = S.plyBlob || await S.session.exportPlyBlob();
+      // uploads are always SOG-compressed — 10-20x smaller on the wire and
+      // the space streams it natively
+      const blob = await getSogBlob();
       const url = await sendToArrival(blob, title, {
+        ext: 'sog',
         popup,
         onStatus: (m) => flash(m, 120000),
         onProgress: (pct) => flash(`Uploading … ${pct}%`, 120000),

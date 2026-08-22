@@ -684,6 +684,12 @@ body { overflow: hidden; }
 
 label.btn { cursor: pointer; }
 
+/* the SOG compression card: stage name + determinate bar */
+.sog-status {
+  display: block; font: 400 12px var(--mono); color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
 /* the no-WebGPU notice: quiet, specific, sits above the upload buttons */
 .gpuwarn {
   margin: 16px auto 4px; max-width: 54ch; text-align: left;

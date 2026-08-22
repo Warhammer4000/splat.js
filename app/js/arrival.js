@@ -184,9 +184,9 @@ async function pollJob(jobId, token, onStatus) {
 /** The whole thing: sign in (once), upload the .ply, make a space.
  *  Returns the new space's URL. `popup`: a synchronously opened window for
  *  the first sign-in (null when hasToken()). */
-export async function sendToArrival(blob, title, { onStatus = () => {}, onProgress = () => {}, popup = null } = {}) {
+export async function sendToArrival(blob, title, { ext = 'ply', onStatus = () => {}, onProgress = () => {}, popup = null } = {}) {
   const token = await getToken(onStatus, popup);
-  const fileName = `${(title || 'splat').toLowerCase().replace(/\W+/g, '_')}.ply`;
+  const fileName = `${(title || 'splat').toLowerCase().replace(/\W+/g, '_')}.${ext}`;
 
   const run = async () => {
     onStatus('Preparing upload …');
