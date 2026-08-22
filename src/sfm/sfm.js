@@ -1047,8 +1047,11 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
       }
       if (baPoints.length < 50) return null;
       const t0 = performance.now();
+      // rigs enter BA as ONE 6-DOF block per rig — no per-face pose exists
+      const baRig = rigOf ? regList.map((img) => rigOf[img] ? { id: rigOf[img].id, Rf: rigOf[img].R } : null) : null;
       const res = bundleAdjust(
-        { cams: baCams, points: baPoints, obs: baObs, f: K[regList[0]].f, cx: K[regList[0]].cx, cy: K[regList[0]].cy },
+        { cams: baCams, points: baPoints, obs: baObs, camRig: baRig,
+          f: K[regList[0]].f, cx: K[regList[0]].cx, cy: K[regList[0]].cy },
         { maxIters: o.maxIters ?? 30, huberPx: 1.5,
           refineDistortion: o.refineDistortion ?? (sfmOpts.refineDistortion ?? true),
           refineAspect: sfmOpts.refineAspect ?? false,
