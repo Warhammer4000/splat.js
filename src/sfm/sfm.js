@@ -21,6 +21,7 @@ import { matchDescriptors } from './matching.js';
 import {
   I3, ransacE, decomposeE, selectPose, triangulateN, parallaxAngle,
   pnpRansac, refinePose, reprojError, makeRng, m3t, m3mulv,
+  rodrigues, m3mul, solveLinear,
 } from './geometry.js';
 import { bundleAdjust } from './ba.js';
 import { rotationAveraging, globalPositionsJoint } from './global.js';
@@ -708,6 +709,98 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
       -(R[2] * t[0] + R[5] * t[1] + R[8] * t[2]),
     ];
 
+    /** The rig's 2D-3D correspondences over ALL its faces, as bearing vectors
+     *  in the RIG frame — one face is a narrow ambiguous view, the union
+     *  looks in every direction (a central omnidirectional camera). */
+    function corrsForRig(rid) {
+      const obj = [], brg = [];
+      for (let i = 0; i < n; i++) {
+        if (!rigOf[i] || rigOf[i].id !== rid) continue;
+        const Rf = rigOf[i].R;
+        const ft = featTrack[i];
+        for (let f2 = 0; f2 < feats[i].n; f2++) {
+          const tid = ft[f2];
+          if (tid < 0) continue;
+          const tr = tracks[tid];
+          if (!tr.X) continue;
+          const o = tr.obs.find((oo) => oo.img === i);
+          if (!o || !o.ok) continue;
+          const xn = feats[i].xn[f2], yn = feats[i].yn[f2];
+          const inv = 1 / Math.hypot(xn, yn, 1);
+          // face ray -> rig frame (Rf is rig->face, so apply its transpose)
+          brg.push([
+            (Rf[0] * xn + Rf[3] * yn + Rf[6]) * inv,
+            (Rf[1] * xn + Rf[4] * yn + Rf[7]) * inv,
+            (Rf[2] * xn + Rf[5] * yn + Rf[8]) * inv,
+          ]);
+          obj.push(tr.X);
+        }
+      }
+      return { obj, brg };
+    }
+
+    /** 6-DOF rig pose refinement on bearing vectors: Gauss-Newton with
+     *  numeric jacobians on angular residuals, alternated with inlier
+     *  re-selection (same shape as registerImage's tryFrom, but over the
+     *  whole sphere at once). Returns { R, C, inliers } or null. */
+    function refineRigAngular(R0, C0, obj, brg, thAng) {
+      let R = Array.from(R0), C = C0.slice();
+      const resid = (R2, C2, o, b) => {
+        const dx = o[0] - C2[0], dy = o[1] - C2[1], dz = o[2] - C2[2];
+        let vx = R2[0] * dx + R2[1] * dy + R2[2] * dz;
+        let vy = R2[3] * dx + R2[4] * dy + R2[5] * dz;
+        let vz = R2[6] * dx + R2[7] * dy + R2[8] * dz;
+        const inv = 1 / (Math.hypot(vx, vy, vz) || 1e-12);
+        return [vx * inv - b[0], vy * inv - b[1], vz * inv - b[2]];
+      };
+      const angErr = (R2, C2, o, b) => {
+        const e = resid(R2, C2, o, b);
+        return Math.hypot(e[0], e[1], e[2]);   // ~angle in radians (small)
+      };
+      let inliers = 0;
+      for (let round = 0; round < 3; round++) {
+        const io = [], ib = [];
+        for (let k = 0; k < obj.length; k++)
+          if (angErr(R, C, obj[k], brg[k]) < thAng * 1.5) { io.push(obj[k]); ib.push(brg[k]); }
+        inliers = io.length;
+        if (inliers < 12) return null;
+        for (let it = 0; it < 5; it++) {
+          const JTJ = new Float64Array(36), JTr = new Float64Array(6);
+          const eps = 1e-5;
+          const apply = (d) => {
+            const Rn = m3mul(rodrigues([d[0], d[1], d[2]]), R);
+            return [Rn, [C[0] + d[3], C[1] + d[4], C[2] + d[5]]];
+          };
+          for (let k = 0; k < io.length; k++) {
+            const r0 = resid(R, C, io[k], ib[k]);
+            const Jk = [];
+            for (let p = 0; p < 6; p++) {
+              const d = [0, 0, 0, 0, 0, 0];
+              d[p] = eps;
+              const [Rp, Cp] = apply(d);
+              const rp = resid(Rp, Cp, io[k], ib[k]);
+              Jk.push([(rp[0] - r0[0]) / eps, (rp[1] - r0[1]) / eps, (rp[2] - r0[2]) / eps]);
+            }
+            for (let a = 0; a < 6; a++) {
+              for (let b2 = a; b2 < 6; b2++) {
+                const v = Jk[a][0] * Jk[b2][0] + Jk[a][1] * Jk[b2][1] + Jk[a][2] * Jk[b2][2];
+                JTJ[a * 6 + b2] += v;
+                if (a !== b2) JTJ[b2 * 6 + a] += v;
+              }
+              JTr[a] += Jk[a][0] * r0[0] + Jk[a][1] * r0[1] + Jk[a][2] * r0[2];
+            }
+          }
+          for (let a = 0; a < 6; a++) JTJ[a * 6 + a] *= 1.001;   // mild damping
+          const delta = solveLinear(JTJ, JTr.map((v) => -v), 6);
+          if (!delta) break;
+          const [Rn, Cn] = apply(delta);
+          R = Rn; C = Cn;
+          if (Math.hypot(...delta) < 1e-9) break;
+        }
+      }
+      return { R, C, inliers };
+    }
+
     // ---- initialization pair: ranked by shared tracks ----
     const candPairs = [...sharedCount.entries()]
       .map(([k, c]) => ({ i: (k / 10000) | 0, j: k % 10000, c }))
@@ -1133,13 +1226,31 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
         }
 
         // rig propagation: siblings share the centre and sit at fixed, known
-        // rotations — pose them all now. Their observations join the map and
-        // triangulate against OTHER rigs (the parallax gate rejects the
-        // zero-baseline same-rig combinations).
+        // rotations — pose them all now. The single face's PnP is an ambiguous
+        // narrow view, so the rig pose is REFINED jointly on the union of all
+        // faces' bearings (a central omnidirectional camera) before the
+        // propagation. Sibling observations then join the map and triangulate
+        // against OTHER rigs (the parallax gate rejects the zero-baseline
+        // same-rig combinations).
         if (rigOf && rigOf[bestImg]) {
           const rf = rigOf[bestImg];
-          const Rr = tmul3(rf.R, reg.R);            // world->rig
-          const C = centreOf(reg.R, reg.t);
+          let Rr = tmul3(rf.R, reg.R);              // world->rig
+          let C = centreOf(reg.R, reg.t);
+          const u = corrsForRig(rf.id);
+          if (u.obj.length >= 12) {
+            const jr = refineRigAngular(Rr, C, u.obj, u.brg, thN(bestImg));
+            if (jr) {
+              Rr = jr.R; C = jr.C;
+              // rewrite the entry face from the joint pose too
+              const Rb = mul3(rf.R, Rr);
+              poses[bestImg] = { R: Rb, t: [
+                -(Rb[0] * C[0] + Rb[1] * C[1] + Rb[2] * C[2]),
+                -(Rb[3] * C[0] + Rb[4] * C[1] + Rb[5] * C[2]),
+                -(Rb[6] * C[0] + Rb[7] * C[1] + Rb[8] * C[2]),
+              ] };
+              vlog(`rig ${rf.id}: joint pose over ${u.obj.length} bearings (${jr.inliers} in)`);
+            }
+          }
           for (let j = 0; j < n; j++) {
             if (j === bestImg || registered.has(j)) continue;
             if (!rigOf[j] || rigOf[j].id !== rf.id) continue;
