@@ -92,7 +92,16 @@ export async function gpuMatchAll(feats, pairs, ratio = 0.8, log = () => {}, ext
   if (!device) {
     const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
     if (!adapter) throw new Error('no WebGPU adapter');
-    device = await adapter.requestDevice();
+    // the concatenated descriptor buffer outgrows the 128MB default binding
+    // limit around ~1M features (456 rescued bar faces hit 149MB — every
+    // dispatch silently no-oped and the whole solve saw zero matches)
+    const want = 1 << 30;
+    device = await adapter.requestDevice({
+      requiredLimits: {
+        maxStorageBufferBindingSize: Math.min(adapter.limits.maxStorageBufferBindingSize, want),
+        maxBufferSize: Math.min(adapter.limits.maxBufferSize, want),
+      },
+    });
     ownDevice = true;
   }
   const pipeline = getPipeline(device);

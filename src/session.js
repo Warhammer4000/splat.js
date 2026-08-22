@@ -211,11 +211,18 @@ export class Session {
       opts.rigs = this.rigInfo;
       opts.focalPx = opts.focalPx ?? this.rigFocalPx;
     }
+    // the GPU matcher shares the session device (created here rather than at
+    // seed) — it carries the raised buffer limits big feature sets need
+    if (!this.gpu) {
+      this.gpu = await createGpu({ device: this.opts.device });
+      this.gpu.onLost = (info) => this._deviceLost(info);
+    }
     this.recon = await runSfM(
       this.frames,
       (m) => this._log(m),
       (imgIdx, x, y) => this.frames[imgIdx].sampleColor(x, y),
       {
+        gpu: this.gpu,
         ...opts,
         onEvent: (e) => { this._stage(e); if (opts.onEvent) opts.onEvent(e); },
         debug: (d) => { this._debug = d; if (opts.debug) opts.debug(d); },
