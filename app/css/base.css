@@ -219,7 +219,8 @@ h1, h2, h3 { margin: 0; font-weight: 600; }
 .guide-teaser p { margin: 0 0 14px; color: var(--dim); font-size: 13px; }
 
 .btn {
-  display: inline-flex; align-items: center; gap: 8px;
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 8px; text-align: center;
   padding: 9px 18px; border-radius: var(--pill);
   background: var(--paper); color: var(--ink);
   font-weight: 600; font-size: 13.5px;

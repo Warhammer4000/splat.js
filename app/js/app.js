@@ -333,6 +333,12 @@ function boot() {
     }
     if (S.picking && e.key === 'Escape') { closePicker(); return; }
     if (e.key === ' ' && S.state === 'train') { e.preventDefault(); toggleTrain(); }
+    if (e.key === ' ' && S.state === 'done') {
+      // viewing a result: space plays/pauses the capture-path flight
+      e.preventDefault();
+      if (S.tour) stopTour();
+      else { if (S.atFrame >= 0) leaveFrame(); startTour(true); }
+    }
     if (e.key === 'ArrowRight') select(S.sel + 1);
     if (e.key === 'ArrowLeft') select(S.sel - 1);
     if (WASD.includes(e.code)) S.keys.add(e.code);
