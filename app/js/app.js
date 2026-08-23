@@ -727,7 +727,7 @@ async function open(preset, autostart = false) {
   S._viewKey = '';
   document.getElementById('cv-model')?.remove();
   gpuCanvas = null;
-  $('btn-go').textContent = 'Start training';
+  setStartStyle(true);
   $('btn-go').disabled = !!S.noGpu;
   $('btn-settings').disabled = false;
   $('card-x').hidden = true;
@@ -1907,7 +1907,9 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
 function setStartStyle(primary) {
   const b = $('btn-go');
   b.classList.toggle('btn-accent', primary);
+  b.classList.toggle('big', primary);
   b.classList.toggle('btn-outline', !primary);
+  b.textContent = primary ? 'Start training' : 'Train locally';
 }
 
 /** The stat strip under the detail hero. Before a run starts it describes
@@ -1953,7 +1955,7 @@ function showDetail(setOrPreset) {
     // published model's train PSNR joins the input facts once resolved
     const view = document.createElement('a');
     view.id = 'detail-view';
-    view.className = 'btn btn-accent';
+    view.className = 'btn btn-accent big';
     view.href = `index.html?space=${encodeURIComponent(setOrPreset.spaceId)}`;
     view.textContent = 'View';
     document.querySelector('.startrow').prepend(view);
@@ -1965,7 +1967,6 @@ function showDetail(setOrPreset) {
         paintDetailStats();
       }).catch(() => {});
   }
-  $('btn-go').textContent = 'Start training';
   $('btn-go').disabled = !!S.noGpu;
   $('start').hidden = true;
   $('detail').hidden = false;
@@ -1999,7 +2000,6 @@ async function showCommunityDetail(it) {
   document.querySelector('.startrow').prepend(view);
   setStartStyle(false);
   const go = $('btn-go');
-  go.textContent = 'Start training';
   go.title = '';
   go.disabled = !!S.noGpu;
   $('start').hidden = true;
@@ -2150,8 +2150,8 @@ function trainFromShare() {
   buildStrip(true);   // the card covers the strip — thumbs wait for the run
   $('set-desc').innerHTML = `<b>${esc(rj.name || 'Shared sample')}</b> — ${S.photos.length} photographs from this creation, ready to train. The gear holds quality settings.`;
   $('set-desc').hidden = false;
+  setStartStyle(true);
   $('btn-go').disabled = !!S.noGpu;
-  $('btn-go').textContent = 'Start training';
   if (WALL_FIRST) {
     $('start').hidden = false;
   } else {
