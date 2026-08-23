@@ -1509,7 +1509,7 @@ function renderControls() {
     // the creation carries its photographs — the viewer can become the maker
     const train = document.createElement('button');
     train.className = 'cbtn accent';
-    train.textContent = 'Train this yourself';
+    train.textContent = 'Train';
     train.title = `Solve and train the same ${rj.source.urls.length} photographs right here`;
     train.addEventListener('click', trainFromShare);
     c.appendChild(train);
