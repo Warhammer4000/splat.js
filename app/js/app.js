@@ -172,6 +172,29 @@ function boot() {
 
   $('btn-go').addEventListener('click', async () => {
     if (S.picking) { const p = S.pending || S.preset; closePicker(); await open(p, true); return; }
+    if (S.pendingShare) {
+      // a community set: its photographs were deliberately NOT loaded with
+      // the detail card — resolve the recon now, on the actual start
+      const it = S.pendingShare;
+      const go = $('btn-go');
+      go.disabled = true;
+      flash('Fetching the photographs …', 30000);
+      try {
+        const rj = await fetchShareRecon(it);
+        if (!rj.source || !rj.source.urls || !rj.source.urls.length || !rj.source.urls.every(Boolean)) {
+          throw new Error('this creation has no public photographs to train from');
+        }
+        S.preset = { id: '__sample', name: it.title || 'Shared creation' };
+        S.photos = rj.source.names.map((n, i) => ({ url: rj.source.urls[i], name: n }));
+        S.sel = 0;
+        S.pendingShare = null;
+      } catch (e) {
+        flash(`Could not start: ${e.message}`, 8000);
+        go.disabled = false;
+        return;
+      }
+      go.disabled = false;
+    }
     startPrep();
   });
   $('btn-new').addEventListener('click', (e) => {
@@ -369,6 +392,7 @@ function boot() {
     $('start').appendChild($('gallery'));
     $('detail-body').append($('set-desc'), document.querySelector('.startrow'), $('settings'));
     $('detail-back').addEventListener('click', () => {
+      S.pendingShare = null;
       $('detail').hidden = true;
       $('start').hidden = false;
     });
@@ -575,7 +599,7 @@ function applyCount(preset) {
   if (ap) ap.textContent = `${approxFor(preset, cnt)} on a fast GPU`;
   if (S.state === 'ready' && !S.picking && S.preset === preset && !preset.files) {
     S.photos = presetPhotoList(preset, cnt);
-    buildStrip();
+    buildStrip(true);   // still behind the card — no thumb fetches yet
   }
 }
 
@@ -722,9 +746,10 @@ async function open(preset, autostart = false) {
   } else {
     S.photos = presetPhotoList(preset, preset.useCount || preset.count);
   }
-  buildStrip();
+  // deferred: the strip sits behind the fullscreen card — its thumbnails
+  // load once training starts (or a tile is touched), not now
+  buildStrip(true);
   paintCard(preset);
-  bmp(S.photos[0].url);
   if (autostart) startPrep();
   else $('start').hidden = false;
 }
@@ -749,6 +774,7 @@ async function startPrep() {
   S.state = 'prep';
   S.prep = { stage: 'decode', done: 0, total: S.photos.length };
   dock('prep');
+  buildStrip();   // the card is gone — the strip is visible now, load live
 
   try {
     // view buffers sized for the screen at 1x CSS pixels (the stage renders
@@ -1896,6 +1922,7 @@ function paintDetailStats(sj, placed) {
 function showDetail(setOrPreset) {
   if (WALL_FIRST) return;
   document.getElementById('detail-view')?.remove();
+  S.pendingShare = null;   // this card is a set with its photos in hand
   const hero = $('detail-hero');
   const src = (S.photos && S.photos[0] && S.photos[0].url) || null;
   hero.hidden = !src;
@@ -1942,39 +1969,26 @@ async function showCommunityDetail(it) {
   document.querySelector('.startrow').prepend(view);
   const go = $('btn-go');
   go.textContent = 'Start training';
-  go.disabled = true;
+  go.title = '';
+  go.disabled = !!S.noGpu;
   $('start').hidden = true;
   $('detail').hidden = false;
-  // the photographs live in the creation's recon — fetch it, then Start works
-  try {
-    const { unzipStore } = await import('./session_io.js');
-    const r = await fetch(it.splatjs.reconUrl);
-    if (!r.ok) throw new Error('recon unavailable');
-    const rb = new Uint8Array(await r.arrayBuffer());
-    let rj;
-    if (rb[0] === 0x50 && rb[1] === 0x4b) {
-      const entry = unzipStore(rb).get('recon.json');
-      rj = JSON.parse(new TextDecoder().decode(entry));
-    } else {
-      rj = JSON.parse(new TextDecoder().decode(rb));
-    }
-    if ($('detail').hidden) return;   // the user already went back
-    if (rj.cams && rj.source && rj.source.names) {
-      paintDetailStats(it.splatjs, `${rj.cams.length}/${rj.source.names.length}`);
-    }
-    if (rj.source && rj.source.urls && rj.source.urls.length && rj.source.urls.every(Boolean)) {
-      S.preset = { id: '__sample', name: it.title || 'Shared creation' };
-      S.photos = rj.source.names.map((n, i) => ({ url: rj.source.urls[i], name: n }));
-      S.sel = 0;
-      buildStrip();
-      go.disabled = !!S.noGpu;
-    } else {
-      go.title = 'This creation has no public photographs to train from';
-    }
-  } catch (e) {
-    console.error(e);
-    go.title = 'Could not fetch this creation\'s photographs';
+  // nothing else loads here: the creation's recon (and with it the
+  // photographs) is fetched when Start is actually pressed
+  S.pendingShare = it;
+}
+
+/** The creation's recon json (plain or store-zipped) — the photographs and
+ *  cameras a "train this yourself" run needs. */
+async function fetchShareRecon(it) {
+  const { unzipStore } = await import('./session_io.js');
+  const r = await fetch(it.splatjs.reconUrl);
+  if (!r.ok) throw new Error('recon unavailable');
+  const rb = new Uint8Array(await r.arrayBuffer());
+  if (rb[0] === 0x50 && rb[1] === 0x4b) {
+    return JSON.parse(new TextDecoder().decode(unzipStore(rb).get('recon.json')));
   }
+  return JSON.parse(new TextDecoder().decode(rb));
 }
 
 /** One creation tile (community and mine share the look; mine adds the
@@ -2042,20 +2056,23 @@ function creationTile(it, mine) {
 async function mountWall() {
   try {
     const { fetchGallery } = await import('./share.js');
-    const [{ items }, capTile] = await Promise.all([
+    const [{ items }, capTile, capTileWall] = await Promise.all([
       fetchGallery({ count: 12 }),
       lastCaptureTile().catch(() => null),
+      lastCaptureTile().catch(() => null),   // second instance for Scenes
     ]);
     const localTab = hasToken() || !!capTile;
     if ((!items || !items.length) && !localTab) return;
     const host = $('gallery');
     host.innerHTML = `
-      <div class="orline galtabs"><span><b data-tab="community" class="on">Scenes</b>${localTab ? `<b data-tab="mine">Local</b>` : ''}</span></div>
+      <div class="orline galtabs"><span><b data-tab="community" class="on">Scenes</b>${localTab ? `<b data-tab="mine">Yours</b>` : ''}</span></div>
       <div class="galrow" data-pane="community"></div>
       ${localTab ? '<div class="galrow" data-pane="mine" hidden></div>' : ''}`;
     const row = host.querySelector('[data-pane="community"]');
-    // pinned tiles lead (splatjs.pin, lowest first); the rest keep the
-    // server's newest-first order (Array sort is stable)
+    // the visitor's own capture leads the wall; then pinned tiles
+    // (splatjs.pin, lowest first); the rest keep the server's newest-first
+    // order (Array sort is stable)
+    if (capTileWall) row.appendChild(capTileWall);
     const ordered = (items || []).slice().sort((a, b) =>
       (((a.splatjs && a.splatjs.pin) || 9e9)) - (((b.splatjs && b.splatjs.pin) || 9e9)));
     for (const it of ordered) row.appendChild(creationTile(it, false));
@@ -2073,7 +2090,7 @@ async function mountWall() {
         sharesLoaded = true;
         const { fetchMine } = await import('./share.js');
         const my = await fetchMine();
-        if ((!my || !my.length) && !capTile) { mp.innerHTML = '<span class="galmeta" style="padding:12px 4px">Nothing local yet — capture a place or finish a run and press Share.</span>'; return; }
+        if ((!my || !my.length) && !capTile) { mp.innerHTML = '<span class="galmeta" style="padding:12px 4px">Nothing of yours yet — capture a place or finish a run and press Share.</span>'; return; }
         for (const it of (my || [])) mp.appendChild(creationTile(it, true));
         if (!capTile) dragScroll(mp);
       }
@@ -2099,7 +2116,7 @@ function trainFromShare() {
   S.sel = 0; S.atFrame = -1; S.fadeTo = 0;
   vp.lock = null; vp.pose = null; vp.scene = null; S.scene = null;
   renderControls();
-  buildStrip();
+  buildStrip(true);   // the card covers the strip — thumbs wait for the run
   $('set-desc').innerHTML = `<b>${esc(rj.name || 'Shared sample')}</b> — ${S.photos.length} photographs from this creation, ready to train. The gear holds quality settings.`;
   $('set-desc').hidden = false;
   $('btn-go').disabled = !!S.noGpu;
