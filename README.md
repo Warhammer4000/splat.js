@@ -25,6 +25,16 @@ Gaussians trained, all live in one Chrome tab.*
 
 Live: **https://arrival.space/splat-js**
 
+Or open a finished result straight away — every trained run can be saved and
+shared, and `?model=<url>` (+ `&recon=<url>` for the solved camera path)
+loads it back into the viewer, capture-path tour included:
+
+**[The Bar — a real bar from 76 handheld 360° panoramas](https://arrival.space/splat-js/index.html?model=https://ugc.arrival.space/splatjs/models/bar360_4m_1024.sog&recon=https://ugc.arrival.space/splatjs/models/bar360_4m_1024_recon.json)**
+— each panorama sliced into cube faces and solved as one camera rig,
+4,000,000 Gaussians trained at 1024 px for 400 k cycles: **27.4 dB against
+its training photographs**, ~2.5 h in one tab. (Scene from
+[360Roam](https://huajianup.github.io/research/360Roam/), CC BY-NC-SA.)
+
 Or locally:
 
 ```
