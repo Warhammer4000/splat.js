@@ -1775,7 +1775,7 @@ function shareDialog() {
     try {
       const { shareCreation } = await import('./share.js');
       const sog = await getSogBlob();
-      const thumb = await renderShareThumb();
+      const thumb = (await photoThumb()) || (await renderShareThumb());
       const { spaceId, spaceUrl, link } = await shareCreation(S, sog, {
         title, privacy, includePhotos, thumbBlob: thumb, popup,
         onStatus: (m) => flash(m, 120000),
@@ -1794,8 +1794,29 @@ function shareDialog() {
   });
 }
 
-/** A ~640px view render for the gallery tile — the photographer's first
- *  viewpoint, snapshotted behind a fence like the error render. */
+/** The gallery hero is the capture's FIRST PHOTOGRAPH, downscaled — the
+ *  real image, not a model render. */
+async function photoThumb() {
+  try {
+    const p = S.photos && S.photos[0];
+    if (!p) return null;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.src = p.url;
+    await img.decode();
+    const W = Math.min(640, img.naturalWidth);
+    const H = Math.max(1, Math.round(W * img.naturalHeight / img.naturalWidth));
+    const cv = document.createElement('canvas');
+    cv.width = W; cv.height = H;
+    cv.getContext('2d').drawImage(img, 0, 0, W, H);
+    return await new Promise((res) => cv.toBlob(res, 'image/webp', 0.85));
+  } catch (e) {
+    return null; // tainted canvas / missing photo -> fall back to a render
+  }
+}
+
+/** Fallback when no photograph is reachable: a ~640px view render from the
+ *  first registered camera's pose. */
 async function renderShareThumb() {
   try {
     const ses = S.session;
