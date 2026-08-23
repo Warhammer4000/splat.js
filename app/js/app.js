@@ -1281,7 +1281,9 @@ async function restoreSession(src) {
                  state: 'placed', feats: 0, name: c.name };
       });
     }
-    buildStrip(true);   // viewer mode: no training-photo fetches on load
+    // viewer mode: the strip is visible UI — thumbs lazy-load for the tiles
+    // in view (deferral is for the card flows, where the strip is covered)
+    buildStrip();
     const cl = (reconJson && reconJson.cloud) || { xyz: [], rgb: [] };
     let center = reconJson && reconJson.center;
     let radius = (reconJson && reconJson.sceneRadius) || ses.model.radius;
