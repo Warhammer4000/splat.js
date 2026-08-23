@@ -1207,6 +1207,32 @@ async function restoreSession(src) {
   try {
     $('start').hidden = true;
     flash('Loading the model …', 120000);
+    // SOG + recon: the lite viewer — the engine renders the compressed splat
+    // directly (sorted, WebGL2), nothing decodes to float arrays, and phones
+    // without WebGPU can still view. ?nopc forces the trainer view.
+    const liteOk = !src.bytes && src.url && /\.sog($|\?)/.test(src.url) && src.reconUrl &&
+      !new URLSearchParams(location.search).has('nopc');
+    if (liteOk) {
+      try {
+        const r = await fetch(src.reconUrl);
+        if (!r.ok) throw new Error(`recon fetch failed (${r.status})`);
+        const buf = new Uint8Array(await r.arrayBuffer());
+        let reconJson;
+        if (buf[0] === 0x50 && buf[1] === 0x4b) {
+          const { unzipStore } = await import('./session_io.js');
+          reconJson = JSON.parse(new TextDecoder().decode(unzipStore(buf).get('recon.json')));
+        } else {
+          reconJson = JSON.parse(new TextDecoder().decode(buf));
+        }
+        const { createSogView } = await import('./pcview.js');
+        const ses = await createSogView(src.url, { radius: reconJson.sceneRadius || 10 });
+        ses.frames = (reconJson.frames || []).map((f) => ({ ...f }));
+        finishRestore(ses, reconJson, reconJson.splats || 0, false, null);
+        return;
+      } catch (e) {
+        console.warn('sog viewer failed — falling back to the trainer view', e);
+      }
+    }
     const { decodeModel } = await import('./session_io.js');
     const got = src.bytes
       ? await decodeModel(src.bytes, src.reconUrl)
@@ -1228,11 +1254,24 @@ async function restoreSession(src) {
       iter,
       trainer: { maxSplats: gaussians.n, capMult: 1 },
     });
+    finishRestore(ses, reconJson, gaussians.n, !!state, gaussians);
+  } catch (e) {
+    console.error(e);
+    $('start').hidden = false;
+    flash(`Could not load the model: ${e.message}`, 8000);
+  }
+}
+
+/** The shared back half of a restore: viewer state, scene, strip, tour —
+ *  works for a real (view-only) session and for the SOG-lite stand-in. */
+function finishRestore(ses, reconJson, nSplats, hasState, gaussians) {
+  try {
+    const iter = (reconJson && reconJson.iter) || 0;
     S.session = ses;
     const stats = (reconJson && reconJson.stats) || {};
-    S.restored = { hasState: !!state, stats, reconJson };
+    S.restored = { hasState, stats, reconJson };
     S.preset = { id: '__restored', name: (reconJson && reconJson.name) || 'shared splat' };
-    S.splats = gaussians.n;
+    S.splats = nSplats;
     S.maxIters = iter || 1;
     S.iter = iter;
     S.minutes = stats.minutes || 0;
@@ -1287,7 +1326,7 @@ async function restoreSession(src) {
     const cl = (reconJson && reconJson.cloud) || { xyz: [], rgb: [] };
     let center = reconJson && reconJson.center;
     let radius = (reconJson && reconJson.sceneRadius) || ses.model.radius;
-    if (!center) {
+    if (!center && gaussians) {
       // bare model files carry no scene metadata — read it off the splats
       const d = gaussians.data, step = Math.max(1, Math.floor(gaussians.n / 20000)) * 16;
       let sx = 0, sy = 0, sz = 0, m = 0;
@@ -1301,6 +1340,8 @@ async function restoreSession(src) {
       }
       dists.sort((a, b) => a - b);
       radius = Math.sqrt(dists[dists.length >> 1]) * 2;
+    } else if (!center) {
+      center = [0, 0, 0];
     }
     S.scene = {
       cams,
@@ -1319,14 +1360,20 @@ async function restoreSession(src) {
     renderControls();
     dock('');
     if (cams.length > 2) startTour();
-    // the model renders now — the stand-in hero image fades away
+    // the stand-in hero image fades once the model actually renders — for
+    // the SOG-lite viewer that is when the asset finishes streaming
     const hero = document.getElementById('share-hero');
-    if (hero) { hero.classList.add('gone'); setTimeout(() => hero.remove(), 700); }
-    flash(`Loaded ${fmt(gaussians.n)} splats — ${S.preset.name}.`, 5000);
+    if (hero) {
+      Promise.resolve(ses._boot).then(() => {
+        hero.classList.add('gone');
+        setTimeout(() => hero.remove(), 700);
+      });
+    }
+    flash(`Loaded ${fmt(nSplats)} splats — ${S.preset.name}.`, 5000);
   } catch (e) {
     console.error(e);
     $('start').hidden = false;
-    flash(`Could not load the model: ${e.message}`, 8000);
+    flash(`Could not present the model: ${e.message}`, 8000);
   }
 }
 
