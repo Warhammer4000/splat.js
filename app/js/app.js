@@ -352,7 +352,13 @@ function boot() {
 
   $('gh').href = REPO;
   $('about-gh').href = REPO;
-  $('brand').addEventListener('click', (e) => { e.stopPropagation(); $('about').hidden = false; });
+  // the brand is simply the way home; the About sheet lives behind the
+  // hero's Read-more link instead
+  $('brand').addEventListener('click', () => { location.href = 'index.html'; });
+  $('read-more').addEventListener('click', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    $('about').hidden = false;
+  });
   $('about-x').addEventListener('click', () => { $('about').hidden = true; });
   $('about').addEventListener('click', (e) => {
     if (!e.target.closest('.about-card')) $('about').hidden = true;
