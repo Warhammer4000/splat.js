@@ -84,6 +84,10 @@ export async function shareCreation(S, sogBlob, {
         splats: S.splats,
         iter: sess.trainer.iter,
         minutes: S.minutes || 0,
+        // input facts for the pre-start detail card
+        frames: (recon.source && recon.source.names && recon.source.names.length) || null,
+        res: (recon.frames && recon.frames[0] && recon.frames[0].tw)
+          ? `${recon.frames[0].tw} × ${recon.frames[0].th}` : null,
         psnrTrain: S.psnrTrain ?? null,
         psnrTest: S.psnrTest ? { psnr: S.psnrTest.psnr, frames: S.psnrTest.frames.length } : null,
       },

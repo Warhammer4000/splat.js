@@ -1901,18 +1901,17 @@ async function restoreShared(spaceId) {
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-/** The stat strip under the detail hero: the trained model in numbers.
- *  Null clears it (sets without a trained share have nothing to say). */
-function paintDetailStats(sj, placed) {
+/** The stat strip under the detail hero. Before a run starts it describes
+ *  the INPUT — how many photographs, at what resolution — plus at most the
+ *  train PSNR of the published model. Facts live in S.detailFacts and the
+ *  strip repaints as they trickle in (hero decode, share resolve). */
+function paintDetailStats() {
   const el = $('detail-stats');
-  if (!sj) { el.hidden = true; el.innerHTML = ''; return; }
-  const dB = sj.psnrTest ? sj.psnrTest.psnr : sj.psnrTrain;
+  const f = S.detailFacts || {};
   const cells = [];
-  if (sj.splats) cells.push([fmt(sj.splats), 'splats']);
-  if (sj.iter) cells.push([sj.iter >= 1000 ? `${Math.round(sj.iter / 1000)}k` : sj.iter, 'cycles']);
-  if (sj.minutes) cells.push([`${sj.minutes} min`, 'in-browser']);
-  if (dB) cells.push([`${(+dB).toFixed(1)} dB`, sj.psnrTest ? 'holdout psnr' : 'train psnr']);
-  if (placed) cells.push([placed, 'photos placed']);
+  if (f.frames) cells.push([fmt(f.frames), 'photographs']);
+  if (f.res) cells.push([f.res, 'resolution']);
+  if (f.dB) cells.push([`${(+f.dB).toFixed(1)} dB`, 'train psnr']);
   el.innerHTML = cells.map(([v, l]) => `<div><b>${esc(v)}</b><span>${esc(l)}</span></div>`).join('');
   el.hidden = !cells.length;
 }
@@ -1927,20 +1926,31 @@ function showDetail(setOrPreset) {
   const src = (S.photos && S.photos[0] && S.photos[0].url) || null;
   hero.hidden = !src;
   if (src) hero.src = src;
-  paintDetailStats(null);
+  // input facts: the count is known; the resolution reads off the hero
+  // photograph once it decodes (the same image the card displays anyway)
+  const facts = S.detailFacts = { frames: (S.photos && S.photos.length) || 0 };
+  paintDetailStats();
+  if (src) {
+    hero.onload = () => {
+      if (S.detailFacts !== facts || !hero.naturalWidth) return;
+      facts.res = `${hero.naturalWidth} × ${hero.naturalHeight}`;
+      paintDetailStats();
+    };
+  }
   if (setOrPreset && setOrPreset.spaceId) {
-    // a trained model of this benchmark is shared — View opens it, and its
-    // training numbers fill in as soon as the share resolves
+    // a trained model of this benchmark is shared — View opens it, and the
+    // published model's train PSNR joins the input facts once resolved
     const view = document.createElement('a');
     view.id = 'detail-view';
     view.className = 'btn btn-outline';
     view.href = `index.html?space=${encodeURIComponent(setOrPreset.spaceId)}`;
     view.textContent = 'View';
     document.querySelector('.startrow').prepend(view);
-    const sid = setOrPreset.spaceId;
-    import('./share.js').then(({ resolveShare }) => resolveShare(sid))
+    import('./share.js').then(({ resolveShare }) => resolveShare(setOrPreset.spaceId))
       .then((sh) => {
-        if (!$('detail').hidden && S.preset && S.preset.spaceId === sid) paintDetailStats(sh.splatjs);
+        if (S.detailFacts !== facts || $('detail').hidden) return;
+        facts.dB = sh.splatjs && sh.splatjs.psnrTrain;
+        paintDetailStats();
       }).catch(() => {});
   }
   $('btn-go').textContent = 'Start training';
@@ -1957,7 +1967,14 @@ async function showCommunityDetail(it) {
   const src = (it.splatjs && it.splatjs.thumbUrl) || it.screenshotUrl || null;
   hero.hidden = !src;
   if (src) hero.src = src;
-  paintDetailStats(it.splatjs);
+  // input facts come from the stamp (frames/res written at share time);
+  // train dB is the one trained-model number the pre-start card shows
+  S.detailFacts = {
+    frames: it.splatjs && it.splatjs.frames,
+    res: it.splatjs && it.splatjs.res,
+    dB: it.splatjs && it.splatjs.psnrTrain,
+  };
+  paintDetailStats();
   $('set-desc').innerHTML = `<b>${esc(it.title || 'Untitled')}</b> — ${esc(it.description || 'A shared creation.')}`;
   $('set-desc').hidden = false;
   $('row-count').hidden = true;
