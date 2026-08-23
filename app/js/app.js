@@ -1891,6 +1891,15 @@ function showDetail(setOrPreset) {
   const src = (S.photos && S.photos[0] && S.photos[0].url) || null;
   hero.hidden = !src;
   if (src) hero.src = src;
+  if (setOrPreset && setOrPreset.spaceId) {
+    // a trained model of this benchmark is shared — View opens it
+    const view = document.createElement('a');
+    view.id = 'detail-view';
+    view.className = 'btn btn-outline';
+    view.href = `index.html?space=${encodeURIComponent(setOrPreset.spaceId)}`;
+    view.textContent = 'View';
+    document.querySelector('.startrow').prepend(view);
+  }
   $('btn-go').textContent = 'Start training';
   $('btn-go').disabled = !!S.noGpu;
   $('start').hidden = true;

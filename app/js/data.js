@@ -8,6 +8,7 @@ export const DATA = '../data/';
 export const PRESETS = [
   {
     id: 'truck', name: 'Truck',
+    spaceId: '42485456_8883',   // the trained 2M/400k benchmark model — View opens it
     kind: 'Standard test set',
     origin: 'The Tanks & Temples benchmark orbit.',
     links: [
@@ -72,6 +73,7 @@ export const PRESETS = [
   },
   {
     id: 'bar', name: 'Bar',
+    spaceId: '42485456_4311',   // the trained 4M/600k model — View opens it
     kind: '360 panorama walk',
     badge: '360',
     origin: 'A real bar, walked with a 360 camera (CC BY-NC-SA).',
