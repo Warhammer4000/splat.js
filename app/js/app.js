@@ -748,8 +748,11 @@ async function startPrep() {
     // settings -> session options: res caps the input scale, the working
     // buffer scales the supervision grid on top of whatever that yields
     const st = S.settings;
-    const frames = (st.res || st.buf !== 1) ? {
-      trainMaxDim: st.res || undefined,
+    const frames = (st.res || st.buf !== 1 || EVAL.on) ? {
+      // benchmark mode pins NATIVE resolution: the adaptive memory budget
+      // otherwise downscales big sets silently (truck-251 lands at 645px)
+      // and PSNR at reduced resolution reads ~1 dB better than the papers'
+      trainMaxDim: st.res || (EVAL.on ? 1600 : undefined),
       trainScale: st.buf !== 1 ? st.buf : undefined,
     } : undefined;
     // every photo trains by default — held-out scoring is the ?eval
