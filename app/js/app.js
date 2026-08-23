@@ -1189,15 +1189,47 @@ async function restoreSession(src) {
     S.plyBlob = null; S.sogBlob = null;
     S.lodPlan = null;
     S.state = 'done';
-    S.photos = [];        // the preselected preset's strip has nothing to do
-    buildStrip && buildStrip();
     const frames = (reconJson && reconJson.frames) || [];
-    const cams = (reconJson ? reconJson.cams : []).map((c, ci) => {
-      const fr = frames[c.imgIdx] || {};
-      const w = fr.fw || 1000, h = fr.fh || 1000;
-      return { i: ci, ci, R: c.R, t: c.t, f: c.f, w, h, cx: w / 2, cy: h / 2,
-               state: 'placed', feats: 0, name: c.name };
-    });
+    const source = (reconJson && reconJson.source) || {};
+    // the photographs come back too when the session recorded where they
+    // live (photo sets: one image per frame) — the strip and the per-photo
+    // compare modes then work exactly like after a live run
+    const photosBack = Array.isArray(source.urls) && source.urls.length &&
+      source.urls.length === frames.length && source.urls.every(Boolean);
+    let cams;
+    if (photosBack) {
+      S.photos = source.names.map((n, i) => ({ url: source.urls[i], name: n }));
+      // camMeta for lookThrough/error-render: train-res intrinsics per
+      // registered camera (offset unused outside training)
+      const metas = reconJson.cams.map((c) => {
+        const fr = frames[c.imgIdx] || {};
+        const s2 = (fr.tw || fr.fw || 1000) / (fr.fw || 1000);
+        return { imgIdx: c.imgIdx, R: c.R, t: c.t, f: c.f * s2,
+                 cx: (fr.tw || 1000) / 2, cy: (fr.th || 1000) / 2,
+                 w: fr.tw || 1000, h: fr.th || 1000, offset: 0 };
+      });
+      ses.trainer.camMeta = metas;
+      const byImg = new Map(reconJson.cams.map((c, k) => [c.imgIdx, k]));
+      cams = S.photos.map((p, i) => {
+        const k = byImg.get(i);
+        const fr = frames[i] || {};
+        const w = fr.fw || 1000, h = fr.fh || 1000;
+        if (k == null) return { i, ci: -1, R: null, t: null, url: p.url, name: p.name,
+                                w, h, cx: w / 2, cy: h / 2, state: 'unplaced', feats: 0, psnr: null };
+        const c = reconJson.cams[k];
+        return { i, ci: k, R: c.R, t: c.t, f: c.f, w, h, cx: w / 2, cy: h / 2,
+                 url: p.url, name: p.name, state: 'placed', feats: 0, psnr: null };
+      });
+    } else {
+      S.photos = [];      // pano sets and bare models: no 1:1 photographs
+      cams = (reconJson ? reconJson.cams : []).map((c, ci) => {
+        const fr = frames[c.imgIdx] || {};
+        const w = fr.fw || 1000, h = fr.fh || 1000;
+        return { i: ci, ci, R: c.R, t: c.t, f: c.f, w, h, cx: w / 2, cy: h / 2,
+                 state: 'placed', feats: 0, name: c.name };
+      });
+    }
+    buildStrip();
     const cl = (reconJson && reconJson.cloud) || { xyz: [], rgb: [] };
     let center = reconJson && reconJson.center;
     let radius = (reconJson && reconJson.sceneRadius) || ses.model.radius;
