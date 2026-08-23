@@ -1930,7 +1930,7 @@ function paintDetailStats() {
   if (f.frames) cells.push([fmt(f.frames), 'photographs']);
   if (f.res) cells.push([f.res, 'resolution']);
   if (f.splats) cells.push([fmt(f.splats), 'splats']);
-  if (f.dB) cells.push([`${(+f.dB).toFixed(1)} dB`, 'train psnr']);
+  if (f.dB) cells.push([`${(+f.dB).toFixed(1)} dB`, f.dBLabel || 'train psnr']);
   el.innerHTML = cells.map(([v, l]) => `<div><b>${esc(v)}</b><span>${esc(l)}</span></div>`).join('');
   el.hidden = !cells.length;
 }
@@ -1969,8 +1969,10 @@ function showDetail(setOrPreset) {
     import('./share.js').then(({ resolveShare }) => resolveShare(setOrPreset.spaceId))
       .then((sh) => {
         if (S.detailFacts !== facts || $('detail').hidden) return;
-        facts.splats = sh.splatjs && sh.splatjs.splats;
-        facts.dB = sh.splatjs && sh.splatjs.psnrTrain;
+        const sj = sh.splatjs || {};
+        facts.splats = sj.splats;
+        facts.dB = sj.psnrTest ? sj.psnrTest.psnr : sj.psnrTrain;
+        facts.dBLabel = sj.psnrTest ? 'holdout psnr' : 'train psnr';
         paintDetailStats();
       }).catch(() => {});
   }
@@ -1989,11 +1991,14 @@ async function showCommunityDetail(it) {
   if (src) hero.src = src;
   // input facts come from the stamp (frames/res written at share time);
   // train dB is the one trained-model number the pre-start card shows
+  const sj = it.splatjs || {};
   S.detailFacts = {
-    frames: it.splatjs && it.splatjs.frames,
-    res: it.splatjs && it.splatjs.res,
-    splats: it.splatjs && it.splatjs.splats,
-    dB: it.splatjs && it.splatjs.psnrTrain,
+    frames: sj.frames,
+    res: sj.res,
+    splats: sj.splats,
+    // the held-out number is the honest one — prefer it when measured
+    dB: sj.psnrTest ? sj.psnrTest.psnr : sj.psnrTrain,
+    dBLabel: sj.psnrTest ? 'holdout psnr' : 'train psnr',
   };
   paintDetailStats();
   $('set-desc').innerHTML = `<b>${esc(it.title || 'Untitled')}</b> — ${esc(it.description || 'A shared creation.')}`;
