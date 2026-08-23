@@ -89,8 +89,14 @@ export async function shareCreation(S, sogBlob, {
   }
 }
 
-export const shareLink = (spaceId) =>
-  `${location.origin}${location.pathname}?space=${spaceId}`;
+export const shareLink = (spaceId) => {
+  // always target index.html: the extensionless /splat-js URL 301s through
+  // the CDN and loses its query string on the way
+  const path = location.pathname.endsWith('.html')
+    ? location.pathname
+    : location.pathname.replace(/\/$/, '') + '/index.html';
+  return `${location.origin}${path}?space=${spaceId}`;
+};
 
 /** Resolve a share link (public — no account, no key). */
 export async function resolveShare(spaceId) {

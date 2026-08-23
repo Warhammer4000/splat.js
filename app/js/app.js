@@ -1858,7 +1858,9 @@ function creationTile(it, mine) {
   wrap.className = 'galtile';
   const img = (it.splatjs && it.splatjs.thumbUrl) || it.screenshotUrl || '';
   const dB = it.splatjs && (it.splatjs.psnrTest ? it.splatjs.psnrTest.psnr : it.splatjs.psnrTrain);
-  const view = `?space=${encodeURIComponent(it.id)}`;
+  // index.html explicitly: a bare "?space=" resolves against <base> to the
+  // trailing-slash URL, and the CDN's slash-stripping 301 EATS the query
+  const view = `index.html?space=${encodeURIComponent(it.id)}`;
   wrap.innerHTML = `<img loading="lazy" src="${esc(img)}" alt="" onerror="this.style.visibility='hidden'">
     <span class="galname">${esc(it.title || 'Untitled')}</span>
     <span class="galmeta">${fmt((it.splatjs && it.splatjs.splats) || 0)} splats${dB ? ` · ${(+dB).toFixed(1)} dB` : ''}</span>`;
