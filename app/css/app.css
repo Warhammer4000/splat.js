@@ -732,8 +732,9 @@ a.cbtn { text-decoration: none; }
 #gallery { margin-top: 2px; }
 .galrow {
   display: flex; gap: 10px; overflow-x: auto; padding: 10px 2px 4px;
-  scrollbar-width: thin;
+  scrollbar-width: none;   /* swipe/drag like the other rows */
 }
+.galrow::-webkit-scrollbar { display: none; }
 .galtile {
   flex: 0 0 148px; display: flex; flex-direction: column; gap: 4px;
   text-decoration: none; border-radius: 12px; padding: 0;
