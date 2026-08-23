@@ -758,8 +758,22 @@ a.cbtn { text-decoration: none; }
   padding-bottom: 4px;
 }
 .card-back:hover { color: var(--paper); background: var(--panel-2); }
+/* training facts under the hero: what this model is, in numbers */
+.detail-stats {
+  display: flex; flex-wrap: wrap; justify-content: center;
+  gap: 4px 26px; margin-bottom: 14px;
+}
+.detail-stats b {
+  display: block; font: 600 17px/1.2 var(--display); color: var(--paper);
+  letter-spacing: -.01em;
+}
+.detail-stats span {
+  display: block; font: 500 9.5px var(--mono); color: var(--dim);
+  letter-spacing: .07em; text-transform: uppercase;
+}
 .detail-hero {
-  width: 100%; max-height: 220px; object-fit: cover;
+  /* the hero holds the text column's width — not the fullscreen card's */
+  width: min(600px, 100%); max-height: 220px; object-fit: cover;
   border-radius: 12px; margin-bottom: 14px; display: block;
   background: #0b0e0f;
 }

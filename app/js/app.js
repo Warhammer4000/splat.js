@@ -1875,6 +1875,22 @@ async function restoreShared(spaceId) {
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+/** The stat strip under the detail hero: the trained model in numbers.
+ *  Null clears it (sets without a trained share have nothing to say). */
+function paintDetailStats(sj, placed) {
+  const el = $('detail-stats');
+  if (!sj) { el.hidden = true; el.innerHTML = ''; return; }
+  const dB = sj.psnrTest ? sj.psnrTest.psnr : sj.psnrTrain;
+  const cells = [];
+  if (sj.splats) cells.push([fmt(sj.splats), 'splats']);
+  if (sj.iter) cells.push([sj.iter >= 1000 ? `${Math.round(sj.iter / 1000)}k` : sj.iter, 'cycles']);
+  if (sj.minutes) cells.push([`${sj.minutes} min`, 'in-browser']);
+  if (dB) cells.push([`${(+dB).toFixed(1)} dB`, sj.psnrTest ? 'holdout psnr' : 'train psnr']);
+  if (placed) cells.push([placed, 'photos placed']);
+  el.innerHTML = cells.map(([v, l]) => `<div><b>${esc(v)}</b><span>${esc(l)}</span></div>`).join('');
+  el.hidden = !cells.length;
+}
+
 /** The focused detail card: one set, its description, and the only Start
  *  button. Back returns to the front page. Classic mode only. */
 function showDetail(setOrPreset) {
@@ -1884,14 +1900,21 @@ function showDetail(setOrPreset) {
   const src = (S.photos && S.photos[0] && S.photos[0].url) || null;
   hero.hidden = !src;
   if (src) hero.src = src;
+  paintDetailStats(null);
   if (setOrPreset && setOrPreset.spaceId) {
-    // a trained model of this benchmark is shared — View opens it
+    // a trained model of this benchmark is shared — View opens it, and its
+    // training numbers fill in as soon as the share resolves
     const view = document.createElement('a');
     view.id = 'detail-view';
     view.className = 'btn btn-outline';
     view.href = `index.html?space=${encodeURIComponent(setOrPreset.spaceId)}`;
     view.textContent = 'View';
     document.querySelector('.startrow').prepend(view);
+    const sid = setOrPreset.spaceId;
+    import('./share.js').then(({ resolveShare }) => resolveShare(sid))
+      .then((sh) => {
+        if (!$('detail').hidden && S.preset && S.preset.spaceId === sid) paintDetailStats(sh.splatjs);
+      }).catch(() => {});
   }
   $('btn-go').textContent = 'Start training';
   $('btn-go').disabled = !!S.noGpu;
@@ -1907,9 +1930,8 @@ async function showCommunityDetail(it) {
   const src = (it.splatjs && it.splatjs.thumbUrl) || it.screenshotUrl || null;
   hero.hidden = !src;
   if (src) hero.src = src;
-  const dB = it.splatjs && (it.splatjs.psnrTest ? it.splatjs.psnrTest.psnr : it.splatjs.psnrTrain);
-  $('set-desc').innerHTML = `<b>${esc(it.title || 'Untitled')}</b> — ${esc(it.description || 'A shared creation.')}` +
-    `<span class="approx">${fmt((it.splatjs && it.splatjs.splats) || 0)} splats${dB ? ` · ${(+dB).toFixed(1)} dB` : ''}</span>`;
+  paintDetailStats(it.splatjs);
+  $('set-desc').innerHTML = `<b>${esc(it.title || 'Untitled')}</b> — ${esc(it.description || 'A shared creation.')}`;
   $('set-desc').hidden = false;
   $('row-count').hidden = true;
   const view = document.createElement('a');
@@ -1937,6 +1959,9 @@ async function showCommunityDetail(it) {
       rj = JSON.parse(new TextDecoder().decode(rb));
     }
     if ($('detail').hidden) return;   // the user already went back
+    if (rj.cams && rj.source && rj.source.names) {
+      paintDetailStats(it.splatjs, `${rj.cams.length}/${rj.source.names.length}`);
+    }
     if (rj.source && rj.source.urls && rj.source.urls.length && rj.source.urls.every(Boolean)) {
       S.preset = { id: '__sample', name: it.title || 'Shared creation' };
       S.photos = rj.source.names.map((n, i) => ({ url: rj.source.urls[i], name: n }));
