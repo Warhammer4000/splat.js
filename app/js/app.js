@@ -649,7 +649,9 @@ async function useOwnPhotos(list) {
     kind: 'photos', created: Date.now(),
     files: files.map((f) => ({ name: f.name, blob: f })),
   }).catch(() => {});
-  open(ownSet(files, S.ownUrls));
+  const set = ownSet(files, S.ownUrls);
+  open(set);
+  showDetail(set);   // Start training lives on the detail card
 }
 
 /** A video: pick its sharpest frames (the server pipeline's policy, run
