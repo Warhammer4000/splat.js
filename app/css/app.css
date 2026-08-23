@@ -117,11 +117,10 @@ body { overflow: hidden; }
   .card-start h1 { margin-bottom: 8px; }
 }
 
-/* short screens: tighten the card so Start stays in reach without scrolling */
+/* short screens: tighten the card — the copy stays (the card scrolls) */
 @media (max-height: 700px) {
   .card-start { padding-top: 36px; }
   .card-start h1 { font-size: 25px; }
-  .card-start .origin { display: none; }
   .upload { padding: 10px 0 8px; margin-bottom: 10px; }
 }
 
