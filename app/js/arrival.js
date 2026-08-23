@@ -138,9 +138,9 @@ async function getToken(onStatus, popup) {
   return localStorage.getItem(LS_TOKEN) || signIn(onStatus, popup);
 }
 
-async function api(path, token, body) {
+async function api(path, token, body, method) {
   const res = await fetch(`${API}${path}`, {
-    method: body ? 'POST' : 'GET',
+    method: method || (body ? 'POST' : 'GET'),
     headers: {
       Authorization: `Bearer ${token}`,
       ...(body ? { 'Content-Type': 'application/json' } : {}),
@@ -154,6 +154,9 @@ async function api(path, token, body) {
   }
   return data;
 }
+
+// the share layer builds on the same auth + upload machinery
+export { getToken, api, API_BASE };
 
 function putWithProgress(params, blob, onProgress) {
   return new Promise((resolve, reject) => {
@@ -181,48 +184,61 @@ async function pollJob(jobId, token, onStatus) {
   }
 }
 
+/** One file through the documented three-step flow: presign -> S3 PUT ->
+ *  upload-complete (+ async job polling). Returns { resourceKey, fileUrl } —
+ *  fileUrl is the file's public CDN address. */
+export async function uploadFile(blob, fileName, { token, contentType = 'application/octet-stream', onStatus = () => {}, onProgress = () => {} }) {
+  onStatus(`Preparing ${fileName} …`);
+  const up = await api('/files/upload', token, {
+    file_name: fileName,
+    file_size: blob.size,
+    content_type: contentType,
+  });
+  const params = up.data.params;
+
+  onStatus(`Uploading ${fileName} …`);
+  await putWithProgress(params, blob, onProgress);
+
+  onStatus('Confirming upload …');
+  const fileUrl = params.url.split('?')[0];
+  const done = await api('/files/upload-complete', token, {
+    status: 'success',
+    extra_info: { file_url: fileUrl },
+  });
+  const resourceKey = (done.status === 'processing' && done.data.job_id)
+    ? await pollJob(done.data.job_id, token, onStatus)
+    : done.data.resource_key;
+  return { resourceKey, fileUrl: done.data.file_url || fileUrl };
+}
+
+/** Sign-in errors from a revoked stored key: forget the key so the next
+ *  click starts a fresh sign-in (a popup can only open inside a click). */
+export function forgetRevokedToken(e) {
+  if (!e.auth) return false;
+  localStorage.removeItem(LS_TOKEN);
+  return true;
+}
+
 /** The whole thing: sign in (once), upload the .ply, make a space.
- *  Returns the new space's URL. `popup`: a synchronously opened window for
- *  the first sign-in (null when hasToken()). */
+ *  Returns the new space's URL (spaceUrl) and its id. `popup`: a
+ *  synchronously opened window for the first sign-in (null when
+ *  hasToken()). */
 export async function sendToArrival(blob, title, { ext = 'ply', onStatus = () => {}, onProgress = () => {}, popup = null } = {}) {
   const token = await getToken(onStatus, popup);
   const fileName = `${(title || 'splat').toLowerCase().replace(/\W+/g, '_')}.${ext}`;
 
-  const run = async () => {
-    onStatus('Preparing upload …');
-    const up = await api('/files/upload', token, {
-      file_name: fileName,
-      file_size: blob.size,
-      content_type: 'application/octet-stream',
-    });
-    const params = up.data.params;
-
-    onStatus('Uploading …');
-    await putWithProgress(params, blob, onProgress);
-
-    onStatus('Confirming upload …');
-    const done = await api('/files/upload-complete', token, {
-      status: 'success',
-      extra_info: { file_url: params.url.split('?')[0] },
-    });
-    const resourceKey = (done.status === 'processing' && done.data.job_id)
-      ? await pollJob(done.data.job_id, token, onStatus)
-      : done.data.resource_key;
-
+  try {
+    const { resourceKey } = await uploadFile(blob, fileName, { token, onStatus, onProgress });
     onStatus('Creating your space …');
     const space = await api('/user/create-space', token, {
       space_data: { title: title || 'Splat.js scene', description: 'Trained in the browser with Splat.js', resource_key: resourceKey },
     });
-    return space.data.space_url;
-  };
-
-  try {
-    return await run();
+    const spaceUrl = space.data.space_url;
+    return { spaceUrl, spaceId: String(spaceUrl).split('/').pop() };
   } catch (e) {
-    if (!e.auth) throw e;
-    // stored key was revoked — the next click starts a fresh sign-in (a
-    // sign-in window can only be opened inside a click)
-    localStorage.removeItem(LS_TOKEN);
-    throw new Error('your Arrival.Space key was revoked — press Upload again to sign in');
+    if (forgetRevokedToken(e)) {
+      throw new Error('your Arrival.Space key was revoked — press Upload again to sign in');
+    }
+    throw e;
   }
 }

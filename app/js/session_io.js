@@ -249,7 +249,18 @@ export async function decodeModel(bytes, reconUrl) {
   if (!gaussians) throw new Error('nothing loadable in the model file');
   if (!reconJson && reconUrl) {
     const r = await fetch(reconUrl);
-    if (r.ok) reconJson = await r.json();
+    if (r.ok) {
+      // the upload API takes no bare .json — a shared recon travels as a
+      // one-entry STORED zip, so accept both forms here
+      const rb = new Uint8Array(await r.arrayBuffer());
+      if (rb[0] === 0x50 && rb[1] === 0x4b) {
+        const entries = unzipStore(rb);
+        const entry = entries.get('recon.json') || [...entries.values()][0];
+        if (entry) reconJson = JSON.parse(new TextDecoder().decode(entry));
+      } else {
+        reconJson = JSON.parse(new TextDecoder().decode(rb));
+      }
+    }
   }
   return { gaussians, reconJson, state };
 }

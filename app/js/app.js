@@ -349,7 +349,9 @@ function boot() {
 
   // a shared result: load it straight into the done-state viewer
   const mp = new URLSearchParams(location.search);
-  if (mp.get('model')) restoreSession({ url: mp.get('model'), reconUrl: mp.get('recon') });
+  if (mp.get('space')) restoreShared(mp.get('space'));
+  else if (mp.get('model')) restoreSession({ url: mp.get('model'), reconUrl: mp.get('recon') });
+  else mountGallery();
 }
 
 // WebGPU probe: navigator.gpu can EXIST while the adapter is unavailable
@@ -1435,6 +1437,17 @@ function renderControls() {
     more.addEventListener('click', continueTraining);
     c.appendChild(more);
   }
+  if (S.share) {
+    // a shared creation is also a walkable arrival space — one click away
+    const enter = document.createElement('a');
+    enter.className = 'cbtn';
+    enter.href = `https://arrival.space/${encodeURIComponent(S.share.id)}`;
+    enter.target = '_blank';
+    enter.rel = 'noopener';
+    enter.textContent = 'Enter space ↗';
+    enter.title = 'Walk this creation on arrival.space';
+    c.appendChild(enter);
+  }
   c.appendChild(buildExport());
 }
 
@@ -1506,6 +1519,7 @@ function buildExport() {
   wrap.innerHTML = `
     <button class="iconbtn" title="Export" aria-label="Export">${DL_ICON}</button>
     <div class="menu" hidden>
+      ${S.restored ? '' : `<button data-act="share"><b>Share</b><span>One link — viewer, compare and a space to enter</span></button>`}
       <button data-act="arr"><b>Upload to Arrival.Space</b><span>Straight into a space of yours</span></button>
       <button data-act="sog"><b>Download .sog</b><span>Compressed for the web · ~${sogMb} MB</span></button>
       ${S.lodPlan && S.lodPlan.snaps.length ? `<button data-act="lod"><b>Download LOD</b><span>Streamed SOG, ${S.lodPlan.snaps.length + 1} detail levels · zip</span></button>` : ''}
@@ -1588,6 +1602,10 @@ function buildExport() {
     menu.hidden = true;
     if (!S.uploading) uploadDialog();
   });
+  wrap.querySelector('[data-act="share"]')?.addEventListener('click', () => {
+    menu.hidden = true;
+    if (!S.uploading) shareDialog();
+  });
   wrap.querySelector('[data-act="session"]')?.addEventListener('click', async () => {
     menu.hidden = true;
     try {
@@ -1664,13 +1682,13 @@ function uploadDialog() {
       // uploads are always SOG-compressed — 10-20x smaller on the wire and
       // the space streams it natively
       const blob = await getSogBlob();
-      const url = await sendToArrival(blob, title, {
+      const { spaceUrl } = await sendToArrival(blob, title, {
         ext: 'sog',
         popup,
         onStatus: (m) => flash(m, 120000),
         onProgress: (pct) => flash(`Uploading … ${pct}%`, 120000),
       });
-      flash(`<b>${title}</b> is live · <a href="${url}" target="_blank" rel="noopener">Open your space ↗</a>`, 300000);
+      flash(`<b>${title}</b> is live · <a href="${spaceUrl}" target="_blank" rel="noopener">Open your space ↗</a>`, 300000);
     } catch (e) {
       console.error(e);
       if (popup && !popup.closed) popup.close();
@@ -1679,6 +1697,148 @@ function uploadDialog() {
       S.uploading = false;
     }
   });
+}
+
+/** Share the finished run: one link that opens the viewer (tour + compare
+ *  + stats) with an arrival space behind it. Same sign-in as Upload. */
+function shareDialog() {
+  document.getElementById('upcard')?.remove();
+  const card = document.createElement('div');
+  card.className = 'upcard';
+  card.id = 'upcard';
+  // preset photographs already live on public URLs — only own captures
+  // need uploading for the viewer-side comparison
+  const needsPhotos = !(S.loadedFiles || []).length || !(S.loadedFiles || []).every((f) => f.url);
+  const photoMb = ((S.loadedFiles || []).reduce((a, f) => a + ((f.source || f).size || 0), 0) / 1e6).toFixed(0);
+  card.innerHTML = `
+    <b>Share this creation</b>
+    <input id="sh-title" type="text" spellcheck="false" maxlength="80">
+    <label class="upcard-opt"><select id="sh-priv">
+      <option value="Link Only">Anyone with the link</option>
+      <option value="Public">Public — listed in the gallery</option>
+    </select></label>
+    ${needsPhotos && (S.loadedFiles || []).length ? `
+    <label class="upcard-opt"><input type="checkbox" id="sh-photos">
+      Include the ${S.loadedFiles.length} photographs (${photoMb} MB) so viewers can compare</label>` : ''}
+    <div class="upcard-row">
+      <button class="btn btn-quiet" id="sh-cancel">Cancel</button>
+      <button class="btn btn-accent" id="sh-go">Share</button>
+    </div>`;
+  $('stage').appendChild(card);
+  const input = card.querySelector('#sh-title');
+  input.value = S.preset.id === '__own' ? 'My splat' : S.preset.name;
+  input.focus();
+  input.select();
+  const close = () => card.remove();
+  card.querySelector('#sh-cancel').addEventListener('click', close);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') card.querySelector('#sh-go').click();
+    if (e.key === 'Escape') close();
+  });
+  card.querySelector('#sh-go').addEventListener('click', async () => {
+    const title = input.value.trim() || 'My splat';
+    const privacy = card.querySelector('#sh-priv').value;
+    const includePhotos = !!card.querySelector('#sh-photos')?.checked;
+    const popup = hasToken() ? null : window.open('', 'arrival-oauth', 'width=480,height=720');
+    close();
+    if (!hasToken() && !popup) {
+      flash('The sign-in window was blocked — allow popups for this site and try again.', 8000);
+      return;
+    }
+    S.uploading = true;
+    try {
+      const { shareCreation } = await import('./share.js');
+      const sog = await getSogBlob();
+      const thumb = await renderShareThumb();
+      const { spaceId, spaceUrl, link } = await shareCreation(S, sog, {
+        title, privacy, includePhotos, thumbBlob: thumb, popup,
+        onStatus: (m) => flash(m, 120000),
+        onProgress: (pct) => flash(`Uploading … ${pct}%`, 120000),
+      });
+      flash(`<b>${title}</b> is shared · <a href="${link}">View link</a> · ` +
+        `<a href="${spaceUrl}" target="_blank" rel="noopener">Enter the space ↗</a> · ` +
+        `<a href="#" onclick="navigator.clipboard.writeText('${link}');this.textContent='Copied';return false">Copy link</a>`, 300000);
+    } catch (e) {
+      console.error(e);
+      if (popup && !popup.closed) popup.close();
+      flash(`Share failed: ${e.message}`, 9000);
+    } finally {
+      S.uploading = false;
+    }
+  });
+}
+
+/** A ~640px view render for the gallery tile — the photographer's first
+ *  viewpoint, snapshotted behind a fence like the error render. */
+async function renderShareThumb() {
+  try {
+    const ses = S.session;
+    const c = S.scene.cams.find((k) => k.R) || null;
+    if (!c) return null;
+    const W = 640, H = 400;
+    const cv = document.createElement('canvas');
+    cv.width = W; cv.height = H;
+    ses.view.attach(cv);
+    ses.view.setCamera({ R: c.R, t: c.t, f: c.f * (W / c.w), cx: W / 2, cy: H / 2, w: W, h: H });
+    ses.view.renderNow();
+    await ses.trainer.device.queue.onSubmittedWorkDone();
+    const out = document.createElement('canvas');
+    out.width = W; out.height = H;
+    out.getContext('2d').drawImage(cv, 0, 0);
+    if (gpuCanvas) { ses.view.attach(gpuCanvas); S._viewKey = ''; }
+    return await new Promise((res) => out.toBlob(res, 'image/webp', 0.85));
+  } catch (e) {
+    console.error(e);
+    return null;
+  }
+}
+
+/** ?space=<id>: a shared creation — resolve it (public endpoint, honors the
+ *  space's privacy) and present it like a finished run. */
+async function restoreShared(spaceId) {
+  try {
+    $('start').hidden = true;
+    flash('Loading the shared creation …', 120000);
+    const { resolveShare } = await import('./share.js');
+    const sh = await resolveShare(spaceId);
+    S.share = { id: spaceId, title: sh.title };
+    await restoreSession({ url: sh.splatjs.sogUrl, reconUrl: sh.splatjs.reconUrl });
+    renderControls();
+  } catch (e) {
+    console.error(e);
+    S.share = null;
+    $('start').hidden = false;
+    flash(`Could not load the shared creation: ${e.message}`, 9000);
+  }
+}
+
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+/** The tile wall on the start card — public shared creations, newest first.
+ *  An empty gallery stays invisible. */
+async function mountGallery() {
+  try {
+    const { fetchGallery } = await import('./share.js');
+    const { items } = await fetchGallery({ count: 12 });
+    if (!items || !items.length) return;
+    const host = $('gallery');
+    host.innerHTML = `<div class="orline"><span>Community</span></div><div class="galrow"></div>`;
+    const row = host.querySelector('.galrow');
+    for (const it of items) {
+      const a = document.createElement('a');
+      a.className = 'galtile';
+      a.href = `?space=${encodeURIComponent(it.id)}`;
+      const img = (it.splatjs && it.splatjs.thumbUrl) || it.screenshotUrl || '';
+      const dB = it.splatjs && (it.splatjs.psnrTest ? it.splatjs.psnrTest.psnr : it.splatjs.psnrTrain);
+      a.innerHTML = `<img loading="lazy" src="${esc(img)}" alt="" onerror="this.style.visibility='hidden'">
+        <span class="galname">${esc(it.title || 'Untitled')}</span>
+        <span class="galmeta">${fmt((it.splatjs && it.splatjs.splats) || 0)} splats${dB ? ` · ${(+dB).toFixed(1)} dB` : ''}</span>`;
+      row.appendChild(a);
+    }
+    host.hidden = false;
+    dragScroll(row);
+  } catch (e) { /* the gallery is decoration — never block the app on it */ }
 }
 
 /** The error map needs pixels of the render. The live WebGPU canvas can read

@@ -716,3 +716,37 @@ label.btn { cursor: pointer; }
 .fail-tips { margin: 2px 0 4px; padding-left: 18px; display: grid; gap: 7px; }
 .fail-tips li { font-size: 12.5px; color: var(--muted); line-height: 1.45; }
 .fail-tips b { color: var(--paper); }
+
+/* ── shared creations: the gallery wall + share dialog extras ─────────── */
+a.cbtn { text-decoration: none; }
+.upcard-opt {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; color: var(--muted); line-height: 1.4;
+}
+.upcard-opt select {
+  flex: 1; padding: 7px 10px; border-radius: 9px;
+  border: 1px solid var(--line-2); background: rgba(7, 9, 9, .8);
+  color: var(--paper); font-size: 13px;
+}
+.upcard-opt input[type="checkbox"] { accent-color: var(--accent); }
+#gallery { margin-top: 2px; }
+.galrow {
+  display: flex; gap: 10px; overflow-x: auto; padding: 10px 2px 4px;
+  scrollbar-width: thin;
+}
+.galtile {
+  flex: 0 0 148px; display: flex; flex-direction: column; gap: 4px;
+  text-decoration: none; border-radius: 12px; padding: 6px;
+  border: 1px solid var(--line); background: rgba(16, 20, 21, .6);
+  transition: border-color .15s;
+}
+.galtile:hover { border-color: var(--muted); }
+.galtile img {
+  width: 100%; height: 84px; object-fit: cover; border-radius: 8px;
+  background: #0b0e0f; display: block;
+}
+.galname {
+  font: 600 12px var(--sans, system-ui); color: var(--paper);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.galmeta { font-size: 11px; color: var(--muted); }
