@@ -617,8 +617,10 @@ body { overflow: hidden; }
 .capicon { width: 15px; height: 15px; margin-right: 7px; vertical-align: -3px; }
 
 /* the primary CTA: gradient accent, inner sheen, soft glow, gentle lift —
-   modern without theatrics (transform + shadow only, ~150ms) */
-#btn-go:not([disabled]) {
+   modern without theatrics. A CLASS, not an id: the treatment belongs to
+   whichever action is primary on the card (View on trained scenes, Start
+   everywhere else). */
+.btn-cta:not([disabled]) {
   background: linear-gradient(180deg, #4be0cd, #23c2af);
   color: #032420;
   box-shadow:
@@ -627,7 +629,7 @@ body { overflow: hidden; }
     0 1px 2px rgba(0, 0, 0, .35);
   transition: transform .12s ease, box-shadow .16s ease, filter .16s ease;
 }
-#btn-go:not([disabled]):hover {
+.btn-cta:not([disabled]):hover {
   filter: brightness(1.06);
   transform: translateY(-1px);
   box-shadow:
@@ -635,7 +637,7 @@ body { overflow: hidden; }
     0 0 26px 4px rgba(47, 212, 193, .42),
     0 2px 4px rgba(0, 0, 0, .3);
 }
-#btn-go:not([disabled]):active {
+.btn-cta:not([disabled]):active {
   transform: translateY(0);
   filter: brightness(.98);
   box-shadow:
@@ -644,7 +646,7 @@ body { overflow: hidden; }
 }
 
 /* bright only when actually available — disabled reads as a quiet outline */
-#btn-go[disabled] {
+.btn-cta[disabled] {
   background: transparent; color: var(--dim);
   border: 1px solid var(--line); cursor: default;
 }

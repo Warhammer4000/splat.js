@@ -1907,6 +1907,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
 function setStartStyle(primary) {
   const b = $('btn-go');
   b.classList.toggle('btn-accent', primary);
+  b.classList.toggle('btn-cta', primary);
   b.classList.toggle('big', primary);
   b.classList.toggle('btn-outline', !primary);
   b.textContent = primary ? 'Start training' : 'Train locally';
@@ -1955,7 +1956,7 @@ function showDetail(setOrPreset) {
     // published model's train PSNR joins the input facts once resolved
     const view = document.createElement('a');
     view.id = 'detail-view';
-    view.className = 'btn btn-accent big';
+    view.className = 'btn btn-accent big btn-cta';
     view.href = `index.html?space=${encodeURIComponent(setOrPreset.spaceId)}`;
     view.textContent = 'View';
     document.querySelector('.startrow').prepend(view);
@@ -1994,7 +1995,7 @@ async function showCommunityDetail(it) {
   $('row-count').hidden = true;
   const view = document.createElement('a');
   view.id = 'detail-view';
-  view.className = 'btn btn-accent';
+  view.className = 'btn btn-accent big btn-cta';
   view.href = `index.html?space=${encodeURIComponent(it.id)}`;
   view.textContent = 'View creation';
   document.querySelector('.startrow').prepend(view);
@@ -2122,7 +2123,8 @@ async function mountWall() {
         const { fetchMine } = await import('./share.js');
         const my = await fetchMine();
         if ((!my || !my.length) && !capTile) { mp.innerHTML = '<span class="galmeta" style="padding:12px 4px">Nothing of yours yet — capture a place or finish a run and press Share.</span>'; return; }
-        for (const it of (my || [])) mp.appendChild(creationTile(it, true));
+        // same look as the Scenes tiles — no management strip here
+        for (const it of (my || [])) mp.appendChild(creationTile(it, false));
         if (!capTile) dragScroll(mp);
       }
     }));
