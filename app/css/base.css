@@ -225,6 +225,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; }
   background: var(--paper); color: var(--ink);
   font-weight: 600; font-size: 13.5px;
   text-decoration: none;   /* anchors wear .btn too — no link underline */
+  cursor: pointer;
 }
 .btn:hover { background: #fff; }
 .btn-accent { background: var(--accent); color: #04231f; }

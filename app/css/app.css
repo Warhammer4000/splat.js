@@ -97,6 +97,7 @@ body { overflow: hidden; }
    The copy stays a centred readable column; the Scenes wall gets more of
    the width. Content centres while it fits, scrolls from the top once not. */
 .card-start {
+  cursor: auto;   /* the stage behind wears the grab hand — the card doesn't */
   position: fixed; z-index: 40; inset: 0; top: 52px; margin: 0;
   width: 100%; height: calc(100% - 52px); max-height: none; overflow-y: auto;
   touch-action: pan-y;   /* its own scroll works despite the stage's none */
