@@ -25,6 +25,12 @@ const $ = (id) => document.getElementById(id);
 const fmt = (n) => Math.round(n).toLocaleString('en-US');
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
+// Two front doors, one codebase: the classic view keeps the preset row
+// (splat-js), the wall-first redesign leads with community creations
+// (splat-js2, or ?v2 anywhere).
+const WALL_FIRST = /splat-js2/.test(location.pathname)
+  || new URLSearchParams(location.search).has('v2');
+
 // short first run (phones especially) — the done screen offers "+10k cycles"
 // which stretches the trainer's schedules and resumes. 20k, not 10k: with a
 // 10k horizon the growth phase is squeezed against too few settle iterations
@@ -341,10 +347,23 @@ function boot() {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
   showIntro();
-  // nothing preselected: the hero asks for photos, the Community wall
-  // below offers finished creations to view (and train from there)
-  $('btn-go').disabled = true;
-  $('start').hidden = false;
+  if (WALL_FIRST) {
+    // nothing preselected: the hero asks for photos, the Community wall
+    // below offers finished creations to view (and train from there)
+    $('btn-go').disabled = true;
+    $('start').hidden = false;
+    $('start').querySelector('.origin').textContent =
+      'Drop in 20–200 overlapping photos of one place, or capture them right ' +
+      'here — the camera solve, the training and the export all run in this ' +
+      'tab. Or start with a community creation below: view it instantly, ' +
+      'then train the same photos yourself.';
+    $('pickline').querySelector('span').textContent = 'Your captures';
+  } else {
+    // classic: the preset row above, the wall below it
+    $('pickline').hidden = false;
+    $('set-desc').after($('gallery'));
+    open(PRESETS.find((p) => p.id === 'truck'));
+  }
   offerLastCapture();
   requestAnimationFrame(loop);
 
@@ -447,11 +466,29 @@ async function offerLastCapture() {
 }
 
 function buildSetPicker() {
-  // the preset row is gone — samples live on the Community wall as trained
-  // creations: view first, "Train this yourself" from the viewer. The strip
-  // only hosts the visitor's own "Last capture" tile now (PRESETS stay as
-  // data: the wall's official samples reference the same files).
-  $('setpick').innerHTML = '';
+  const host = $('setpick');
+  host.innerHTML = '';
+  // wall-first: samples live on the Community wall as trained creations —
+  // view first, "Train this yourself" from the viewer. The strip only
+  // hosts the visitor's own "Last capture" tile.
+  if (WALL_FIRST) return;
+  for (const p of PRESETS) {
+    const b = document.createElement('button');
+    b.dataset.id = p.id;
+    b.innerHTML = `<div class="ph"></div>${p.badge ? `<i class="yours">${p.badge}</i>` : ''}<span>${p.name}</span>`;
+    b.addEventListener('click', () => {
+      if (S.picking) { S.pending = p; paintCard(p); return; }
+      if (p === S.preset) return;
+      open(p);
+    });
+    host.appendChild(b);
+    const thumb = () => {
+      const img = Object.assign(new Image(), { src: presetUrl(p, p.names ? 0 : p.start), alt: '' });
+      img.onload = () => b.querySelector('.ph')?.replaceWith(img);
+    };
+    if (p.list && !p.names) loadPresetList(p).then(thumb).catch(() => {});
+    else thumb();
+  }
 }
 
 /** the first `cnt` photos of a preset, honouring its skip list */
