@@ -1796,10 +1796,39 @@ function shareDialog() {
 
 /** A ~640px view render for the gallery tile — the photographer's first
  *  viewpoint, snapshotted behind a fence like the error render. */
+/** The hero viewpoint: among registered cameras, the one that looks most
+ *  squarely at the scene's mass center from a representative distance.
+ *  Sequence edges (walk-in frames) and accidental close-ups score low —
+ *  aim is the dominant term, distance-from-median the tiebreak. */
+function bestHeroCam(scene) {
+  const regs = (scene.cams || []).filter((k) => k && k.R);
+  if (!regs.length) return null;
+  const C = scene.center || [0, 0, 0];
+  const info = regs.map((k) => {
+    const R = k.R, t = k.t;
+    const pos = [
+      -(R[0] * t[0] + R[3] * t[1] + R[6] * t[2]),
+      -(R[1] * t[0] + R[4] * t[1] + R[7] * t[2]),
+      -(R[2] * t[0] + R[5] * t[1] + R[8] * t[2])];
+    const d = [C[0] - pos[0], C[1] - pos[1], C[2] - pos[2]];
+    const len = Math.hypot(d[0], d[1], d[2]) || 1e-9;
+    const aim = (R[6] * d[0] + R[7] * d[1] + R[8] * d[2]) / len;
+    return { k, aim, len };
+  });
+  const ds = info.map((x) => x.len).sort((a, b) => a - b);
+  const med = ds[ds.length >> 1] || 1;
+  let best = null, bs = -1e9;
+  for (const x of info) {
+    const s = x.aim - 0.5 * Math.abs(x.len - med) / med;
+    if (s > bs) { bs = s; best = x.k; }
+  }
+  return best;
+}
+
 async function renderShareThumb() {
   try {
     const ses = S.session;
-    const c = S.scene.cams.find((k) => k.R) || null;
+    const c = bestHeroCam(S.scene);
     if (!c) return null;
     const W = 640, H = 400;
     const cv = document.createElement('canvas');
