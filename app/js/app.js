@@ -366,10 +366,11 @@ function boot() {
       'then train the same photos yourself.';
     $('pickline').querySelector('span').textContent = 'Your captures';
   } else {
-    // classic: the preset row above, the wall below it — but NOT while a
-    // shared creation is loading (its backdrop and strip would be lies)
+    // classic: presets first, the wall as the card's LAST row, below the
+    // Start button — and no preselection while a shared creation is loading
+    // (its backdrop and strip would be lies)
     $('pickline').hidden = false;
-    $('set-desc').after($('gallery'));
+    $('start').appendChild($('gallery'));
     if (!viewing) open(PRESETS.find((p) => p.id === 'truck'));
   }
   offerLastCapture();
