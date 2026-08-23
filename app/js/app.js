@@ -352,6 +352,8 @@ function boot() {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
   showIntro();
+  const mp = new URLSearchParams(location.search);
+  const viewing = mp.get('space') || mp.get('model');
   if (WALL_FIRST) {
     // nothing preselected: the hero asks for photos, the Community wall
     // below offers finished creations to view (and train from there)
@@ -364,16 +366,16 @@ function boot() {
       'then train the same photos yourself.';
     $('pickline').querySelector('span').textContent = 'Your captures';
   } else {
-    // classic: the preset row above, the wall below it
+    // classic: the preset row above, the wall below it — but NOT while a
+    // shared creation is loading (its backdrop and strip would be lies)
     $('pickline').hidden = false;
     $('set-desc').after($('gallery'));
-    open(PRESETS.find((p) => p.id === 'truck'));
+    if (!viewing) open(PRESETS.find((p) => p.id === 'truck'));
   }
   offerLastCapture();
   requestAnimationFrame(loop);
 
   // a shared result: load it straight into the done-state viewer
-  const mp = new URLSearchParams(location.search);
   if (mp.get('space')) restoreShared(mp.get('space'));
   else if (mp.get('model')) restoreSession({ url: mp.get('model'), reconUrl: mp.get('recon') });
   else mountWall();
@@ -1850,6 +1852,8 @@ async function restoreShared(spaceId) {
     console.error(e);
     S.share = null;
     $('start').hidden = false;
+    // back on the classic front page nothing is selected yet — do it now
+    if (!WALL_FIRST && !S.preset) open(PRESETS.find((p) => p.id === 'truck'));
     flash(`Could not load the shared creation: ${e.message}`, 9000);
   }
 }
