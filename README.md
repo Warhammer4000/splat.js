@@ -29,6 +29,11 @@ Or open a finished result straight away — every trained run can be saved and
 shared, and `?model=<url>` (+ `&recon=<url>` for the solved camera path)
 loads it back into the viewer, capture-path tour included:
 
+**[The Truck — Tanks & Temples](https://arrival.space/splat-js/index.html?model=https://ugc.arrival.space/splatjs/models/truck_1m_979.sog&recon=https://ugc.arrival.space/splatjs/models/truck_1m_979_recon.json)**
+— the benchmark model from the table below: 251 photographs at native
+979 px, 1,000,000 Gaussians, 100 k cycles: **25.76 dB on the photographs it
+never saw**, ~25 min in one tab.
+
 **[The Bar — a real bar from 76 handheld 360° panoramas](https://arrival.space/splat-js/index.html?model=https://ugc.arrival.space/splatjs/models/bar360_4m_1024.sog&recon=https://ugc.arrival.space/splatjs/models/bar360_4m_1024_recon.json)**
 — each panorama sliced into cube faces and solved as one camera rig,
 4,000,000 Gaussians trained at 1024 px for 400 k cycles: **27.4 dB against
