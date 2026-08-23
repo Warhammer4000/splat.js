@@ -703,6 +703,13 @@ a.cbtn { text-decoration: none; }
   scrollbar-width: none;   /* swipe/drag like the other rows */
 }
 .galrow::-webkit-scrollbar { display: none; }
+/* phones: the wall stacks vertically — full-width tiles instead of a
+   sideways carousel squeezed into a narrow screen */
+@media (max-width: 640px) {
+  .galrow { flex-direction: column; overflow-x: visible; }
+  .galrow .galtile { flex: none; width: 100%; }
+  .galrow .galtile img { height: auto; aspect-ratio: 16 / 10; }
+}
 .galtile {
   flex: 0 0 148px; display: flex; flex-direction: column; gap: 4px;
   text-decoration: none; border-radius: 12px; padding: 0;
