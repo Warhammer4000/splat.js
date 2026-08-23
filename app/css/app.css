@@ -93,29 +93,22 @@ body { overflow: hidden; }
 }
 .controls .seg { background: rgba(7, 9, 9, .82); backdrop-filter: blur(4px); }
 
-/* start card, centred on the frames it is about to chew through */
+/* start card: a full-screen overlay under the top bar — every device.
+   The copy stays a centred readable column; the Scenes wall gets more of
+   the width. Content centres while it fits, scrolls from the top once not. */
 .card-start {
-  /* fixed: centred in the WINDOW, free to overlay the filmstrip (and on a
-     phone the header) instead of being squeezed into the stage row */
-  position: fixed; z-index: 40; inset: 0; margin: auto;
-  width: min(600px, calc(100% - 48px)); height: max-content;
-  max-height: calc(100% - 20px); overflow-y: auto;
+  position: fixed; z-index: 40; inset: 0; top: 52px; margin: 0;
+  width: 100%; height: calc(100% - 52px); max-height: none; overflow-y: auto;
   touch-action: pan-y;   /* its own scroll works despite the stage's none */
   padding: 58px 30px 26px; text-align: center;   /* the top gap is the × its own row */
   background: rgba(14, 17, 18, .9); backdrop-filter: blur(12px);
-  border: 1px solid var(--line-2); border-radius: 16px;
-  box-shadow: var(--shadow);
+  display: grid; align-content: safe center; justify-items: center;
 }
-/* phones: the card fills everything under the top bar — no border, no
-   chrome, content centred while it fits, scrolling from the top once not */
+.card-start > * { width: min(600px, 100%); }
+.card-start > #gallery { width: min(1100px, 100%); }
+.card-start > .card-x, .card-start > .card-back { width: auto; }
 @media (max-width: 640px) {
-  .card-start {
-    inset: 0; top: 52px; margin: 0; width: 100%;
-    height: calc(100% - 52px); max-height: calc(100% - 52px);
-    border: 0; border-radius: 0;
-    display: grid; align-content: safe center;
-    padding-top: 26px;   /* phones have no × row — the title moves up */
-  }
+  .card-start { padding-top: 26px; }   /* phones have no × row — title moves up */
   .card-start .eyebrow { margin-bottom: 4px; }
   .card-start h1 { margin-bottom: 8px; }
 }

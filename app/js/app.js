@@ -1243,7 +1243,7 @@ async function restoreSession(src) {
                  state: 'placed', feats: 0, name: c.name };
       });
     }
-    buildStrip();
+    buildStrip(true);   // viewer mode: no training-photo fetches on load
     const cl = (reconJson && reconJson.cloud) || { xyz: [], rgb: [] };
     let center = reconJson && reconJson.center;
     let radius = (reconJson && reconJson.sceneRadius) || ses.model.radius;
@@ -2187,22 +2187,29 @@ function wireStage() {
 }
 
 // ── filmstrip ───────────────────────────────────────────────────────────────
-function buildStrip() {
+function buildStrip(deferPhotos = false) {
   const strip = $('strip');
   strip.innerHTML = '<div class="strip-scroll" id="strip-scroll"></div>';
   const sc = $('strip-scroll');
   dragScroll(sc);
-  const io = new IntersectionObserver((es) => {
-    es.forEach(async (e) => {
+  const fill = async (el) => {
+    if (el.dataset.filled) return;
+    el.dataset.filled = '1';
+    const b = await bmp(S.photos[+el.dataset.i].url, 140);
+    if (!b) return;
+    const cv = document.createElement('canvas');
+    cv.width = b.width; cv.height = b.height;
+    cv.getContext('2d').drawImage(b, 0, 0);
+    el.querySelector('.ph')?.replaceWith(
+      Object.assign(new Image(), { src: cv.toDataURL('image/jpeg', .7) }));
+  };
+  // viewing a share: the tiles stay placeholders until touched — a shared
+  // creation must not pull hundreds of full-size training photos on load
+  const io = deferPhotos ? null : new IntersectionObserver((es) => {
+    es.forEach((e) => {
       if (!e.isIntersecting) return;
       io.unobserve(e.target);
-      const b = await bmp(S.photos[+e.target.dataset.i].url, 140);
-      if (!b) return;
-      const cv = document.createElement('canvas');
-      cv.width = b.width; cv.height = b.height;
-      cv.getContext('2d').drawImage(b, 0, 0);
-      e.target.querySelector('.ph')?.replaceWith(
-        Object.assign(new Image(), { src: cv.toDataURL('image/jpeg', .7) }));
+      fill(e.target);
     });
   }, { root: sc, rootMargin: '250px' });
 
@@ -2212,9 +2219,9 @@ function buildStrip() {
     b.dataset.i = i;
     b.innerHTML = `<div class="ph"></div>
       <span class="frame-tag" hidden></span><div class="frame-bar"><i></i></div>`;
-    b.addEventListener('click', () => select(i));
+    b.addEventListener('click', () => { fill(b); select(i); });
     sc.appendChild(b);
-    io.observe(b);
+    if (io) io.observe(b);
   });
   paintStrip();
 }
