@@ -366,10 +366,10 @@ function boot() {
       'then train the same photos yourself.';
     $('pickline').querySelector('span').textContent = 'Your captures';
   } else {
-    // classic: the front page shows benchmark + community tiles; clicking
-    // any tile opens a focused DETAIL card, and Start training lives only
-    // there. The caption, Start row and settings move into that card once.
-    $('pickline').hidden = false;
+    // classic: ONE wall — Scenes — official trained benchmarks and community
+    // creations side by side; clicking any tile opens the focused DETAIL
+    // card, and Start training lives only there. Your captures keep their
+    // own row underneath when they exist.
     $('start').appendChild($('gallery'));
     $('detail-body').append($('set-desc'), document.querySelector('.startrow'), $('settings'));
     $('detail-back').addEventListener('click', () => {
@@ -480,30 +480,11 @@ async function offerLastCapture() {
 }
 
 function buildSetPicker() {
-  const host = $('setpick');
-  host.innerHTML = '';
-  // wall-first: samples live on the Community wall as trained creations —
-  // view first, "Train this yourself" from the viewer. The strip only
-  // hosts the visitor's own "Last capture" tile.
-  if (WALL_FIRST) return;
-  for (const p of PRESETS) {
-    if (p.wallOnly) continue;   // trained community samples leave the row
-    const b = document.createElement('button');
-    b.dataset.id = p.id;
-    b.innerHTML = `<div class="ph"></div>${p.badge ? `<i class="yours">${p.badge}</i>` : ''}<span>${p.name}</span>`;
-    b.addEventListener('click', () => {
-      if (S.picking) { S.pending = p; paintCard(p); return; }
-      open(p);
-      showDetail(p);
-    });
-    host.appendChild(b);
-    const thumb = () => {
-      const img = Object.assign(new Image(), { src: presetUrl(p, p.names ? 0 : p.start), alt: '' });
-      img.onload = () => b.querySelector('.ph')?.replaceWith(img);
-    };
-    if (p.list && !p.names) loadPresetList(p).then(thumb).catch(() => {});
-    else thumb();
-  }
+  // every set lives on the Scenes wall as a trained creation — view first,
+  // train from the detail card. The picker strip only hosts the visitor's
+  // own "Last capture" tile (PRESETS stay as data: gates, data deploys and
+  // the official samples' sources).
+  $('setpick').innerHTML = '';
 }
 
 /** the first `cnt` photos of a preset, honouring its skip list */
@@ -2030,7 +2011,7 @@ async function mountWall() {
     if ((!items || !items.length) && !mineTab) return;
     const host = $('gallery');
     host.innerHTML = `
-      <div class="orline galtabs"><span><b data-tab="community" class="on">Community</b>${mineTab ? `<b data-tab="mine">Mine</b>` : ''}</span></div>
+      <div class="orline galtabs"><span><b data-tab="community" class="on">Scenes</b>${mineTab ? `<b data-tab="mine">Local</b>` : ''}</span></div>
       <div class="galrow" data-pane="community"></div>
       ${mineTab ? '<div class="galrow" data-pane="mine" hidden></div>' : ''}`;
     const row = host.querySelector('[data-pane="community"]');

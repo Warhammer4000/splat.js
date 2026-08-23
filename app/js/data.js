@@ -35,6 +35,7 @@ export const PRESETS = [
   },
   {
     id: 'playroom', name: 'Playroom',
+    spaceId: '42485456_5971',
     kind: 'Indoor photo set',
     origin: 'Painted playroom walls — a genuinely hard indoor solve.',
     links: [],
@@ -61,6 +62,7 @@ export const PRESETS = [
   },
   {
     id: 'bicycle', name: 'Bicycle',
+    spaceId: '42485456_4455',
     kind: 'Standard test set',
     origin: 'A Mip-NeRF 360 garden orbit around a bench.',
     links: [
@@ -87,6 +89,7 @@ export const PRESETS = [
   },
   {
     id: 'synthetic', name: 'Synthetic Corner',
+    spaceId: '42485456_9715',
     kind: 'Rendered test set',
     origin: '12 rendered views — the clean case.',
     links: [],
