@@ -171,6 +171,8 @@ struct Geom {
   t0: vec3f, t1: vec3f,              // rows of T = J*W
   va: f32, vb: f32, vc: f32,         // 2D covariance
   s00: f32, s01: f32, s02: f32, s11: f32, s12: f32, s22: f32, // 3D cov
+  cx: f32, cy: f32,   // frustum-clamped cam-space x, y as used in J
+  inx: f32, iny: f32, // 1 when unclamped (gradient flows through J's x/y)
 };
 
 fn computeGeom(pbase: u32) -> Geom {
@@ -201,11 +203,24 @@ fn computeGeom(pbase: u32) -> Geom {
   g.s00 = dot(m0, m0); g.s01 = dot(m0, m1); g.s02 = dot(m0, m2);
   g.s11 = dot(m1, m1); g.s12 = dot(m1, m2); g.s22 = dot(m2, m2);
 
-  // T = J * W (2x3): J = [[f/z, 0, -f x/z^2], [0, f/z, -f y/z^2]]
+  // T = J * W (2x3): J = [[f/z, 0, -f x/z^2], [0, f/z, -f y/z^2]].
+  // J is evaluated at a frustum-CLAMPED x, y (1.3x the half-FOV, the
+  // reference rasterizer's guard): outside the view cone the linearization
+  // point runs away and the 2D covariance explodes into screen-sized
+  // quads that leak back into frame — in the interactive view AND in
+  // every training render whose frustum the splat sits just outside of.
   let f = cam.proj.x;
   let iz = 1.0 / g.pc.z;
-  g.t0 = (f * iz) * cam.R0.xyz + (-f * g.pc.x * iz * iz) * cam.R2.xyz;
-  g.t1 = (f * iz) * cam.R1.xyz + (-f * g.pc.y * iz * iz) * cam.R2.xyz;
+  let limx = 1.3 * 0.5 * cam.size.x / f;
+  let limy = 1.3 * 0.5 * cam.size.y / f;
+  let txz = g.pc.x * iz;
+  let tyz = g.pc.y * iz;
+  g.cx = clamp(txz, -limx, limx) * g.pc.z;
+  g.cy = clamp(tyz, -limy, limy) * g.pc.z;
+  g.inx = select(0.0, 1.0, abs(txz) <= limx);
+  g.iny = select(0.0, 1.0, abs(tyz) <= limy);
+  g.t0 = (f * iz) * cam.R0.xyz + (-f * g.cx * iz * iz) * cam.R2.xyz;
+  g.t1 = (f * iz) * cam.R1.xyz + (-f * g.cy * iz * iz) * cam.R2.xyz;
 
   // V = T Sigma T^T
   let st0 = vec3f(
@@ -814,12 +829,14 @@ ${shDeg > 0 ? /* wgsl */ `
   let dJ02 = dot(dT0, cam.R2.xyz);
   let dJ11 = dot(dT1, cam.R1.xyz);
   let dJ12 = dot(dT1, cam.R2.xyz);
+  // clamped splats: J was built from the clamped x/y, so no gradient flows
+  // to position through that entry (reference-rasterizer convention)
   var dpc = vec3f(0.0);
-  dpc.x += dJ02 * (-f * iz * iz);
-  dpc.y += dJ12 * (-f * iz * iz);
+  dpc.x += dJ02 * (-f * iz * iz) * g.inx;
+  dpc.y += dJ12 * (-f * iz * iz) * g.iny;
   dpc.z += (dJ00 + dJ11) * (-f * iz * iz)
-         + dJ02 * (2.0 * f * g.pc.x * iz * iz * iz)
-         + dJ12 * (2.0 * f * g.pc.y * iz * iz * iz);
+         + dJ02 * (2.0 * f * g.cx * iz * iz * iz)
+         + dJ12 * (2.0 * f * g.cy * iz * iz * iz);
 
   // ---- mean path ----
   dpc.x += gp[0] * f * iz;
@@ -840,7 +857,7 @@ ${shDeg > 0 ? /* wgsl */ `
     var dw = cross(g.pc - cam.t.xyz, dpc);
     let dW0 = (f * iz) * dT0;
     let dW1 = (f * iz) * dT1;
-    let dW2 = (-f * g.pc.x * iz * iz) * dT0 + (-f * g.pc.y * iz * iz) * dT1;
+    let dW2 = (-f * g.cx * iz * iz) * dT0 + (-f * g.cy * iz * iz) * dT1;
     let wc0 = vec3f(cam.R0.x, cam.R1.x, cam.R2.x);
     let wc1 = vec3f(cam.R0.y, cam.R1.y, cam.R2.y);
     let wc2 = vec3f(cam.R0.z, cam.R1.z, cam.R2.z);
@@ -850,10 +867,12 @@ ${shDeg > 0 ? /* wgsl */ `
     camAdd(ci,      dw.x);
     camAdd(ci + 1u, dw.y);
     camAdd(ci + 2u, dw.z);
-    // shared focal: dL/dlogf = f dL/df (mean path + J path, J entries all ~f)
+    // shared focal: dL/dlogf = f dL/df (mean path + J path, J entries all
+    // ~f — except a clamped J02/J12, where the limit is itself 1/f and the
+    // f-dependence cancels, so those terms gate out)
     let dlogf = gp[0] * f * g.pc.x * iz + gp[1] * f * g.pc.y * iz
       + (dJ00 + dJ11) * (f * iz)
-      + dJ02 * (-f * g.pc.x * iz * iz) + dJ12 * (-f * g.pc.y * iz * iz);
+      + dJ02 * (-f * g.cx * iz * iz) * g.inx + dJ12 * (-f * g.cy * iz * iz) * g.iny;
     camAdd(u32(cam.misc2.z) * 8u, dlogf);
   }
 
