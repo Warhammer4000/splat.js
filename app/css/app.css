@@ -92,6 +92,8 @@ body { overflow: hidden; }
   background: rgba(36, 44, 45, .85);
 }
 .controls .seg { background: rgba(7, 9, 9, .82); backdrop-filter: blur(4px); }
+/* the arrival mark inside Enter space — sized to the label, keeps its color */
+.cbtn .enter-mark { width: 15px; height: 15px; display: inline-block; vertical-align: -3px; margin-right: 6px; }
 
 /* start card: a full-screen overlay under the top bar — every device.
    The copy stays a centred readable column; the Scenes wall gets more of

@@ -1500,7 +1500,14 @@ function renderControls() {
     enter.href = `https://arrival.space/${encodeURIComponent(S.share.id)}`;
     enter.target = '_blank';
     enter.rel = 'noopener';
-    enter.textContent = 'Enter space ↗';
+    // the arrival mark from the top bar leads the label — same place, same sign
+    const mark = document.querySelector('.brand-mark svg');
+    if (mark) {
+      const m = mark.cloneNode(true);
+      m.classList.add('enter-mark');
+      enter.appendChild(m);
+    }
+    enter.appendChild(document.createTextNode('Enter space'));
     enter.title = 'Walk this creation on arrival.space';
     c.appendChild(enter);
   }
