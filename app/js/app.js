@@ -366,11 +366,16 @@ function boot() {
       'then train the same photos yourself.';
     $('pickline').querySelector('span').textContent = 'Your captures';
   } else {
-    // classic: presets first, the wall as the card's LAST row, below the
-    // Start button — and no preselection while a shared creation is loading
-    // (its backdrop and strip would be lies)
+    // classic: the front page shows benchmark + community tiles; clicking
+    // any tile opens a focused DETAIL card, and Start training lives only
+    // there. The caption, Start row and settings move into that card once.
     $('pickline').hidden = false;
     $('start').appendChild($('gallery'));
+    $('detail-body').append($('set-desc'), document.querySelector('.startrow'), $('settings'));
+    $('detail-back').addEventListener('click', () => {
+      $('detail').hidden = true;
+      $('start').hidden = false;
+    });
     if (!viewing) open(PRESETS.find((p) => p.id === 'truck'));
   }
   offerLastCapture();
@@ -465,8 +470,9 @@ async function offerLastCapture() {
   };
   b.addEventListener('click', () => {
     if (S.picking) { S.pending = makeSet(); paintCard(S.pending); return; }
-    if (S.preset && S.preset.id === '__last') return;
-    open(makeSet());
+    const set = makeSet();
+    open(set);
+    showDetail(set);
   });
   const host = $('setpick');
   host.insertBefore(b, host.firstChild);
@@ -487,8 +493,8 @@ function buildSetPicker() {
     b.innerHTML = `<div class="ph"></div>${p.badge ? `<i class="yours">${p.badge}</i>` : ''}<span>${p.name}</span>`;
     b.addEventListener('click', () => {
       if (S.picking) { S.pending = p; paintCard(p); return; }
-      if (p === S.preset) return;
       open(p);
+      showDetail(p);
     });
     host.appendChild(b);
     const thumb = () => {
@@ -732,6 +738,7 @@ async function open(preset, autostart = false) {
   $('btn-settings').disabled = false;
   $('card-x').hidden = true;
   $('start').hidden = true;
+  $('detail').hidden = true;
   $('controls').hidden = true;
   $('btn-new').hidden = true;
   $('strip').innerHTML = '';
@@ -766,6 +773,7 @@ const beatIndex = (stage) =>
 async function startPrep() {
   const gen = S.gen;
   $('start').hidden = true;
+  $('detail').hidden = true;
   $('btn-new').hidden = false;
   S.maxIters = PERF.on ? PERF.iters : (S.settings.iters || INITIAL_ITERS);
   S.state = 'prep';
@@ -1874,6 +1882,74 @@ async function restoreShared(spaceId) {
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+/** The focused detail card: one set, its description, and the only Start
+ *  button. Back returns to the front page. Classic mode only. */
+function showDetail(setOrPreset) {
+  if (WALL_FIRST) return;
+  document.getElementById('detail-view')?.remove();
+  const hero = $('detail-hero');
+  const src = (S.photos && S.photos[0] && S.photos[0].url) || null;
+  hero.hidden = !src;
+  if (src) hero.src = src;
+  $('btn-go').textContent = 'Start training';
+  $('btn-go').disabled = !!S.noGpu;
+  $('start').hidden = true;
+  $('detail').hidden = false;
+}
+
+/** A community creation's detail card: the trained result's story, a View
+ *  button, and — once its photographs resolve — Start training. */
+async function showCommunityDetail(it) {
+  document.getElementById('detail-view')?.remove();
+  const hero = $('detail-hero');
+  const src = (it.splatjs && it.splatjs.thumbUrl) || it.screenshotUrl || null;
+  hero.hidden = !src;
+  if (src) hero.src = src;
+  const dB = it.splatjs && (it.splatjs.psnrTest ? it.splatjs.psnrTest.psnr : it.splatjs.psnrTrain);
+  $('set-desc').innerHTML = `<b>${esc(it.title || 'Untitled')}</b> — ${esc(it.description || 'A shared creation.')}` +
+    `<span class="approx">${fmt((it.splatjs && it.splatjs.splats) || 0)} splats${dB ? ` · ${(+dB).toFixed(1)} dB` : ''}</span>`;
+  $('set-desc').hidden = false;
+  $('row-count').hidden = true;
+  const view = document.createElement('a');
+  view.id = 'detail-view';
+  view.className = 'btn btn-outline';
+  view.href = `index.html?space=${encodeURIComponent(it.id)}`;
+  view.textContent = 'View creation';
+  document.querySelector('.startrow').prepend(view);
+  const go = $('btn-go');
+  go.textContent = 'Start training';
+  go.disabled = true;
+  $('start').hidden = true;
+  $('detail').hidden = false;
+  // the photographs live in the creation's recon — fetch it, then Start works
+  try {
+    const { unzipStore } = await import('./session_io.js');
+    const r = await fetch(it.splatjs.reconUrl);
+    if (!r.ok) throw new Error('recon unavailable');
+    const rb = new Uint8Array(await r.arrayBuffer());
+    let rj;
+    if (rb[0] === 0x50 && rb[1] === 0x4b) {
+      const entry = unzipStore(rb).get('recon.json');
+      rj = JSON.parse(new TextDecoder().decode(entry));
+    } else {
+      rj = JSON.parse(new TextDecoder().decode(rb));
+    }
+    if ($('detail').hidden) return;   // the user already went back
+    if (rj.source && rj.source.urls && rj.source.urls.length && rj.source.urls.every(Boolean)) {
+      S.preset = { id: '__sample', name: it.title || 'Shared creation' };
+      S.photos = rj.source.names.map((n, i) => ({ url: rj.source.urls[i], name: n }));
+      S.sel = 0;
+      buildStrip();
+      go.disabled = !!S.noGpu;
+    } else {
+      go.title = 'This creation has no public photographs to train from';
+    }
+  } catch (e) {
+    console.error(e);
+    go.title = 'Could not fetch this creation\'s photographs';
+  }
+}
+
 /** One creation tile (community and mine share the look; mine adds the
  *  management strip underneath). */
 function creationTile(it, mine) {
@@ -1889,6 +1965,10 @@ function creationTile(it, mine) {
     <span class="galmeta">${fmt((it.splatjs && it.splatjs.splats) || 0)} splats${dB ? ` · ${(+dB).toFixed(1)} dB` : ''}</span>`;
   if (!mine) {
     wrap.href = view;
+    if (!WALL_FIRST) {
+      // classic: the tile opens the detail card, not the viewer directly
+      wrap.addEventListener('click', (e) => { e.preventDefault(); showCommunityDetail(it); });
+    }
     return wrap;
   }
   const strip = document.createElement('div');
@@ -1988,7 +2068,17 @@ function trainFromShare() {
   $('set-desc').hidden = false;
   $('btn-go').disabled = !!S.noGpu;
   $('btn-go').textContent = 'Start training';
-  $('start').hidden = false;
+  if (WALL_FIRST) {
+    $('start').hidden = false;
+  } else {
+    // classic keeps Start on the focused detail card
+    document.getElementById('detail-view')?.remove();
+    const hero = $('detail-hero');
+    hero.src = S.photos[0].url;
+    hero.hidden = false;
+    $('start').hidden = true;
+    $('detail').hidden = false;
+  }
   bmp(S.photos[0].url);
   flash('Photographs loaded — press Start training.', 6000);
 }

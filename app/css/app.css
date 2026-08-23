@@ -785,3 +785,23 @@ a.cbtn { text-decoration: none; }
   transition: opacity .6s ease;
 }
 #share-hero.gone { opacity: 0; }
+
+/* the focused detail card: back arrow + hero image above the set's story */
+.card-back {
+  position: absolute; top: 12px; left: 14px;
+  width: 36px; height: 36px; border-radius: 50%;
+  color: var(--muted); font: 300 30px/1 var(--ui);
+  display: flex; align-items: center; justify-content: center;
+  padding-bottom: 4px;
+}
+.card-back:hover { color: var(--paper); background: var(--panel-2); }
+.detail-hero {
+  width: 100%; max-height: 220px; object-fit: cover;
+  border-radius: 12px; margin-bottom: 14px; display: block;
+  background: #0b0e0f;
+}
+#detail-body .startrow { margin-top: 16px; }
+#detail-view { margin-right: 10px; }
+@media (max-width: 640px) {
+  .detail-hero { max-height: 160px; }
+}
