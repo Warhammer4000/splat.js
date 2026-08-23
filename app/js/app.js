@@ -177,7 +177,12 @@ function boot() {
     if (S.picking) { const p = S.pending || S.preset; closePicker(); await open(p, true); return; }
     startPrep();
   });
-  $('btn-new').addEventListener('click', (e) => { e.stopPropagation(); showPicker(); });
+  $('btn-new').addEventListener('click', (e) => {
+    e.stopPropagation();
+    // a shared creation holds nothing precious — New is simply the way home
+    if (S.restored) { location.href = 'index.html'; return; }
+    showPicker();
+  });
   $('card-x').addEventListener('click', closePicker);
   $('file-input').addEventListener('change', (e) => useOwnPhotos(e.target.files));
   if (cameraSupported()) {
@@ -1289,6 +1294,7 @@ async function restoreSession(src) {
     const first = cams.find((c) => c.R);
     if (first) { vp.syncTo(first); vp.dist *= 1.15; } else vp.frameScene();
     $('stage').dataset.cursor = 'grab';
+    $('btn-new').hidden = false;   // the way back to the front page
     renderControls();
     dock('');
     if (cams.length > 2) startTour();
