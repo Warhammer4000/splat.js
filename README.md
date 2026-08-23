@@ -54,18 +54,16 @@ cycles) they drive.
 Append **`?eval`** to the app URL and every 8th photo is held out of training
 and scored at the end — photographs the model has never seen, the metric the
 research papers report. On the full 251-image Tanks & Temples *Truck* scene
-(1 M splats, 100 k cycles, ~15 minutes in one tab on a desktop NVIDIA GPU;
-trainer options `opacityReg: 0.002, relocUntil: 90000` — measured to double
-the live splat population at equal-or-better quality):
+(1 M splats, 100 k cycles, ~18 minutes in one tab on a desktop NVIDIA GPU):
 
 | method | Truck test PSNR |
 |---|---|
 | 3DGS (SIGGRAPH 2023) | 25.18 dB |
+| **Splat.js — in a browser tab** | **25.61 dB** |
 | Mip-Splatting (CVPR 2024) | 25.74 dB |
 | Scaffold-GS (CVPR 2024) | 25.77 dB |
 | 3DGS-MCMC (NeurIPS 2024) | 26.11 dB |
 | Student Splatting & Scooping (CVPR 2025) | 26.41 dB |
-| **Splat.js — in a browser tab** | **26.52 dB** |
 
 Same images, same resolution, same held-out-every-8th protocol. The published
 methods run 2–2.6 M Gaussians with degree-3 spherical harmonics on native
