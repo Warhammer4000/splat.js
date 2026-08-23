@@ -150,9 +150,6 @@ if (!handleOAuthCallback()) boot();
 
 // ── boot ────────────────────────────────────────────────────────────────────
 function boot() {
-  buildSetPicker();
-  dragScroll($('setpick'));
-
   vp = new Viewport($('cv'));
   vp.onLeave = leaveFrame;
   // The GPU belongs to the view while the user is orbiting: stop submitting
@@ -364,12 +361,11 @@ function boot() {
       'here — the camera solve, the training and the export all run in this ' +
       'tab. Or start with a community creation below: view it instantly, ' +
       'then train the same photos yourself.';
-    $('pickline').querySelector('span').textContent = 'Your captures';
   } else {
     // classic: ONE wall — Scenes — official trained benchmarks and community
     // creations side by side; clicking any tile opens the focused DETAIL
-    // card, and Start training lives only there. Your captures keep their
-    // own row underneath when they exist.
+    // card, and Start training lives only there. The visitor's own sets
+    // (last capture, own shares) live under the wall's Local tab.
     $('start').appendChild($('gallery'));
     $('detail-body').append($('set-desc'), document.querySelector('.startrow'), $('settings'));
     $('detail-back').addEventListener('click', () => {
@@ -378,7 +374,6 @@ function boot() {
     });
     if (!viewing) open(PRESETS.find((p) => p.id === 'truck'));
   }
-  offerLastCapture();
   requestAnimationFrame(loop);
 
   // a shared result: load it straight into the done-state viewer
@@ -436,7 +431,6 @@ function showIntro() {
   S.photos = [];
   $('strip').innerHTML = '';
   $('set-desc').hidden = true;
-  [...$('setpick').children].forEach((b) => b.setAttribute('aria-pressed', 'false'));
   $('btn-go').disabled = true;
   $('btn-settings').disabled = true;
   $('settings').hidden = true;
@@ -444,19 +438,24 @@ function showIntro() {
   $('start').hidden = false;
 }
 
-/** the previous own capture, restored from this device's storage — first
- *  tile in the Presets row */
-async function offerLastCapture() {
+/** the previous own capture, restored from this device's storage — a tile
+ *  for the wall's Local tab (null when nothing is stored). Every set lives
+ *  on the Scenes wall; PRESETS stay as data: gates, data deploys and the
+ *  official samples' sources. */
+async function lastCaptureTile() {
   const rec = await loadLastCapture();
-  if (!rec || !rec.files || rec.files.length < 2) return;
-  const b = document.createElement('button');
-  b.dataset.id = '__last';
+  if (!rec || !rec.files || rec.files.length < 2) return null;
+  const b = document.createElement('div');
+  b.className = 'galtile';
+  b.style.cursor = 'pointer';
   b.title = `${rec.files.length} frames, saved on this device`;
-  // the badge keeps it apart from the presets — a capture OF a preset scene
+  // the badge keeps it apart from the shares — a capture OF a known scene
   // makes the thumbnails near-identical
-  b.innerHTML = `<div class="ph"></div><i class="yours">yours</i><span>Last capture</span>`;
+  b.innerHTML = `<i class="yours">this device</i>
+    <span class="galname">Last capture</span>
+    <span class="galmeta">${rec.files.length} frames · never uploaded</span>`;
   const img = Object.assign(new Image(), { src: URL.createObjectURL(rec.files[0].blob), alt: '' });
-  img.onload = () => b.querySelector('.ph')?.replaceWith(img);
+  b.prepend(img);
   const makeSet = () => {
     const files = rec.files.map((e) => new File([e.blob], e.name, { type: e.blob.type || 'image/jpeg' }));
     if (S.ownUrls) S.ownUrls.forEach(URL.revokeObjectURL);
@@ -472,19 +471,9 @@ async function offerLastCapture() {
     if (S.picking) { S.pending = makeSet(); paintCard(S.pending); return; }
     const set = makeSet();
     open(set);
-    showDetail(set);
+    if (!WALL_FIRST) showDetail(set);
   });
-  const host = $('setpick');
-  host.insertBefore(b, host.firstChild);
-  $('pickline').hidden = false;
-}
-
-function buildSetPicker() {
-  // every set lives on the Scenes wall as a trained creation — view first,
-  // train from the detail card. The picker strip only hosts the visitor's
-  // own "Last capture" tile (PRESETS stay as data: gates, data deploys and
-  // the official samples' sources).
-  $('setpick').innerHTML = '';
+  return b;
 }
 
 /** the first `cnt` photos of a preset, honouring its skip list */
@@ -575,8 +564,6 @@ function paintCard(preset) {
     $('set-count-v').textContent = `${cnt} / ${mx}`;
   }
   $('btn-go').textContent = 'Start training';
-  [...$('setpick').children].forEach((b) =>
-    b.setAttribute('aria-pressed', String(b.dataset.id === preset.id)));
 }
 
 /** re-cut the photo list to the chosen count (only while on the start card
@@ -2000,38 +1987,43 @@ function creationTile(it, mine) {
   return wrap;
 }
 
-/** The creation wall on the start card: Community (public, everyone) and —
- *  when a sign-in is stored — Mine (management: privacy, link, delete).
- *  An empty wall stays invisible. */
+/** The creation wall on the start card: Scenes (public, everyone) and —
+ *  when this device holds anything of the visitor's own — Local: the last
+ *  capture from this browser's storage plus, signed in, their shares
+ *  (management: privacy, link, delete). An empty wall stays invisible. */
 async function mountWall() {
   try {
     const { fetchGallery } = await import('./share.js');
-    const { items } = await fetchGallery({ count: 12 });
-    const mineTab = hasToken();
-    if ((!items || !items.length) && !mineTab) return;
+    const [{ items }, capTile] = await Promise.all([
+      fetchGallery({ count: 12 }),
+      lastCaptureTile().catch(() => null),
+    ]);
+    const localTab = hasToken() || !!capTile;
+    if ((!items || !items.length) && !localTab) return;
     const host = $('gallery');
     host.innerHTML = `
-      <div class="orline galtabs"><span><b data-tab="community" class="on">Scenes</b>${mineTab ? `<b data-tab="mine">Local</b>` : ''}</span></div>
+      <div class="orline galtabs"><span><b data-tab="community" class="on">Scenes</b>${localTab ? `<b data-tab="mine">Local</b>` : ''}</span></div>
       <div class="galrow" data-pane="community"></div>
-      ${mineTab ? '<div class="galrow" data-pane="mine" hidden></div>' : ''}`;
+      ${localTab ? '<div class="galrow" data-pane="mine" hidden></div>' : ''}`;
     const row = host.querySelector('[data-pane="community"]');
     for (const it of (items || [])) row.appendChild(creationTile(it, false));
     dragScroll(row);
     host.hidden = false;
-    let mineLoaded = false;
+    const mp = host.querySelector('[data-pane="mine"]');
+    if (mp && capTile) { mp.appendChild(capTile); dragScroll(mp); }
+    let sharesLoaded = !hasToken();
     host.querySelectorAll('[data-tab]').forEach((t) => t.addEventListener('click', async () => {
       host.querySelectorAll('[data-tab]').forEach((x) => x.classList.toggle('on', x === t));
       const mine = t.dataset.tab === 'mine';
       host.querySelector('[data-pane="community"]').hidden = mine;
-      const mp = host.querySelector('[data-pane="mine"]');
       if (mp) mp.hidden = !mine;
-      if (mine && !mineLoaded) {
-        mineLoaded = true;
+      if (mine && !sharesLoaded) {
+        sharesLoaded = true;
         const { fetchMine } = await import('./share.js');
         const my = await fetchMine();
-        if (!my || !my.length) { mp.innerHTML = '<span class="galmeta" style="padding:12px 4px">No shares yet — finish a run and press Share.</span>'; return; }
-        for (const it of my) mp.appendChild(creationTile(it, true));
-        dragScroll(mp);
+        if ((!my || !my.length) && !capTile) { mp.innerHTML = '<span class="galmeta" style="padding:12px 4px">Nothing local yet — capture a place or finish a run and press Share.</span>'; return; }
+        for (const it of (my || [])) mp.appendChild(creationTile(it, true));
+        if (!capTile) dragScroll(mp);
       }
     }));
   } catch (e) { /* the wall is decoration — never block the app on it */ }

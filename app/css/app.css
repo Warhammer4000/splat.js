@@ -175,57 +175,25 @@ body { overflow: hidden; }
 .srclinks a:hover { color: #5ee7d6; }
 .srclinks a::after { content: ' ↗'; text-decoration: none; opacity: .6; }
 
-/* the set chooser: ONE row, slides horizontally when the room runs out.
-   Spare width centres the group: auto margins on the ends resolve to 0
-   under overflow, so scrolling stays intact (justify-content would clip). */
-.setpick {
-  display: flex; gap: 6px; overflow-x: auto;
-  scrollbar-width: none;   /* rows swipe/drag — no bar (see dragScroll) */
-  touch-action: pan-x pan-y;
-  /* top padding = headroom for the selected tile's scale-up (transforms
-     don't grow layout, but the scroll box would clip them) */
-  padding: 4px 0 12px; margin-bottom: 14px;
-}
-.setpick > :first-child { margin-left: auto; }
-.setpick > :last-child { margin-right: auto; }
-.setpick button { flex: 0 0 92px; position: relative; }
-/* the last-capture tile carries a badge — its thumbnail can look exactly
-   like a preset's when the capture WAS of that scene */
-.setpick .yours {
-  position: absolute; top: 9px; right: 9px; z-index: 1;
+/* the last-capture tile on the wall's Local tab carries a badge — its
+   thumbnail can look exactly like a share's when the capture WAS of that
+   scene (the badge needs the tile as its positioning box) */
+.galtile { position: relative; }
+.galtile .yours {
+  position: absolute; top: 6px; right: 6px; z-index: 1;
   padding: 1px 6px 2px; border-radius: 5px;
   background: rgba(47, 212, 193, .92); color: #04231f;
   font: 600 9px var(--mono); font-style: normal;
   letter-spacing: .06em; text-transform: uppercase;
 }
-.setpick button {
-  padding: 4px 4px 5px; border: 1px solid transparent; border-radius: 12px;
-  overflow: hidden; text-align: center;
-  transition: background .14s, transform .14s ease;
-}
-.setpick img, .setpick .ph {
-  display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover;
-  background: var(--panel-2); opacity: .6; transition: opacity .14s;
-  border-radius: 8px;
-}
-.setpick span {
-  display: block; margin-top: 5px;
-  font: 500 11px var(--mono); color: var(--dim); letter-spacing: .02em;
-}
-.setpick button:hover { background: var(--panel-2); }
-.setpick button:hover img { opacity: .85; }
-/* selection reads as presence, not a frame: a touch larger, tinted ground */
-.setpick button[aria-pressed="true"] { background: var(--accent-14); transform: scale(1.05); }
-.setpick button[aria-pressed="true"] img { opacity: 1; }
-.setpick button[aria-pressed="true"] span { color: var(--paper); }
 
 /* ── filmstrip ───────────────────────────────────────────────────────────── */
 
 .strip { display: block; border-top: 1px solid var(--line); background: var(--ink-2); }
 .strip:empty { display: none; }
 .strip-scroll { display: flex; gap: 4px; padding: 7px 12px; overflow-x: auto; scrollbar-width: none; }
-.setpick::-webkit-scrollbar, .strip-scroll::-webkit-scrollbar { display: none; }
-.setpick img, .strip-scroll img { -webkit-user-drag: none; user-select: none; }
+.strip-scroll::-webkit-scrollbar { display: none; }
+.strip-scroll img { -webkit-user-drag: none; user-select: none; }
 .strip .frame { width: 62px; }
 
 /* ── dock ────────────────────────────────────────────────────────────────── */
