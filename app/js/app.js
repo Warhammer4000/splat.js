@@ -2029,7 +2029,11 @@ async function mountWall() {
       <div class="galrow" data-pane="community"></div>
       ${localTab ? '<div class="galrow" data-pane="mine" hidden></div>' : ''}`;
     const row = host.querySelector('[data-pane="community"]');
-    for (const it of (items || [])) row.appendChild(creationTile(it, false));
+    // pinned tiles lead (splatjs.pin, lowest first); the rest keep the
+    // server's newest-first order (Array sort is stable)
+    const ordered = (items || []).slice().sort((a, b) =>
+      (((a.splatjs && a.splatjs.pin) || 9e9)) - (((b.splatjs && b.splatjs.pin) || 9e9)));
+    for (const it of ordered) row.appendChild(creationTile(it, false));
     dragScroll(row);
     host.hidden = false;
     const mp = host.querySelector('[data-pane="mine"]');
