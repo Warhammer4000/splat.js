@@ -1901,6 +1901,15 @@ async function restoreShared(spaceId) {
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+/** Viewing is the detail card's primary action when a trained model exists;
+ *  Start training steps back to the outline style there. Cards without a
+ *  View button keep Start as the accent. */
+function setStartStyle(primary) {
+  const b = $('btn-go');
+  b.classList.toggle('btn-accent', primary);
+  b.classList.toggle('btn-outline', !primary);
+}
+
 /** The stat strip under the detail hero. Before a run starts it describes
  *  the INPUT — how many photographs, at what resolution — plus at most the
  *  train PSNR of the published model. Facts live in S.detailFacts and the
@@ -1911,6 +1920,7 @@ function paintDetailStats() {
   const cells = [];
   if (f.frames) cells.push([fmt(f.frames), 'photographs']);
   if (f.res) cells.push([f.res, 'resolution']);
+  if (f.splats) cells.push([fmt(f.splats), 'splats']);
   if (f.dB) cells.push([`${(+f.dB).toFixed(1)} dB`, 'train psnr']);
   el.innerHTML = cells.map(([v, l]) => `<div><b>${esc(v)}</b><span>${esc(l)}</span></div>`).join('');
   el.hidden = !cells.length;
@@ -1937,18 +1947,20 @@ function showDetail(setOrPreset) {
       paintDetailStats();
     };
   }
+  setStartStyle(!(setOrPreset && setOrPreset.spaceId));
   if (setOrPreset && setOrPreset.spaceId) {
     // a trained model of this benchmark is shared — View opens it, and the
     // published model's train PSNR joins the input facts once resolved
     const view = document.createElement('a');
     view.id = 'detail-view';
-    view.className = 'btn btn-outline';
+    view.className = 'btn btn-accent';
     view.href = `index.html?space=${encodeURIComponent(setOrPreset.spaceId)}`;
     view.textContent = 'View';
     document.querySelector('.startrow').prepend(view);
     import('./share.js').then(({ resolveShare }) => resolveShare(setOrPreset.spaceId))
       .then((sh) => {
         if (S.detailFacts !== facts || $('detail').hidden) return;
+        facts.splats = sh.splatjs && sh.splatjs.splats;
         facts.dB = sh.splatjs && sh.splatjs.psnrTrain;
         paintDetailStats();
       }).catch(() => {});
@@ -1972,6 +1984,7 @@ async function showCommunityDetail(it) {
   S.detailFacts = {
     frames: it.splatjs && it.splatjs.frames,
     res: it.splatjs && it.splatjs.res,
+    splats: it.splatjs && it.splatjs.splats,
     dB: it.splatjs && it.splatjs.psnrTrain,
   };
   paintDetailStats();
@@ -1980,10 +1993,11 @@ async function showCommunityDetail(it) {
   $('row-count').hidden = true;
   const view = document.createElement('a');
   view.id = 'detail-view';
-  view.className = 'btn btn-outline';
+  view.className = 'btn btn-accent';
   view.href = `index.html?space=${encodeURIComponent(it.id)}`;
   view.textContent = 'View creation';
   document.querySelector('.startrow').prepend(view);
+  setStartStyle(false);
   const go = $('btn-go');
   go.textContent = 'Start training';
   go.title = '';
