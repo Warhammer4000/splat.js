@@ -9,7 +9,7 @@ export const PRESETS = [
   {
     id: 'truck', name: 'Truck',
     kind: 'Standard test set',
-    origin: 'The Truck sequence from the Tanks & Temples reconstruction benchmark.',
+    origin: 'The Tanks & Temples benchmark orbit.',
     links: [
       { label: 'Tanks & Temples', url: 'https://www.tanksandtemples.org/' },
       { label: 'image set', url: 'https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/' },
@@ -25,7 +25,7 @@ export const PRESETS = [
     id: 'camping', name: 'Camping',
     wallOnly: true,   // lives on the Community wall (trained sample) — not in the preset row
     kind: 'Handheld phone video',
-    origin: '113 frames pulled from a phone video. Not a benchmark — an ordinary capture, with everything that goes wrong in one.',
+    origin: 'A phone-video walk — flaws and all.',
     links: [],
     dir: 'camping', pattern: 'frame_{i:5}.jpg', start: 1, count: 113,
     blurb: 'Every frame of a walking video. Neighbouring frames barely differ, so the ' +
@@ -35,7 +35,7 @@ export const PRESETS = [
   {
     id: 'playroom', name: 'Playroom',
     kind: 'Indoor photo set',
-    origin: 'A children\'s playroom in 225 photos — soft painted walls and ceilings make it a genuinely hard indoor solve.',
+    origin: 'Painted playroom walls — a genuinely hard indoor solve.',
     links: [],
     // keep ALL frames: trimming the unplaced ones cascades more failures
     // (207 -> 197 -> 196 -> 192 measured) — even unplaceable frames carry
@@ -48,7 +48,7 @@ export const PRESETS = [
   {
     id: 'train', name: 'Train',
     kind: 'Standard test set',
-    origin: 'The Train sequence from the Tanks & Temples reconstruction benchmark.',
+    origin: 'The Tanks & Temples Train sequence.',
     links: [
       { label: 'Tanks & Temples', url: 'https://www.tanksandtemples.org/' },
       { label: 'image set', url: 'https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/' },
@@ -61,7 +61,7 @@ export const PRESETS = [
   {
     id: 'bicycle', name: 'Bicycle',
     kind: 'Standard test set',
-    origin: 'The Bicycle scene from the Mip-NeRF 360 benchmark — a garden orbit around a bench.',
+    origin: 'A Mip-NeRF 360 garden orbit around a bench.',
     links: [
       { label: 'Mip-NeRF 360', url: 'https://jonbarron.info/mipnerf360/' },
     ],
@@ -74,7 +74,7 @@ export const PRESETS = [
     id: 'bar', name: 'Bar',
     kind: '360 panorama walk',
     badge: '360',
-    origin: 'The Bar scene from 360Roam — a real bar walked with a 360 camera (CC BY-NC-SA).',
+    origin: 'A real bar, walked with a 360 camera (CC BY-NC-SA).',
     links: [
       { label: '360Roam', url: 'https://huajianup.github.io/research/360Roam/' },
     ],
@@ -86,7 +86,7 @@ export const PRESETS = [
   {
     id: 'synthetic', name: 'Synthetic Corner',
     kind: 'Rendered test set',
-    origin: '12 rendered views of a small scene. The clean case, for comparison.',
+    origin: '12 rendered views — the clean case.',
     links: [],
     dir: 'synthetic', pattern: 'synthetic_{i:2}.png', start: 0, count: 12,
     blurb: 'Nothing is noisy, nothing is blurry. The cameras are solved from scratch ' +

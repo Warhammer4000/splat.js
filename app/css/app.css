@@ -114,7 +114,10 @@ body { overflow: hidden; }
     height: calc(100% - 52px); max-height: calc(100% - 52px);
     border: 0; border-radius: 0;
     display: grid; align-content: safe center;
+    padding-top: 26px;   /* phones have no × row — the title moves up */
   }
+  .card-start .eyebrow { margin-bottom: 4px; }
+  .card-start h1 { margin-bottom: 8px; }
 }
 
 /* short screens: tighten the card so Start stays in reach without scrolling */
@@ -773,3 +776,12 @@ a.cbtn { text-decoration: none; }
 }
 .galmanage a:hover, .galmanage button:hover { color: var(--paper); border-color: var(--muted); }
 .galmanage [data-a="del"][data-arm="1"] { color: #f2743f; border-color: #f2743f; }
+
+/* the stand-in while a shared creation's SOG streams: the tile's own image,
+   full-bleed and slightly dimmed, fading out when the model takes over */
+#share-hero {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; opacity: .45; filter: saturate(.9);
+  transition: opacity .6s ease;
+}
+#share-hero.gone { opacity: 0; }

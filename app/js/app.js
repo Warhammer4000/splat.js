@@ -1300,6 +1300,9 @@ async function restoreSession(src) {
     renderControls();
     dock('');
     if (cams.length > 2) startTour();
+    // the model renders now — the stand-in hero image fades away
+    const hero = document.getElementById('share-hero');
+    if (hero) { hero.classList.add('gone'); setTimeout(() => hero.remove(), 700); }
     flash(`Loaded ${fmt(gaussians.n)} splats — ${S.preset.name}.`, 5000);
   } catch (e) {
     console.error(e);
@@ -1846,11 +1849,20 @@ async function restoreShared(spaceId) {
     const { resolveShare } = await import('./share.js');
     const sh = await resolveShare(spaceId);
     S.share = { id: spaceId, title: sh.title };
+    // the tile's image is already in the browser cache — let it stand in
+    // for the model while the SOG streams
+    const heroSrc = (sh.splatjs && sh.splatjs.thumbUrl) || sh.screenshotUrl;
+    if (heroSrc) {
+      document.getElementById('share-hero')?.remove();
+      const hero = Object.assign(new Image(), { src: heroSrc, id: 'share-hero', alt: '' });
+      $('stage').insertBefore(hero, $('stage').firstChild);
+    }
     await restoreSession({ url: sh.splatjs.sogUrl, reconUrl: sh.splatjs.reconUrl });
     renderControls();
   } catch (e) {
     console.error(e);
     S.share = null;
+    document.getElementById('share-hero')?.remove();
     $('start').hidden = false;
     // back on the classic front page nothing is selected yet — do it now
     if (!WALL_FIRST && !S.preset) open(PRESETS.find((p) => p.id === 'truck'));
