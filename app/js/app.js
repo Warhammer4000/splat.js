@@ -801,7 +801,8 @@ async function startPrep() {
       for (let i = 0; i < S.photos.length; i++) {
         const r = await fetch(S.photos[i].url);
         if (!r.ok) throw new Error(`could not fetch ${S.photos[i].name}`);
-        files.push({ source: await r.blob(), name: S.photos[i].name });
+        // url rides along: the session export stores where each image lives
+        files.push({ source: await r.blob(), name: S.photos[i].name, url: S.photos[i].url });
         S.prep = { stage: 'decode', done: i + 1, total: S.photos.length };
         if (S.gen !== gen) return;
       }
@@ -1176,13 +1177,15 @@ async function restoreSession(src) {
       trainer: { maxSplats: gaussians.n, capMult: 1 },
     });
     S.session = ses;
-    S.restored = { hasState: !!state };
+    const stats = (reconJson && reconJson.stats) || {};
+    S.restored = { hasState: !!state, stats };
     S.preset = { id: '__restored', name: (reconJson && reconJson.name) || 'shared splat' };
     S.splats = gaussians.n;
     S.maxIters = iter || 1;
     S.iter = iter;
-    S.minutes = 0;
-    S.psnrTrain = null; S.psnrHold = null;
+    S.minutes = stats.minutes || 0;
+    S.psnrTrain = stats.psnrTrain ?? null;
+    S.psnrHold = stats.psnrHold ?? null;
     S.plyBlob = null; S.sogBlob = null;
     S.lodPlan = null;
     S.state = 'done';

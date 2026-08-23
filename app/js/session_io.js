@@ -56,10 +56,30 @@ export function buildReconJson(S) {
     source: {
       preset: S.preset && !String(S.preset.id).startsWith('__') ? S.preset.id : null,
       names: (S.loadedFiles || []).map((f) => f.name),
+      // absolute URLs where the images live (preset runs resolve against the
+      // deployment's data root — own captures have no URL and stay names-only)
+      urls: (S.loadedFiles || []).map((f) => f.url ? new URL(f.url, location.href).href : null),
+    },
+    stats: {
+      minutes: S.minutes || 0,
+      psnrTrain: S.psnrTrain ?? null,
+      psnrHold: S.psnrHold ?? null,
+      psnrTest: S.psnrTest ? { psnr: S.psnrTest.psnr, frames: S.psnrTest.frames.length } : null,
+      // the training curve, decimated to ~400 points
+      chart: decimate(ses.lossHistory || [], 400).map(([i, p]) => [i, +p.toFixed(3)]),
+      holds: (S.holdHist || []).map(([i, p]) => [i, +p.toFixed(3)]),
     },
     cloud,
   };
 }
+
+const decimate = (arr, max) => {
+  if (arr.length <= max) return arr;
+  const step = arr.length / max;
+  const out = [];
+  for (let i = 0; i < arr.length; i += step) out.push(arr[Math.floor(i)]);
+  return out;
+};
 
 /** The trainer's exact float state as one binary blob. */
 export async function packState(ses) {
@@ -203,17 +223,23 @@ export async function fetchModel(modelUrl, reconUrl) {
 /** Same, from bytes already in hand (a dropped file). */
 export async function decodeModel(bytes, reconUrl) {
   let gaussians = null, reconJson = null, state = null;
-  if (bytes[0] === 0x50 && bytes[1] === 0x4b) {          // PK: session zip
-    const entries = unzipStore(bytes);
-    if (entries.has('recon.json')) reconJson = JSON.parse(new TextDecoder().decode(entries.get('recon.json')));
-    if (entries.has('state.bin')) {
+  if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
+    // PK: either our session zip — or a bare SOG bundle, which is a zip too
+    let entries = null;
+    try { entries = unzipStore(bytes); } catch { /* compressed: not ours */ }
+    if (entries && entries.has('recon.json')) {
+      reconJson = JSON.parse(new TextDecoder().decode(entries.get('recon.json')));
+    }
+    if (entries && entries.has('state.bin')) {
       const st = parseState(entries.get('state.bin'));
       gaussians = st.gaussians;
       state = { iter: st.iter };
-    } else if (entries.has('model.sog')) {
+    } else if (entries && entries.has('model.sog')) {
       gaussians = await sogToGaussians(entries.get('model.sog'));
-    } else if (entries.has('model.ply')) {
+    } else if (entries && entries.has('model.ply')) {
       gaussians = parsePlyGaussians(entries.get('model.ply'));
+    } else {
+      gaussians = await sogToGaussians(bytes);
     }
   } else if (headTextIs(bytes, 'ply')) {
     gaussians = parsePlyGaussians(bytes);
