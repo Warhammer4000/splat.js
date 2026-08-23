@@ -2003,7 +2003,7 @@ async function showCommunityDetail(it) {
   view.id = 'detail-view';
   view.className = 'btn btn-accent big btn-cta';
   view.href = `index.html?space=${encodeURIComponent(it.id)}`;
-  view.textContent = 'View creation';
+  view.textContent = 'View result';
   document.querySelector('.startrow').prepend(view);
   setStartStyle(false);
   const go = $('btn-go');
