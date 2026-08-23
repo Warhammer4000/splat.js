@@ -184,7 +184,7 @@ body { overflow: hidden; }
   touch-action: pan-x pan-y;
   /* top padding = headroom for the selected tile's scale-up (transforms
      don't grow layout, but the scroll box would clip them) */
-  padding: 4px 0 12px; margin-bottom: 14px; border-bottom: 1px solid var(--line);
+  padding: 4px 0 12px; margin-bottom: 14px;
 }
 .setpick > :first-child { margin-left: auto; }
 .setpick > :last-child { margin-right: auto; }
@@ -756,11 +756,13 @@ a.cbtn { text-decoration: none; }
 
 /* wall tabs + the Mine management strip */
 .galtabs span { display: inline-flex; gap: 14px; }
+/* the wall header speaks exactly like the Benchmarks label; with two tabs
+   the inactive one just fades */
 .galtabs b {
-  font: 600 11px var(--sans, system-ui); letter-spacing: .14em;
-  text-transform: uppercase; color: var(--muted); cursor: pointer;
+  font: inherit; letter-spacing: inherit; text-transform: inherit;
+  color: inherit; font-weight: 400; cursor: pointer; opacity: .5;
 }
-.galtabs b.on { color: var(--paper); }
+.galtabs b.on { opacity: 1; }
 .galmanage {
   display: flex; align-items: center; gap: 6px; margin-top: 2px;
 }
