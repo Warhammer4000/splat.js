@@ -356,7 +356,6 @@ body { overflow: hidden; }
 
 .brand { padding: 0; cursor: pointer; }
 .brand:hover .brand-name { color: #fff; }
-.brand:hover .brand-mark { color: #5ee7d6; }
 
 .about {
   position: fixed; inset: 0; z-index: 50;
