@@ -14,6 +14,7 @@ import { recordCaptureVideo, cameraSupported } from './camera.js';
 import { saveLastCapture, loadLastCapture } from './store.js';
 import { zipStore } from './zip.js';
 import { handleOAuthCallback, sendToArrival, hasToken } from './arrival.js';
+import { buildSessionZip, fetchModel } from './session_io.js';
 import { PRESETS, REPO, DATA, ownSet } from './data.js';
 import { Viewport, camCentre } from './viewport.js';
 import { Developer, fitRect } from './develop.js';
@@ -194,9 +195,15 @@ function boot() {
     e.preventDefault(); card.classList.add('drop');
   }));
   ['dragleave', 'dragend'].forEach((t) => card.addEventListener(t, () => card.classList.remove('drop')));
-  card.addEventListener('drop', (e) => {
+  card.addEventListener('drop', async (e) => {
     e.preventDefault(); card.classList.remove('drop');
-    useOwnPhotos(e.dataTransfer.files);
+    const files = e.dataTransfer.files;
+    // a saved run comes back through the same door as photos
+    if (files.length === 1 && /\.(zip|sog|ply)$/i.test(files[0].name)) {
+      restoreSession({ bytes: new Uint8Array(await files[0].arrayBuffer()) });
+      return;
+    }
+    useOwnPhotos(files);
   });
   $('d-close').addEventListener('click', () => { $('details').hidden = true; });
   $('d-prev').addEventListener('click', () => detailFlip(-1));
@@ -339,6 +346,10 @@ function boot() {
   open(PRESETS.find((p) => p.id === 'truck'));
   offerLastCapture();
   requestAnimationFrame(loop);
+
+  // a shared result: load it straight into the done-state viewer
+  const mp = new URLSearchParams(location.search);
+  if (mp.get('model')) restoreSession({ url: mp.get('model'), reconUrl: mp.get('recon') });
 }
 
 // WebGPU probe: navigator.gpu can EXIST while the adapter is unavailable
@@ -1132,6 +1143,97 @@ async function finish() {
   scoreFrames();
 }
 
+// ── restore: present a saved run without re-training ────────────────────────
+// ?model=<url> (a session .zip, .ply or .sog; &recon=<url> adds the camera
+// path to bare model files) or a file dropped on the start card. The model
+// lands in the exact done-state viewer: tour, orbit, exports — no training.
+async function restoreSession(src) {
+  try {
+    $('start').hidden = true;
+    flash('Loading the model …', 120000);
+    const { decodeModel } = await import('./session_io.js');
+    const got = src.bytes
+      ? await decodeModel(src.bytes, src.reconUrl)
+      : await fetchModel(src.url, src.reconUrl);
+    const { gaussians, reconJson, state } = got;
+    const iter = (state && state.iter) || (reconJson && reconJson.iter) || 0;
+    const ses = createSession({ holdout: -1, maxIters: Math.max(1, iter) });
+    if (reconJson) {
+      ses.useReconstruction({
+        cams: reconJson.cams.map((c) => ({ imgIdx: c.imgIdx, R: c.R, t: c.t, f: c.f, cx: c.cx, cy: c.cy })),
+        points: [],
+        k1: reconJson.k1 || 0, k2: reconJson.k2 || 0,
+      });
+      ses.useFrames(reconJson.frames.map((f) => ({ ...f, sampleColor: () => [0.5, 0.5, 0.5] })));
+    }
+    await ses.seedFrom(gaussians, {
+      viewOnly: true,
+      sceneRadius: reconJson ? reconJson.sceneRadius : undefined,
+      iter,
+      trainer: { maxSplats: gaussians.n, capMult: 1 },
+    });
+    S.session = ses;
+    S.restored = { hasState: !!state };
+    S.preset = { id: '__restored', name: (reconJson && reconJson.name) || 'shared splat' };
+    S.splats = gaussians.n;
+    S.maxIters = iter || 1;
+    S.iter = iter;
+    S.minutes = 0;
+    S.psnrTrain = null; S.psnrHold = null;
+    S.plyBlob = null; S.sogBlob = null;
+    S.lodPlan = null;
+    S.state = 'done';
+    S.photos = [];        // the preselected preset's strip has nothing to do
+    buildStrip && buildStrip();
+    const frames = (reconJson && reconJson.frames) || [];
+    const cams = (reconJson ? reconJson.cams : []).map((c, ci) => {
+      const fr = frames[c.imgIdx] || {};
+      const w = fr.fw || 1000, h = fr.fh || 1000;
+      return { i: ci, ci, R: c.R, t: c.t, f: c.f, w, h, cx: w / 2, cy: h / 2,
+               state: 'placed', feats: 0, name: c.name };
+    });
+    const cl = (reconJson && reconJson.cloud) || { xyz: [], rgb: [] };
+    let center = reconJson && reconJson.center;
+    let radius = (reconJson && reconJson.sceneRadius) || ses.model.radius;
+    if (!center) {
+      // bare model files carry no scene metadata — read it off the splats
+      const d = gaussians.data, step = Math.max(1, Math.floor(gaussians.n / 20000)) * 16;
+      let sx = 0, sy = 0, sz = 0, m = 0;
+      for (let o = 0; o < gaussians.n * 16; o += step) { sx += d[o]; sy += d[o + 1]; sz += d[o + 2]; m++; }
+      center = [sx / m, sy / m, sz / m];
+      // median splat distance ~= the subject's scale; the max is always some
+      // far background shell and would frame the camera way outside it
+      const dists = [];
+      for (let o = 0; o < gaussians.n * 16; o += step) {
+        dists.push((d[o] - center[0]) ** 2 + (d[o + 1] - center[1]) ** 2 + (d[o + 2] - center[2]) ** 2);
+      }
+      dists.sort((a, b) => a - b);
+      radius = Math.sqrt(dists[dists.length >> 1]) * 2;
+    }
+    S.scene = {
+      cams,
+      xyz: Float32Array.from(cl.xyz), rgb: Uint8Array.from(cl.rgb),
+      center, radius,
+    };
+    vp.setScene(S.scene);
+    if (cams.length) vp.detectUp(cams);
+    mountModelCanvas();
+    S.atFrame = -1; S.fadeTo = 0;
+    vp.lock = null; vp.freeF = null;
+    const first = cams.find((c) => c.R);
+    if (first) { vp.syncTo(first); vp.dist *= 1.15; } else vp.frameScene();
+    $('stage').dataset.cursor = 'grab';
+    renderControls();
+    dock('');
+    if (cams.length > 2) startTour();
+    flash(`Loaded ${fmt(gaussians.n)} splats — ${S.preset.name}.`, 5000);
+  } catch (e) {
+    console.error(e);
+    $('start').hidden = false;
+    flash(`Could not load the model: ${e.message}`, 8000);
+  }
+}
+
 // ── ?perf: the timing log as a downloadable text file ───────────────────────
 function pctl(arr, p) {
   if (!arr.length) return 0;
@@ -1285,12 +1387,16 @@ function renderControls() {
     '<i>Details ›</i>';
   stats.addEventListener('click', openDetails);
   c.appendChild(stats);
-  const more = document.createElement('button');
-  more.className = 'cbtn';
-  more.textContent = 'Train';
-  more.title = 'Continue training — the schedules stretch to the longer run';
-  more.addEventListener('click', continueTraining);
-  c.appendChild(more);
+  if (!S.restored) {
+    // a restored model has no training targets in this tab — viewing and
+    // exporting work, continuing the run does not (yet)
+    const more = document.createElement('button');
+    more.className = 'cbtn';
+    more.textContent = 'Train';
+    more.title = 'Continue training — the schedules stretch to the longer run';
+    more.addEventListener('click', continueTraining);
+    c.appendChild(more);
+  }
   c.appendChild(buildExport());
 }
 
@@ -1366,6 +1472,7 @@ function buildExport() {
       <button data-act="sog"><b>Download .sog</b><span>Compressed for the web · ~${sogMb} MB</span></button>
       ${S.lodPlan && S.lodPlan.snaps.length ? `<button data-act="lod"><b>Download LOD</b><span>Streamed SOG, ${S.lodPlan.snaps.length + 1} detail levels · zip</span></button>` : ''}
       <button data-act="ply"><b>Download .ply</b><span>Standard splat file · ${mb} MB</span></button>
+      ${S.restored ? '' : `<button data-act="session"><b>Download session</b><span>Re-loadable + resumable · sog, poses, raw state</span></button>`}
       <button data-act="imgs"><b>Download photos</b><span>The ${S.loadedFiles ? S.loadedFiles.length : 0} training images · zip</span></button>
     </div>`;
 
@@ -1442,6 +1549,20 @@ function buildExport() {
   wrap.querySelector('[data-act="arr"]').addEventListener('click', () => {
     menu.hidden = true;
     if (!S.uploading) uploadDialog();
+  });
+  wrap.querySelector('[data-act="session"]')?.addEventListener('click', async () => {
+    menu.hidden = true;
+    try {
+      const sog = await getSogBlob();
+      flash('Packing the session …', 60000);
+      const zip = await buildSessionZip(S, sog);
+      download(zip, 'session.zip');
+      flash(`Session saved · ${(zip.size / 1e6).toFixed(1)} MB. Load it back with ` +
+        `?model=<url> or by dropping it on the app.`, 7000);
+    } catch (e) {
+      console.error(e);
+      flash(`Session save failed: ${e.message}`, 6000);
+    }
   });
   wrap.querySelector('[data-act="imgs"]').addEventListener('click', async () => {
     menu.hidden = true;

@@ -326,6 +326,63 @@ export class Session {
     return this.model;
   }
 
+  /**
+   * Attach an ALREADY-TRAINED model instead of seeding from the sparse cloud
+   * — the loading half of exportPlyBlob / a saved session.
+   *
+   * gaussians: { data: Float32Array (n*16, the trainer's raw parameter
+   * layout), n, sh?: Float32Array (n*shK*3), shK? }.
+   *
+   * View-only (no frames needed): pass opts.viewOnly and the trainer is set
+   * up with zero training cameras — renders, tours and exports work, training
+   * does not. For a full resume call useFrames()/load() first and the normal
+   * camera wiring happens exactly like seed(); pass opts.iter to continue the
+   * schedules where the saved run stopped.
+   */
+  async seedFrom(gaussians, opts = {}) {
+    if (!this.recon && !opts.viewOnly) throw new Error('useReconstruction() first');
+    this._stage({ stage: 'seed', done: 0, total: 1 });
+    const radius = opts.sceneRadius ?? this.recon?.sceneRadius ?? 10;
+    this.model = { data: gaussians.data, n: gaussians.n, radius };
+
+    if (!this.gpu) this.gpu = await createGpu({ device: this.opts.device });
+    this.gpu.onLost = (info) => this._deviceLost(info);
+    const trainerOpts = {
+      maxIters: this.opts.maxIters ?? 60000,
+      ...this.opts.trainer, ...opts.trainer,
+      gpu: this.gpu,
+    };
+    if (gaussians.shK != null) trainerOpts.shDeg = { 0: 0, 3: 1, 8: 2 }[gaussians.shK] ?? trainerOpts.shDeg;
+    this.trainer = await GSTrainer.create(trainerOpts);
+
+    let cams = [];
+    if (!opts.viewOnly) {
+      cams = this.recon.cams.map((c) => {
+        const im = this.frames[c.imgIdx];
+        const s = im.tw / im.fw;
+        return { ...c, f: c.f * s, cx: im.tw / 2, cy: im.th / 2, w: im.tw, h: im.th };
+      });
+    }
+    const maxW = Math.max(this.opts.maxViewW ?? 2560, ...cams.map((c) => c.w));
+    const maxH = Math.max(this.opts.maxViewH ?? 1440, ...cams.map((c) => c.h));
+    this.trainer.setup(this.model, cams, this.frames || [], maxW, maxH, radius);
+    // setup zero-fills SH (view dependence is normally learned) — a restored
+    // model brings its own
+    if (gaussians.sh && this.trainer.bufSH) {
+      this.trainer.device.queue.writeBuffer(this.trainer.bufSH, 0,
+        gaussians.sh.buffer, gaussians.sh.byteOffset, gaussians.n * this.trainer.shK * 3 * 4);
+    }
+    if (opts.iter) this.trainer.iter = opts.iter;
+    this.trainer.excluded = new Set();
+    this.holdout = -1;
+    this.trainer.holdout = -1;
+    this.testCams = [];
+    this._log(`restored ${gaussians.n} Gaussians` +
+      (opts.viewOnly ? ' (view only)' : ` at iteration ${opts.iter || 0}`));
+    this._stage({ stage: 'seed', done: 1, total: 1, detail: { splats: gaussians.n } });
+    return this.model;
+  }
+
   // ---- the training loop (policy that used to live in the demo page) ----
 
   start() {
@@ -639,10 +696,21 @@ export class Session {
     return this._locked(async () => {
       const { data, n, sh, shK } = await this.trainer.readGaussians();
       const meta = this.trainer.camMeta[0];
-      const camPos = Float32Array.from(this.trainer.camMeta.flatMap(camPosition));
-      const baked = bakeOpacityCompensation(data, n, meta.f, camPos);
+      // a view-only restore has no training cameras — its model came from an
+      // export that already baked the compensation, so pass it through
+      const baked = meta
+        ? bakeOpacityCompensation(data, n, meta.f,
+            Float32Array.from(this.trainer.camMeta.flatMap(camPosition)))
+        : data;
       return gaussiansToPly(baked, n, sh, shK);
     });
+  }
+
+  /** The trainer's RAW parameter state ({ data, n, sh, shK }) — the exact
+   *  floats, no opacity baking or color activation: what seedFrom() takes
+   *  back for a bit-identical resume. */
+  exportRawState() {
+    return this._locked(() => this.trainer.readGaussians());
   }
 
   dispose() {

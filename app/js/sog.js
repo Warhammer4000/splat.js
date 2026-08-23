@@ -6,7 +6,7 @@
 // palettes, WebP-packed — typically 10-20x smaller than the .ply.
 
 let stP = null;
-const loadST = () => stP ??= import('../vendor/splat-transform.bundle.mjs').then((st) => {
+export const loadST = () => stP ??= import('../vendor/splat-transform.bundle.mjs').then((st) => {
   st.WorkerQueue.workerUrl = new URL('../vendor/st-worker.mjs', import.meta.url).href;
   // the workers' own fallback resolves ../lib/webp.wasm (package layout);
   // point everyone at the vendored copy instead
