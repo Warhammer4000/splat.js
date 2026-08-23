@@ -662,8 +662,15 @@ export class GSTrainer {
   /** MCMC-lite refinement: relocate dead splats onto jittered copies of
    *  well-supported donors (resetting their Adam state) and grow the splat
    *  count by up to 5% per call until the buffer cap is reached.
+   *  opts.relocUntil stops the relocation churn after that iteration so the
+   *  final stretch consolidates a stable population (a relocated clone is
+   *  born at opacity 0.25 and half-trained clones would otherwise ship in
+   *  the export); default Infinity = relocate for the whole run.
    *  Returns { moved, grown, n }. */
   async refine(rng = Math.random) {
+    const canReloc = this.iter < (this.opts.relocUntil ?? Infinity);
+    const canGrow = this.iter < (this.opts.growUntil ?? 0.75 * this.horizon) && this.n < Math.min(this.cap, this.growLimit || this.cap);
+    if (!canReloc && !canGrow) return { moved: 0, grown: 0, n: this.n };
     const d = this.device;
     const nb = this.cap * STRIDE * 4;
     const readBuf = async (buf, bytes = nb) => {
@@ -689,7 +696,7 @@ export class GSTrainer {
     const donors = [];
     for (let i = 0; i < this.n; i++) {
       const o = sig(params[i * STRIDE + 13]);
-      if (o < 0.02) dead.push(i);
+      if (o < 0.02) { if (canReloc) dead.push(i); }
       else if (o > 0.4) donors.push(i);
     }
     if (donors.length < 16) return { moved: 0, grown: 0, n: this.n };

@@ -28,8 +28,10 @@ export async function createGpu(opts = {}) {
   });
   if (!adapter) throw new Error('no WebGPU adapter');
   // full-res training-target buffers can exceed the 128MB default binding
-  // limit — ask for up to 1GB where the adapter allows it
-  const want = 1 << 30;
+  // limit — ask for everything the adapter offers, up to 4GB (measured: 426
+  // pano faces at 1024px = 1.79GB of packed targets; desktop NVIDIA adapters
+  // offer 2GB). Asking for the adapter's own maximum can never fail.
+  const want = 4 * (1 << 30);
   const device = await adapter.requestDevice({
     requiredLimits: {
       maxStorageBufferBindingSize: Math.min(adapter.limits.maxStorageBufferBindingSize, want),
