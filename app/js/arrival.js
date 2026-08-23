@@ -77,6 +77,12 @@ export function hasToken() {
   return !!localStorage.getItem(LS_TOKEN);
 }
 
+/** The stored token itself (null when signed out) — for calls that must
+ *  never trigger a sign-in popup, like the "Mine" management list. */
+export function storedToken() {
+  return localStorage.getItem(LS_TOKEN);
+}
+
 /** Full PKCE round-trip; resolves to the access token. `popup` must be a
  *  window opened synchronously inside the user's click (about:blank is
  *  fine — it gets navigated to the login page here). */

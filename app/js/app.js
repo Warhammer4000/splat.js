@@ -341,9 +341,10 @@ function boot() {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
   showIntro();
-  // Truck opens preselected: its photo strip makes a good backdrop and the
-  // card is one click from training. Everything stays swappable.
-  open(PRESETS.find((p) => p.id === 'truck'));
+  // nothing preselected: the hero asks for photos, the Community wall
+  // below offers finished creations to view (and train from there)
+  $('btn-go').disabled = true;
+  $('start').hidden = false;
   offerLastCapture();
   requestAnimationFrame(loop);
 
@@ -351,7 +352,7 @@ function boot() {
   const mp = new URLSearchParams(location.search);
   if (mp.get('space')) restoreShared(mp.get('space'));
   else if (mp.get('model')) restoreSession({ url: mp.get('model'), reconUrl: mp.get('recon') });
-  else mountGallery();
+  else mountWall();
 }
 
 // WebGPU probe: navigator.gpu can EXIST while the adapter is unavailable
@@ -442,28 +443,15 @@ async function offerLastCapture() {
   });
   const host = $('setpick');
   host.insertBefore(b, host.firstChild);
+  $('pickline').hidden = false;
 }
 
 function buildSetPicker() {
-  const host = $('setpick');
-  host.innerHTML = '';
-  for (const p of PRESETS) {
-    const b = document.createElement('button');
-    b.dataset.id = p.id;
-    b.innerHTML = `<div class="ph"></div>${p.badge ? `<i class="yours">${p.badge}</i>` : ''}<span>${p.name}</span>`;
-    b.addEventListener('click', () => {
-      if (S.picking) { S.pending = p; paintCard(p); return; }
-      if (p === S.preset) return;
-      open(p);
-    });
-    host.appendChild(b);
-    const thumb = () => {
-      const img = Object.assign(new Image(), { src: presetUrl(p, p.names ? 0 : p.start), alt: '' });
-      img.onload = () => b.querySelector('.ph')?.replaceWith(img);
-    };
-    if (p.list && !p.names) loadPresetList(p).then(thumb).catch(() => {});
-    else thumb();
-  }
+  // the preset row is gone — samples live on the Community wall as trained
+  // creations: view first, "Train this yourself" from the viewer. The strip
+  // only hosts the visitor's own "Last capture" tile now (PRESETS stay as
+  // data: the wall's official samples reference the same files).
+  $('setpick').innerHTML = '';
 }
 
 /** the first `cnt` photos of a preset, honouring its skip list */
@@ -1180,7 +1168,7 @@ async function restoreSession(src) {
     });
     S.session = ses;
     const stats = (reconJson && reconJson.stats) || {};
-    S.restored = { hasState: !!state, stats };
+    S.restored = { hasState: !!state, stats, reconJson };
     S.preset = { id: '__restored', name: (reconJson && reconJson.name) || 'shared splat' };
     S.splats = gaussians.n;
     S.maxIters = iter || 1;
@@ -1447,6 +1435,16 @@ function renderControls() {
     enter.textContent = 'Enter space ↗';
     enter.title = 'Walk this creation on arrival.space';
     c.appendChild(enter);
+  }
+  const rj = S.restored && S.restored.reconJson;
+  if (rj && rj.source && rj.source.urls && rj.source.urls.length && rj.source.urls.every(Boolean)) {
+    // the creation carries its photographs — the viewer can become the maker
+    const train = document.createElement('button');
+    train.className = 'cbtn accent';
+    train.textContent = 'Train this yourself';
+    train.title = `Solve and train the same ${rj.source.urls.length} photographs right here`;
+    train.addEventListener('click', trainFromShare);
+    c.appendChild(train);
   }
   c.appendChild(buildExport());
 }
@@ -1815,30 +1813,121 @@ async function restoreShared(spaceId) {
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-/** The tile wall on the start card — public shared creations, newest first.
- *  An empty gallery stays invisible. */
-async function mountGallery() {
+/** One creation tile (community and mine share the look; mine adds the
+ *  management strip underneath). */
+function creationTile(it, mine) {
+  const wrap = document.createElement(mine ? 'div' : 'a');
+  wrap.className = 'galtile';
+  const img = (it.splatjs && it.splatjs.thumbUrl) || it.screenshotUrl || '';
+  const dB = it.splatjs && (it.splatjs.psnrTest ? it.splatjs.psnrTest.psnr : it.splatjs.psnrTrain);
+  const view = `?space=${encodeURIComponent(it.id)}`;
+  wrap.innerHTML = `<img loading="lazy" src="${esc(img)}" alt="" onerror="this.style.visibility='hidden'">
+    <span class="galname">${esc(it.title || 'Untitled')}</span>
+    <span class="galmeta">${fmt((it.splatjs && it.splatjs.splats) || 0)} splats${dB ? ` · ${(+dB).toFixed(1)} dB` : ''}</span>`;
+  if (!mine) {
+    wrap.href = view;
+    return wrap;
+  }
+  const strip = document.createElement('div');
+  strip.className = 'galmanage';
+  strip.innerHTML = `
+    <select title="Who can see this share">
+      <option value="Open"${it.privacy === 'Open' ? ' selected' : ''}>Public</option>
+      <option value="Link Only"${it.privacy === 'Link Only' ? ' selected' : ''}>Link only</option>
+      <option value="Closed"${it.privacy === 'Closed' ? ' selected' : ''}>Private</option>
+    </select>
+    <a href="${view}" title="Open the viewer">view</a>
+    <button data-a="copy" title="Copy the share link">link</button>
+    <button data-a="del" title="Delete this share and its space">✕</button>`;
+  strip.querySelector('select').addEventListener('change', async (e) => {
+    try {
+      const { setSharePrivacy } = await import('./share.js');
+      await setSharePrivacy(it.id, e.target.value);
+      flash(e.target.value === 'Closed' ? 'Share set to private — the link no longer resolves.' : 'Visibility updated.', 4000);
+    } catch (err) { flash(`Could not update: ${err.message}`, 6000); }
+  });
+  strip.querySelector('[data-a="copy"]').addEventListener('click', async () => {
+    const { shareLink } = await import('./share.js');
+    navigator.clipboard.writeText(shareLink(it.id));
+    flash('Share link copied.', 3000);
+  });
+  strip.querySelector('[data-a="del"]').addEventListener('click', async (e) => {
+    const b = e.currentTarget;
+    if (b.dataset.arm !== '1') { b.dataset.arm = '1'; b.textContent = 'sure?'; setTimeout(() => { b.dataset.arm = ''; b.textContent = '✕'; }, 3000); return; }
+    try {
+      const { deleteShare } = await import('./share.js');
+      await deleteShare(it.id);
+      wrap.remove();
+      flash('Share deleted.', 4000);
+    } catch (err) { flash(`Could not delete: ${err.message}`, 6000); }
+  });
+  wrap.appendChild(strip);
+  return wrap;
+}
+
+/** The creation wall on the start card: Community (public, everyone) and —
+ *  when a sign-in is stored — Mine (management: privacy, link, delete).
+ *  An empty wall stays invisible. */
+async function mountWall() {
   try {
     const { fetchGallery } = await import('./share.js');
     const { items } = await fetchGallery({ count: 12 });
-    if (!items || !items.length) return;
+    const mineTab = hasToken();
+    if ((!items || !items.length) && !mineTab) return;
     const host = $('gallery');
-    host.innerHTML = `<div class="orline"><span>Community</span></div><div class="galrow"></div>`;
-    const row = host.querySelector('.galrow');
-    for (const it of items) {
-      const a = document.createElement('a');
-      a.className = 'galtile';
-      a.href = `?space=${encodeURIComponent(it.id)}`;
-      const img = (it.splatjs && it.splatjs.thumbUrl) || it.screenshotUrl || '';
-      const dB = it.splatjs && (it.splatjs.psnrTest ? it.splatjs.psnrTest.psnr : it.splatjs.psnrTrain);
-      a.innerHTML = `<img loading="lazy" src="${esc(img)}" alt="" onerror="this.style.visibility='hidden'">
-        <span class="galname">${esc(it.title || 'Untitled')}</span>
-        <span class="galmeta">${fmt((it.splatjs && it.splatjs.splats) || 0)} splats${dB ? ` · ${(+dB).toFixed(1)} dB` : ''}</span>`;
-      row.appendChild(a);
-    }
-    host.hidden = false;
+    host.innerHTML = `
+      <div class="orline galtabs"><span><b data-tab="community" class="on">Community</b>${mineTab ? `<b data-tab="mine">Mine</b>` : ''}</span></div>
+      <div class="galrow" data-pane="community"></div>
+      ${mineTab ? '<div class="galrow" data-pane="mine" hidden></div>' : ''}`;
+    const row = host.querySelector('[data-pane="community"]');
+    for (const it of (items || [])) row.appendChild(creationTile(it, false));
     dragScroll(row);
-  } catch (e) { /* the gallery is decoration — never block the app on it */ }
+    host.hidden = false;
+    let mineLoaded = false;
+    host.querySelectorAll('[data-tab]').forEach((t) => t.addEventListener('click', async () => {
+      host.querySelectorAll('[data-tab]').forEach((x) => x.classList.toggle('on', x === t));
+      const mine = t.dataset.tab === 'mine';
+      host.querySelector('[data-pane="community"]').hidden = mine;
+      const mp = host.querySelector('[data-pane="mine"]');
+      if (mp) mp.hidden = !mine;
+      if (mine && !mineLoaded) {
+        mineLoaded = true;
+        const { fetchMine } = await import('./share.js');
+        const my = await fetchMine();
+        if (!my || !my.length) { mp.innerHTML = '<span class="galmeta" style="padding:12px 4px">No shares yet — finish a run and press Share.</span>'; return; }
+        for (const it of my) mp.appendChild(creationTile(it, true));
+        dragScroll(mp);
+      }
+    }));
+  } catch (e) { /* the wall is decoration — never block the app on it */ }
+}
+
+/** From the viewer into the studio: the shared creation's photographs become
+ *  the training input — the moment of "I want to make this myself". */
+function trainFromShare() {
+  const rj = S.restored && S.restored.reconJson;
+  if (!rj || !rj.source || !rj.source.urls || !rj.source.urls.every(Boolean)) return;
+  stopTour();
+  try { S.session.dispose(); } catch (e) {}
+  document.getElementById('cv-model')?.remove();
+  gpuCanvas = null;
+  S.gen++;
+  S.session = null; S.share = null; S.restored = null;
+  S.plyBlob = null; S.sogBlob = null;
+  S.state = 'ready';
+  S.preset = { id: '__sample', name: rj.name || 'Shared sample' };
+  S.photos = rj.source.names.map((n, i) => ({ url: rj.source.urls[i], name: n }));
+  S.sel = 0; S.atFrame = -1; S.fadeTo = 0;
+  vp.lock = null; vp.pose = null; vp.scene = null; S.scene = null;
+  renderControls();
+  buildStrip();
+  $('set-desc').innerHTML = `<b>${esc(rj.name || 'Shared sample')}</b> — ${S.photos.length} photographs from this creation, ready to train. The gear holds quality settings.`;
+  $('set-desc').hidden = false;
+  $('btn-go').disabled = !!S.noGpu;
+  $('btn-go').textContent = 'Start training';
+  $('start').hidden = false;
+  bmp(S.photos[0].url);
+  flash('Photographs loaded — press Start training.', 6000);
 }
 
 /** The error map needs pixels of the render. The live WebGPU canvas can read

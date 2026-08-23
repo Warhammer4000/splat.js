@@ -11,7 +11,7 @@
 //   share link:  <app>/index.html?space=<spaceId>
 //   enter space: https://arrival.space/<spaceId>
 
-import { getToken, api, uploadFile, forgetRevokedToken, API_BASE } from './arrival.js';
+import { getToken, api, uploadFile, forgetRevokedToken, storedToken, API_BASE } from './arrival.js';
 import { buildReconJson } from './session_io.js';
 import { zipStore } from './zip.js';
 
@@ -110,4 +110,29 @@ export async function fetchGallery({ count = 12, before = null } = {}) {
   if (!res.ok) return { items: [], nextBefore: null };
   const data = await res.json();
   return data.data || { items: [], nextBefore: null };
+}
+
+// ---------------------------------------------------------------------------
+// managing your own shares (needs the stored sign-in — no popup here)
+// ---------------------------------------------------------------------------
+
+/** The signed-in user's shares, privacy included (management view). */
+export async function fetchMine() {
+  const token = storedToken();
+  if (!token) return null;
+  const res = await fetch(`${API}/splatjs/mine`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return (data.data && data.data.items) || [];
+}
+
+/** Flip a share's visibility — "Closed" is the kill-switch: the link stops
+ *  resolving instantly. Takes stored privacy values (Open/Link Only/Closed). */
+export function setSharePrivacy(spaceId, privacy) {
+  return api(`/spaces/${encodeURIComponent(spaceId)}`, storedToken(), { privacy }, 'PUT');
+}
+
+/** Delete the share's space entirely. */
+export function deleteShare(spaceId) {
+  return api(`/spaces/${encodeURIComponent(spaceId)}`, storedToken(), undefined, 'DELETE');
 }

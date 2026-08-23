@@ -750,3 +750,26 @@ a.cbtn { text-decoration: none; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .galmeta { font-size: 11px; color: var(--muted); }
+
+/* wall tabs + the Mine management strip */
+.galtabs span { display: inline-flex; gap: 14px; }
+.galtabs b {
+  font: 600 11px var(--sans, system-ui); letter-spacing: .14em;
+  text-transform: uppercase; color: var(--muted); cursor: pointer;
+}
+.galtabs b.on { color: var(--paper); }
+.galmanage {
+  display: flex; align-items: center; gap: 6px; margin-top: 2px;
+}
+.galmanage select {
+  flex: 1; min-width: 0; font-size: 10.5px; padding: 3px 4px;
+  border-radius: 6px; border: 1px solid var(--line-2);
+  background: rgba(7, 9, 9, .8); color: var(--paper);
+}
+.galmanage a, .galmanage button {
+  font-size: 10.5px; color: var(--muted); background: none;
+  border: 1px solid var(--line); border-radius: 6px; padding: 3px 7px;
+  cursor: pointer; text-decoration: none;
+}
+.galmanage a:hover, .galmanage button:hover { color: var(--paper); border-color: var(--muted); }
+.galmanage [data-a="del"][data-arm="1"] { color: #f2743f; border-color: #f2743f; }
