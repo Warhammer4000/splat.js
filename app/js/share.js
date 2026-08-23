@@ -38,17 +38,23 @@ export async function shareCreation(S, sogBlob, {
 
     // 2) the recon (tour, compare, stats) — plus the photographs when the
     //    creator opted in (preset runs already reference public URLs).
-    //    Each photo costs two API calls against the presign rate limit, so
-    //    the loop paces itself and backs off on 429s instead of dying.
+    //    Photos upload in parallel, four in flight; a stray 429 retries.
     const recon = buildReconJson(S);
     if (includePhotos && S.loadedFiles && S.loadedFiles.length) {
-      for (let i = 0; i < S.loadedFiles.length; i++) {
-        const f = S.loadedFiles[i];
-        onStatus(`Uploading photo ${i + 1}/${S.loadedFiles.length} …`);
-        const up = await uploadPaced(f.source || f, `${slug}_${f.name}`, token, onStatus);
-        recon.source.urls[i] = up.fileUrl;
-        await new Promise((r) => setTimeout(r, 2200));
-      }
+      const total = S.loadedFiles.length;
+      let done = 0;
+      let next = 0;
+      const worker = async () => {
+        for (;;) {
+          const i = next++;
+          if (i >= total) return;
+          const f = S.loadedFiles[i];
+          const up = await uploadResilient(f.source || f, `${slug}_${f.name}`, token, onStatus);
+          recon.source.urls[i] = up.fileUrl;
+          onStatus(`Uploading photos … ${++done}/${total}`);
+        }
+      };
+      await Promise.all(Array.from({ length: 4 }, worker));
     }
     const rz = await uploadFile(
       new Blob([JSON.stringify(recon)], { type: 'application/json' }),
@@ -92,16 +98,15 @@ export async function shareCreation(S, sogBlob, {
   }
 }
 
-/** uploadFile with rate-limit patience: a 429 waits out the limiter window
- *  and tries again instead of failing the whole share. */
-async function uploadPaced(blob, fileName, token, onStatus, tries = 5) {
+/** uploadFile that shrugs off a stray 429 or network blip with a short
+ *  retry — resilience, not pacing. */
+async function uploadResilient(blob, fileName, token, onStatus, tries = 4) {
   for (let a = 1; ; a++) {
     try {
       return await uploadFile(blob, fileName, { token, contentType: 'image/jpeg' });
     } catch (e) {
-      if (a >= tries || !/too many|429/i.test(String(e.message))) throw e;
-      onStatus(`Upload rate limit — waiting a moment (${a}/${tries - 1}) …`);
-      await new Promise((r) => setTimeout(r, 20000));
+      if (a >= tries || e.auth) throw e;
+      await new Promise((r) => setTimeout(r, 3000 * a));
     }
   }
 }
