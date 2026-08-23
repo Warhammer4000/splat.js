@@ -473,6 +473,7 @@ function buildSetPicker() {
   // hosts the visitor's own "Last capture" tile.
   if (WALL_FIRST) return;
   for (const p of PRESETS) {
+    if (p.wallOnly) continue;   // trained community samples leave the row
     const b = document.createElement('button');
     b.dataset.id = p.id;
     b.innerHTML = `<div class="ph"></div>${p.badge ? `<i class="yours">${p.badge}</i>` : ''}<span>${p.name}</span>`;

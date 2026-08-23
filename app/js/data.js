@@ -23,6 +23,7 @@ export const PRESETS = [
   },
   {
     id: 'camping', name: 'Camping',
+    wallOnly: true,   // lives on the Community wall (trained sample) — not in the preset row
     kind: 'Handheld phone video',
     origin: '113 frames pulled from a phone video. Not a benchmark — an ordinary capture, with everything that goes wrong in one.',
     links: [],
