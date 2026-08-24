@@ -752,6 +752,7 @@ async function open(preset, autostart = false) {
   dock('');
   vp.resize();
   vp.lock = null; vp.pose = null; vp.enabled = true; vp.scene = null;
+  vp.fpv = false; S.fpvSet = false;
 
   // the photographs: URLs only — decoding happens when the run starts
   if (preset.files) {
@@ -1395,6 +1396,9 @@ function finishRestore(ses, reconJson, nSplats, hasState, gaussians) {
     vp.lock = null; vp.freeF = null;
     const first = cams.find((c) => c.R);
     if (first) { vp.syncTo(first); vp.dist *= 1.15; } else vp.frameScene();
+    // the set's flag (stamp or recon) switches the controls to first person
+    vp.fpv = !!(S.fpvSet || (reconJson && reconJson.fpv));
+    if (vp.fpv) vp.dist = Math.max(0.3, ((S.scene && S.scene.radius) || 10) * 0.1);
     $('stage').dataset.cursor = 'grab';
     $('btn-new').hidden = false;   // the way back to the front page
     renderControls();
@@ -2004,6 +2008,7 @@ async function restoreShared(spaceId) {
       const hero = Object.assign(new Image(), { src: heroSrc, id: 'share-hero', alt: '' });
       $('stage').insertBefore(hero, $('stage').firstChild);
     }
+    S.fpvSet = !!sh.splatjs.fpv;   // per-set: first-person controls
     await restoreSession({ url: sh.splatjs.sogUrl, reconUrl: sh.splatjs.reconUrl });
     renderControls();
   } catch (e) {

@@ -27,6 +27,7 @@ export class Viewport {
     this.scene = null;          // { xyz, rgb, center, radius }
     this.lock = null;           // a camera whose pose the view sits on
     this.yaw = 0.6; this.pitch = 0.22; this.dist = 8; this.target = [0, 0, 0];
+    this.fpv = false;           // per-set: rotate around the EYE, wheel walks
     this.setUp([0, -1, 0]);     // COLMAP-ish default until detectUp measures
     this.dirty = true;
     this.w = 1; this.h = 1;
@@ -68,7 +69,8 @@ export class Viewport {
         this.onDragStart?.();
         // every drag orbits around the content actually in front of the
         // camera — a stale far pivot flings the view on the first move
-        this.anchorPivot();
+        // (first-person sets rotate about the eye; no pivot to anchor)
+        if (!this.fpv) this.anchorPivot();
         mode = (e.shiftKey || e.button === 2 || e.button === 1) ? 'pan' : 'orbit';
       }
       pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -96,7 +98,14 @@ export class Viewport {
         const v = [...pts.values()];
         const d = Math.max(20, Math.hypot(v[1].x - v[0].x, v[1].y - v[0].y));
         const cx = (v[0].x + v[1].x) / 2, cy = (v[0].y + v[1].y) / 2;
-        this.dist = Math.max(0.05, Math.min(400, this.dist * pinch.d / d));
+        if (this.fpv) {
+          // pinch out = walk forward
+          const { fwd } = this._basis();
+          const step = (((this.scene && this.scene.radius) || 10) * 0.15) * (d / pinch.d - 1);
+          for (let i = 0; i < 3; i++) this.target[i] += fwd[i] * step;
+        } else {
+          this.dist = Math.max(0.05, Math.min(400, this.dist * pinch.d / d));
+        }
         panBy(cx - pinch.cx, cy - pinch.cy);
         pinch = { d, cx, cy };
         this.dirty = true;
@@ -105,6 +114,21 @@ export class Viewport {
 
       if (mode === 'pan') {
         panBy(dx, dy);
+      } else if (this.fpv) {
+        // first person: the head turns, the feet stay planted — the eye is
+        // fixed and the target swings around it
+        const { fwd } = this._basis();
+        const eye = [
+          this.target[0] - fwd[0] * this.dist,
+          this.target[1] - fwd[1] * this.dist,
+          this.target[2] - fwd[2] * this.dist];
+        this.yaw -= dx * 0.0042;
+        this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch + dy * 0.0035));
+        const { fwd: f2 } = this._basis();
+        this.target = [
+          eye[0] + f2[0] * this.dist,
+          eye[1] + f2[1] * this.dist,
+          eye[2] + f2[2] * this.dist];
       } else {
         // the up-frame has fixed handedness, so one sign fits every world;
         // + matches the feel the app always had in y-down reconstructions
@@ -131,7 +155,14 @@ export class Viewport {
     cv.addEventListener('wheel', (e) => {
       if (!this.enabled || this.lock) return;   // on a frame the wheel sizes the loupe
       e.preventDefault();
-      this.dist = Math.max(0.05, Math.min(400, this.dist * Math.exp(e.deltaY * 0.0011)));
+      if (this.fpv) {
+        // walk along the view instead of zooming toward the pivot
+        const { fwd } = this._basis();
+        const step = -e.deltaY * 0.0009 * ((this.scene && this.scene.radius) || 10) * 0.2;
+        for (let i = 0; i < 3; i++) this.target[i] += fwd[i] * step;
+      } else {
+        this.dist = Math.max(0.05, Math.min(400, this.dist * Math.exp(e.deltaY * 0.0011)));
+      }
       this.dirty = true;
     }, { passive: false });
   }
