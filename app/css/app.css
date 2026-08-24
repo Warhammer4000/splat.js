@@ -726,12 +726,12 @@ a.cbtn { text-decoration: none; }
 }
 .galname {
   margin-top: 3px;
-  font: 600 15px var(--sans, system-ui); color: var(--paper);
+  font: 600 17px var(--sans, system-ui); color: var(--paper);
 }
 .galdesc {
-  font-size: 13px; line-height: 1.5; color: var(--muted);
+  font-size: 14px; line-height: 1.55; color: var(--muted);
 }
-.galmeta { font: 400 11px var(--mono); color: var(--dim); letter-spacing: .02em; }
+.galmeta { font: 400 12px var(--mono); color: var(--dim); letter-spacing: .02em; }
 
 /* wall tabs + the Mine management strip */
 .galtabs span { display: inline-flex; gap: 14px; }

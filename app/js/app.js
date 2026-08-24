@@ -2145,7 +2145,7 @@ function creationTile(it, mine) {
     ${badge ? `<i class="yours">${esc(badge)}</i>` : ''}
     <span class="galname">${esc(it.title || 'Untitled')}</span>
     ${it.description ? `<span class="galdesc">${esc(it.description)}</span>` : ''}
-    <span class="galmeta">${fmt((it.splatjs && it.splatjs.splats) || 0)} splats${dB ? ` · ${(+dB).toFixed(1)} dB` : ''}</span>`;
+    <span class="galmeta">${fmt((it.splatjs && it.splatjs.splats) || 0)} splats${dB ? ` · ${(+dB).toFixed(1)} dB` : ''}${it.splatjs && it.splatjs.sogMb ? ` · ${it.splatjs.sogMb} MB` : ''}</span>`;
   return wrap;
 }
 
