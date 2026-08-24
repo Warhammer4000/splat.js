@@ -67,6 +67,9 @@ export class Viewport {
       if (!pts.size) {
         if (this.lock) this.onLeave?.();
         this.onDragStart?.();
+        this._cancelGlide();
+        clearTimeout(this._clickTimer);
+        this._down = { x: e.clientX, y: e.clientY, t: performance.now() };
         // every drag orbits around the content actually in front of the
         // camera — a stale far pivot flings the view on the first move
         // (first-person sets rotate about the eye; no pivot to anchor)
@@ -81,6 +84,7 @@ export class Viewport {
     // double-click: look at the content under the cursor and pivot on it
     cv.addEventListener('dblclick', (e) => {
       if (!this.enabled || this.lock) return;
+      clearTimeout(this._clickTimer);   // the pending single-tap step yields
       this.onDragStart?.();   // stops a running tour, exactly like a drag
       const r = cv.getBoundingClientRect();
       this.focusAt((e.clientX - r.left) * (this.dpr || 1), (e.clientY - r.top) * (this.dpr || 1));
@@ -146,6 +150,17 @@ export class Viewport {
       } else if (pts.size === 1) {
         mode = 'orbit'; pinch = null;   // the remaining finger orbits on
       } else {
+        // first person: a TAP (no drag) walks a careful step toward the
+        // content under it — debounced so a double-click stays "look at"
+        if (this.fpv && !this.lock && mode === 'orbit' && this._down &&
+            Math.hypot(e.clientX - this._down.x, e.clientY - this._down.y) < 6 &&
+            performance.now() - this._down.t < 500) {
+          const r = cv.getBoundingClientRect();
+          const px = (e.clientX - r.left) * (this.dpr || 1);
+          const py = (e.clientY - r.top) * (this.dpr || 1);
+          clearTimeout(this._clickTimer);
+          this._clickTimer = setTimeout(() => this.stepToward(px, py), 260);
+        }
         mode = null; pinch = null;
         this.onDragEnd?.();
       }
@@ -158,6 +173,7 @@ export class Viewport {
       e.preventDefault();
       if (this.fpv) {
         // walk along the view instead of zooming toward the pivot
+        this._cancelGlide();
         const { fwd } = this._basis();
         const step = -e.deltaY * 0.0009 * ((this.scene && this.scene.radius) || 10) * 0.07;
         for (let i = 0; i < 3; i++) this.target[i] += fwd[i] * step;
@@ -349,6 +365,48 @@ export class Viewport {
     this.target = [eye[0] + fwd[0] * d, eye[1] + fwd[1] * d, eye[2] + fwd[2] * d];
     this.dist = d;
     this.dirty = true;
+  }
+
+  _cancelGlide() {
+    if (this._glide) { cancelAnimationFrame(this._glide.raf); this._glide = null; }
+  }
+
+  /** First person: glide a careful step toward the content under a tap —
+   *  about 45% of the way there, capped at scene scale, eased over 450ms,
+   *  and refused when the nose is already against the wall. */
+  stepToward(px, py) {
+    if (!this.fpv || this.lock || this.pose) return;
+    const { fwd, right, down } = this._basis();
+    const eye = [
+      this.target[0] - fwd[0] * this.dist,
+      this.target[1] - fwd[1] * this.dist,
+      this.target[2] - fwd[2] * this.dist];
+    const f = this.freeF || Math.min(this.w, this.h) * 0.86;
+    const nx = (px - this.w / 2) / f, ny = (py - this.h / 2) / f;
+    let dir = [0, 1, 2].map((i) => fwd[i] + right[i] * nx + down[i] * ny);
+    const m = Math.hypot(dir[0], dir[1], dir[2]) || 1;
+    dir = dir.map((v) => v / m);
+    const rad = (this.scene && this.scene.radius) || 10;
+    let d = this._contentDepth(eye, dir);
+    if (d == null) d = rad * 0.5;
+    if (d < rad * 0.04) return;
+    const step = Math.min(d * 0.45, rad * 0.3);
+    const from = [...this.target];
+    const t0 = performance.now();
+    this._cancelGlide();
+    const tick = () => {
+      if (!this._glide) return;
+      const u = Math.min(1, (performance.now() - t0) / 450);
+      const k = 1 - (1 - u) ** 3;   // ease-out
+      this.target = [
+        from[0] + dir[0] * step * k,
+        from[1] + dir[1] * step * k,
+        from[2] + dir[2] * step * k];
+      this.dirty = true;
+      if (u < 1) this._glide.raf = requestAnimationFrame(tick);
+      else this._glide = null;
+    };
+    this._glide = { raf: requestAnimationFrame(tick) };
   }
 
   /** Double-click focus: turn toward the content under the pixel and pivot
