@@ -199,8 +199,19 @@ function boot() {
   });
   $('btn-new').addEventListener('click', (e) => {
     e.stopPropagation();
-    // a shared creation holds nothing precious — New is simply the way home
-    if (S.restored) { location.href = 'index.html'; return; }
+    // a shared creation holds nothing precious — Back is simply the way
+    // home. When the visitor came from within the app, real history.back()
+    // is better: the bfcache restores the feed with its scroll intact.
+    if (S.restored) {
+      let fromApp = false;
+      try {
+        const r = document.referrer && new URL(document.referrer);
+        fromApp = !!r && r.origin === location.origin;
+      } catch (err) { /* opaque referrer -> treat as external */ }
+      if (fromApp && history.length > 1) history.back();
+      else location.href = 'index.html';
+      return;
+    }
     showPicker();
   });
   $('card-x').addEventListener('click', closePicker);
