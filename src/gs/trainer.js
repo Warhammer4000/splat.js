@@ -105,6 +105,14 @@ export class GSTrainer {
     this.cap = Math.min(
       Math.max(Math.floor(gaussians.n * (this.opts.capMult ?? 4)), gaussians.n),
       this.opts.maxSplats ?? 600000);
+    if (this.n > this.cap) {
+      // seed clone rounding can overshoot maxSplats (e.g. 7825 pts x 4 clones
+      // = 31300 vs a 30000 budget). A seed larger than cap made the boot
+      // upload FAIL SILENTLY (WebGPU drops the whole writeBuffer): the model
+      // then trained from all-zero params and every refine write-back no-oped
+      // the same way. Truncating clones is harmless — they're duplicates.
+      this.n = this.cap;
+    }
     this.cams = cams;
     this.sceneRadius = sceneRadius;
 
