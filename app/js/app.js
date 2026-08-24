@@ -2050,6 +2050,7 @@ function paintDetailStats() {
   const cells = [];
   if (f.frames) cells.push([fmt(f.frames), f.framesLabel || 'photographs']);
   if (f.res) cells.push([f.res, 'resolution']);
+  if (f.trainRes) cells.push([f.trainRes, 'trained at']);
   if (f.splats) cells.push([fmt(f.splats), 'splats']);
   if (f.dB) cells.push([`${(+f.dB).toFixed(1)} dB`, f.dBLabel || 'train psnr']);
   el.innerHTML = cells.map(([v, l]) => `<div><b>${esc(v)}</b><span>${esc(l)}</span></div>`).join('');
@@ -2117,6 +2118,7 @@ async function showCommunityDetail(it) {
     frames: sj.frames,
     framesLabel: sj.framesLabel,
     res: sj.res,
+    trainRes: sj.trainRes,
     splats: sj.splats,
     // the held-out number is the honest one — prefer it when measured
     dB: sj.psnrTest ? sj.psnrTest.psnr : sj.psnrTrain,
