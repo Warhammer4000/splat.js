@@ -711,13 +711,13 @@ a.cbtn { text-decoration: none; }
 .galtile {
   display: flex; flex-direction: column; gap: 5px;
   width: min(640px, 100%);
-  text-decoration: none; border-radius: 14px;
+  text-decoration: none; border-radius: 0;
   padding: 10px; margin: -10px 0;   /* the hover halo, without shifting layout */
   background: transparent;
   transition: background .15s;
   text-align: left;
 }
-.galtile:hover { background: rgba(36, 44, 45, .45); }
+.galtile:hover { background: rgba(48, 58, 60, .7); }
 .galtile img { transition: filter .15s; }
 .galtile:hover img { filter: brightness(1.06); }
 .galtile img {
