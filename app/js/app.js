@@ -1322,13 +1322,43 @@ function finishRestore(ses, reconJson, nSplats, hasState, gaussians) {
                  url: p.url, name: p.name, state: 'placed', feats: 0, psnr: null };
       });
     } else {
-      S.photos = [];      // pano sets and bare models: no 1:1 photographs
-      cams = (reconJson ? reconJson.cams : []).map((c, ci) => {
-        const fr = frames[c.imgIdx] || {};
-        const w = fr.fw || 1000, h = fr.fh || 1000;
-        return { i: ci, ci, R: c.R, t: c.t, f: c.f, w, h, cx: w / 2, cy: h / 2,
-                 state: 'placed', feats: 0, name: c.name };
-      });
+      // pano rigs: frames are sliced faces (name_fN) of the source
+      // panoramas — the strip shows ONE card per pano, and clicking flies
+      // to that station (no photo overlay: equirect vs pinhole never match)
+      const panoish = Array.isArray(source.urls) && source.urls.length &&
+        frames.length > source.names.length && source.urls.every(Boolean) &&
+        /_f\d+$/.test(String((frames[0] || {}).name || ''));
+      if (panoish && reconJson) {
+        const baseName = (n) => String(n).replace(/\.[^.]+$/, '');
+        const idxOf = new Map(source.names.map((n, i) => [baseName(n), i]));
+        const best = new Array(source.names.length).fill(null);   // {k, face}
+        reconJson.cams.forEach((c, k) => {
+          const m = String((frames[c.imgIdx] || {}).name || '').match(/^(.*)_f(\d+)$/);
+          if (!m) return;
+          const si = idxOf.get(m[1]);
+          if (si == null) return;
+          if (!best[si] || +m[2] < best[si].face) best[si] = { k, face: +m[2] };
+        });
+        S.photos = source.names.map((n, i) => ({ url: source.urls[i], name: n }));
+        cams = S.photos.map((p, i) => {
+          const b = best[i];
+          if (!b) return { i, ci: -1, R: null, t: null, url: p.url, name: p.name,
+                           w: 4, h: 3, cx: 2, cy: 1.5, state: 'unplaced', feats: 0, psnr: null };
+          const c = reconJson.cams[b.k];
+          const fr = frames[c.imgIdx] || {};
+          const w = fr.fw || 1000, h = fr.fh || 1000;
+          return { i, ci: b.k, R: c.R, t: c.t, f: c.f, w, h, cx: w / 2, cy: h / 2,
+                   url: p.url, name: p.name, state: 'placed', feats: 0, psnr: null, pano: true };
+        });
+      } else {
+        S.photos = [];      // bare models: no photographs at all
+        cams = (reconJson ? reconJson.cams : []).map((c, ci) => {
+          const fr = frames[c.imgIdx] || {};
+          const w = fr.fw || 1000, h = fr.fh || 1000;
+          return { i: ci, ci, R: c.R, t: c.t, f: c.f, w, h, cx: w / 2, cy: h / 2,
+                   state: 'placed', feats: 0, name: c.name };
+        });
+      }
     }
     // viewer mode: the strip is visible UI — thumbs lazy-load for the tiles
     // in view (deferral is for the card flows, where the strip is covered)
@@ -2322,6 +2352,16 @@ function goToFrame(i) {
   stopTour();
   const cam = S.scene.cams[i];
   if (!cam || !cam.R) { flash('That frame was never placed — there is no viewpoint to jump to.'); return; }
+  if (cam.pano) {
+    // a 360 station: fly to where it was taken — no photo overlay
+    S.sel = i;
+    vp.lock = null;
+    vp.syncTo(cam);
+    S.atFrame = -1; S.fadeTo = 0;
+    $('stage').dataset.cursor = 'grab';
+    renderControls(); paintStrip();
+    return;
+  }
   S.sel = i; S.atFrame = i;
   vp.lock = cam;
   bmp(cam.url).then((b) => {
@@ -2386,8 +2426,15 @@ function buildStrip(deferPhotos = false) {
     const b = await bmp(S.photos[+el.dataset.i].url, 140);
     if (!b) return;
     const cv = document.createElement('canvas');
-    cv.width = b.width; cv.height = b.height;
-    cv.getContext('2d').drawImage(b, 0, 0);
+    // equirect panoramas crop to the card: the centre 4:3 window (the
+    // pano's forward direction) instead of a squeezed 2:1 sliver
+    const wide = b.width / b.height > 1.9;
+    const sh = wide ? b.height * 0.72 : b.height;
+    const sw = wide ? Math.min(b.width, sh * (4 / 3)) : b.width;
+    const sx = (b.width - sw) / 2, sy = (b.height - sh) / 2;
+    cv.width = Math.max(1, Math.round(sw));
+    cv.height = Math.max(1, Math.round(sh));
+    cv.getContext('2d').drawImage(b, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
     el.querySelector('.ph')?.replaceWith(
       Object.assign(new Image(), { src: cv.toDataURL('image/jpeg', .7) }));
   };
