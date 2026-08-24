@@ -734,6 +734,7 @@ a.cbtn { text-decoration: none; }
 .galmeta { font: 400 12px var(--mono); color: var(--dim); letter-spacing: .02em; }
 
 /* wall tabs + the Mine management strip */
+.galtabs { width: min(640px, 100%); margin-left: auto; margin-right: auto; }
 .galtabs span { display: inline-flex; gap: 14px; }
 /* the wall header speaks exactly like the Benchmarks label; with two tabs
    the inactive one just fades */
