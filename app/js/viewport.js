@@ -85,6 +85,7 @@ export class Viewport {
     cv.addEventListener('dblclick', (e) => {
       if (!this.enabled || this.lock) return;
       clearTimeout(this._clickTimer);   // the pending single-tap step yields
+      this._cancelGlide();              // ...and a just-started one stops
       this.onDragStart?.();   // stops a running tour, exactly like a drag
       const r = cv.getBoundingClientRect();
       this.focusAt((e.clientX - r.left) * (this.dpr || 1), (e.clientY - r.top) * (this.dpr || 1));
@@ -159,7 +160,13 @@ export class Viewport {
           const px = (e.clientX - r.left) * (this.dpr || 1);
           const py = (e.clientY - r.top) * (this.dpr || 1);
           clearTimeout(this._clickTimer);
-          this._clickTimer = setTimeout(() => this.stepToward(px, py), 260);
+          if (e.pointerType === 'mouse') {
+            // a mouse click steps NOW — a double-click just cancels the
+            // young glide and takes over; touch keeps the double-tap window
+            this.stepToward(px, py);
+          } else {
+            this._clickTimer = setTimeout(() => this.stepToward(px, py), 260);
+          }
         }
         mode = null; pinch = null;
         this.onDragEnd?.();
