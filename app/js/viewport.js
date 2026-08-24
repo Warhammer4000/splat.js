@@ -101,7 +101,7 @@ export class Viewport {
         if (this.fpv) {
           // pinch out = walk forward
           const { fwd } = this._basis();
-          const step = (((this.scene && this.scene.radius) || 10) * 0.15) * (d / pinch.d - 1);
+          const step = (((this.scene && this.scene.radius) || 10) * 0.06) * (d / pinch.d - 1);
           for (let i = 0; i < 3; i++) this.target[i] += fwd[i] * step;
         } else {
           this.dist = Math.max(0.05, Math.min(400, this.dist * pinch.d / d));
@@ -159,7 +159,7 @@ export class Viewport {
       if (this.fpv) {
         // walk along the view instead of zooming toward the pivot
         const { fwd } = this._basis();
-        const step = -e.deltaY * 0.0009 * ((this.scene && this.scene.radius) || 10) * 0.2;
+        const step = -e.deltaY * 0.0009 * ((this.scene && this.scene.radius) || 10) * 0.07;
         for (let i = 0; i < 3; i++) this.target[i] += fwd[i] * step;
       } else {
         this.dist = Math.max(0.05, Math.min(400, this.dist * Math.exp(e.deltaY * 0.0011)));
