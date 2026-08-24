@@ -2996,8 +2996,10 @@ function renderDetails() {
   const ses = S.session, recon = ses.recon;
   const n = S.photos.length;
   const placed = recon.cams.length;
-  $('d-sub').textContent =
-    `${S.preset.name} · ${n} photographs · ${placed} placed · ${fmt(recon.points.length)} points · ${fmt(S.splats)} splats`;
+  $('d-sub').textContent = `${S.preset.name} · ` +
+    // pano sets have no 1:1 photograph list — count placed views instead
+    (n ? `${n} photographs · ${placed} placed · ` : `${placed} views placed · `) +
+    `${fmt(recon.points.length)} points · ${fmt(S.splats)} splats`;
 
   // a restored share never ran the solve here — tabs whose stats are empty
   // (landmarks, matching, timing) simply don't appear
