@@ -2999,9 +2999,18 @@ function renderDetails() {
   $('d-sub').textContent =
     `${S.preset.name} · ${n} photographs · ${placed} placed · ${fmt(recon.points.length)} points · ${fmt(S.splats)} splats`;
 
+  // a restored share never ran the solve here — tabs whose stats are empty
+  // (landmarks, matching, timing) simply don't appear
+  const have = {
+    marks: S.feats.size > 0,
+    matches: S.solveStats.pairsChecked > 0,
+    perf: !!(ses.perf && ses.perf.frames && ses.perf.frames.length),
+  };
+  const tabs = DTABS.filter(([id]) => have[id] !== false);
+  if (!tabs.some(([id]) => id === S.detailTab)) S.detailTab = 'score';
   const segHost = $('d-seg');
   segHost.innerHTML = '';
-  DTABS.forEach(([id, label]) => {
+  tabs.forEach(([id, label]) => {
     const b = document.createElement('button');
     b.textContent = label;
     b.setAttribute('aria-pressed', String(S.detailTab === id));
@@ -3173,6 +3182,16 @@ function renderDetails() {
     dvp = new Viewport($('d-cv'));
     dvp.setScene(S.scene);
     dvp.setUp(vp.up);
+    // frame the CAMERA PATH, not the whole cloud — the cloud's far shell
+    // would push the rig to a speck
+    const placed = S.scene.cams.filter((c) => c.R).map(camCentre);
+    if (placed.length) {
+      const ctr = [0, 1, 2].map((k) => placed.reduce((a, p) => a + p[k], 0) / placed.length);
+      const rad = Math.sqrt(placed.reduce((a, p) =>
+        Math.max(a, (p[0] - ctr[0]) ** 2 + (p[1] - ctr[1]) ** 2 + (p[2] - ctr[2]) ** 2), 0));
+      dvp.target = ctr;
+      dvp.dist = Math.max(0.5, rad * 2.6);
+    }
   }
   if (dvp) dvp.resize();
 }
