@@ -2103,48 +2103,6 @@ function showDetail(setOrPreset) {
   $('detail').hidden = false;
 }
 
-/** A community creation's detail card: the trained result's story, a View
- *  button, and — once its photographs resolve — Start training. */
-async function showCommunityDetail(it) {
-  document.getElementById('detail-view')?.remove();
-  const hero = $('detail-hero');
-  const src = (it.splatjs && it.splatjs.thumbUrl) || it.screenshotUrl || null;
-  hero.hidden = !src;
-  if (src) hero.src = src;
-  // input facts come from the stamp (frames/res written at share time);
-  // train dB is the one trained-model number the pre-start card shows
-  const sj = it.splatjs || {};
-  S.detailFacts = {
-    frames: sj.frames,
-    framesLabel: sj.framesLabel,
-    res: sj.res,
-    trainRes: sj.trainRes,
-    splats: sj.splats,
-    // the held-out number is the honest one — prefer it when measured
-    dB: sj.psnrTest ? sj.psnrTest.psnr : sj.psnrTrain,
-    dBLabel: sj.psnrTest ? 'holdout psnr' : 'train psnr',
-  };
-  paintDetailStats();
-  $('set-desc').innerHTML = `<b>${esc(it.title || 'Untitled')}</b> — ${esc(it.description || 'A shared creation.')}`;
-  $('set-desc').hidden = false;
-  $('row-count').hidden = true;
-  const view = document.createElement('a');
-  view.id = 'detail-view';
-  view.className = 'btn btn-accent big btn-cta';
-  view.href = `index.html?space=${encodeURIComponent(it.id)}`;
-  view.textContent = 'View result';
-  document.querySelector('.startrow').prepend(view);
-  setStartStyle(false);
-  const go = $('btn-go');
-  go.title = '';
-  go.disabled = !!S.noGpu;
-  $('start').hidden = true;
-  $('detail').hidden = false;
-  // nothing else loads here: the creation's recon (and with it the
-  // photographs) is fetched when Start is actually pressed
-  S.pendingShare = it;
-}
-
 /** The creation's recon json (plain or store-zipped) — the photographs and
  *  cameras a "train this yourself" run needs. */
 async function fetchShareRecon(it) {
@@ -2158,65 +2116,25 @@ async function fetchShareRecon(it) {
   return JSON.parse(new TextDecoder().decode(rb));
 }
 
-/** One creation tile (community and mine share the look; mine adds the
- *  management strip underneath). */
+/** One creation card, post-style: hero, badge, title, the FULL description
+ *  and the key numbers. The whole card is the View action — clicking loads
+ *  the creation directly (Train lives in the viewer). */
 function creationTile(it, mine) {
-  const wrap = document.createElement(mine ? 'div' : 'a');
+  const wrap = document.createElement('a');
   wrap.className = 'galtile';
   const img = (it.splatjs && it.splatjs.thumbUrl) || it.screenshotUrl || '';
   const dB = it.splatjs && (it.splatjs.psnrTest ? it.splatjs.psnrTest.psnr : it.splatjs.psnrTrain);
   // index.html explicitly: a bare "?space=" resolves against <base> to the
   // trailing-slash URL, and the CDN's slash-stripping 301 EATS the query
-  const view = `index.html?space=${encodeURIComponent(it.id)}`;
+  wrap.href = `index.html?space=${encodeURIComponent(it.id)}`;
   // an optional corner chip from the stamp (e.g. "360") — same badge the
   // last-capture tile wears
   const badge = it.splatjs && it.splatjs.badge;
   wrap.innerHTML = `<img loading="lazy" src="${esc(img)}" alt="" onerror="this.style.visibility='hidden'">
     ${badge ? `<i class="yours">${esc(badge)}</i>` : ''}
     <span class="galname">${esc(it.title || 'Untitled')}</span>
+    ${it.description ? `<span class="galdesc">${esc(it.description)}</span>` : ''}
     <span class="galmeta">${fmt((it.splatjs && it.splatjs.splats) || 0)} splats${dB ? ` · ${(+dB).toFixed(1)} dB` : ''}</span>`;
-  if (!mine) {
-    wrap.href = view;
-    if (!WALL_FIRST) {
-      // classic: the tile opens the detail card, not the viewer directly
-      wrap.addEventListener('click', (e) => { e.preventDefault(); showCommunityDetail(it); });
-    }
-    return wrap;
-  }
-  const strip = document.createElement('div');
-  strip.className = 'galmanage';
-  strip.innerHTML = `
-    <select title="Who can see this share">
-      <option value="Open"${it.privacy === 'Open' ? ' selected' : ''}>Public</option>
-      <option value="Link Only"${it.privacy === 'Link Only' ? ' selected' : ''}>Link only</option>
-      <option value="Closed"${it.privacy === 'Closed' ? ' selected' : ''}>Private</option>
-    </select>
-    <a href="${view}" title="Open the viewer">view</a>
-    <button data-a="copy" title="Copy the share link">link</button>
-    <button data-a="del" title="Delete this share and its space">✕</button>`;
-  strip.querySelector('select').addEventListener('change', async (e) => {
-    try {
-      const { setSharePrivacy } = await import('./share.js');
-      await setSharePrivacy(it.id, e.target.value);
-      flash(e.target.value === 'Closed' ? 'Share set to private — the link no longer resolves.' : 'Visibility updated.', 4000);
-    } catch (err) { flash(`Could not update: ${err.message}`, 6000); }
-  });
-  strip.querySelector('[data-a="copy"]').addEventListener('click', async () => {
-    const { shareLink } = await import('./share.js');
-    navigator.clipboard.writeText(shareLink(it.id));
-    flash('Share link copied.', 3000);
-  });
-  strip.querySelector('[data-a="del"]').addEventListener('click', async (e) => {
-    const b = e.currentTarget;
-    if (b.dataset.arm !== '1') { b.dataset.arm = '1'; b.textContent = 'sure?'; setTimeout(() => { b.dataset.arm = ''; b.textContent = '✕'; }, 3000); return; }
-    try {
-      const { deleteShare } = await import('./share.js');
-      await deleteShare(it.id);
-      wrap.remove();
-      flash('Share deleted.', 4000);
-    } catch (err) { flash(`Could not delete: ${err.message}`, 6000); }
-  });
-  wrap.appendChild(strip);
   return wrap;
 }
 
@@ -2250,7 +2168,7 @@ async function mountWall() {
     dragScroll(row);
     host.hidden = false;
     const mp = host.querySelector('[data-pane="mine"]');
-    if (mp && capTile) { mp.appendChild(capTile); dragScroll(mp); }
+    if (mp && capTile) mp.appendChild(capTile);
     let sharesLoaded = !hasToken();
     host.querySelectorAll('[data-tab]').forEach((t) => t.addEventListener('click', async () => {
       host.querySelectorAll('[data-tab]').forEach((x) => x.classList.toggle('on', x === t));

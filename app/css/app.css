@@ -702,33 +702,32 @@ a.cbtn { text-decoration: none; }
 }
 .upcard-opt input[type="checkbox"] { accent-color: var(--accent); }
 #gallery { margin-top: 2px; }
+/* the wall is a FEED: post-style cards, one under the other, the whole
+   card is the View action */
 .galrow {
-  display: flex; gap: 10px; overflow-x: auto; padding: 10px 2px 4px;
-  scrollbar-width: none;   /* swipe/drag like the other rows */
-}
-.galrow::-webkit-scrollbar { display: none; }
-/* phones: the wall stacks vertically — full-width tiles instead of a
-   sideways carousel squeezed into a narrow screen */
-@media (max-width: 640px) {
-  .galrow { flex-direction: column; overflow-x: visible; }
-  .galrow .galtile { flex: none; width: 100%; }
-  .galrow .galtile img { height: auto; aspect-ratio: 16 / 10; }
+  display: flex; flex-direction: column; align-items: center;
+  gap: 26px; padding: 12px 0 6px;
 }
 .galtile {
-  flex: 0 0 148px; display: flex; flex-direction: column; gap: 4px;
+  display: flex; flex-direction: column; gap: 5px;
+  width: min(640px, 100%);
   text-decoration: none; border-radius: 12px; padding: 0;
+  text-align: left;
 }
 .galtile img { transition: filter .15s; }
-.galtile:hover img { filter: brightness(1.12); }
+.galtile:hover img { filter: brightness(1.1); }
 .galtile img {
-  width: 100%; height: 84px; object-fit: cover; border-radius: 8px;
-  background: #0b0e0f; display: block;
+  width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: cover;
+  border-radius: 12px; background: #0b0e0f; display: block;
 }
 .galname {
-  font: 600 12px var(--sans, system-ui); color: var(--paper);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  margin-top: 3px;
+  font: 600 15px var(--sans, system-ui); color: var(--paper);
 }
-.galmeta { font-size: 11px; color: var(--muted); }
+.galdesc {
+  font-size: 13px; line-height: 1.5; color: var(--muted);
+}
+.galmeta { font: 400 11px var(--mono); color: var(--dim); letter-spacing: .02em; }
 
 /* wall tabs + the Mine management strip */
 .galtabs span { display: inline-flex; gap: 14px; }
