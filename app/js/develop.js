@@ -114,8 +114,10 @@ export class Developer {
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('↔', x, r.y + r.h / 2 + .5);
 
-      if (x - r.x > 96) label('PHOTOGRAPH', r.x + 12, 'left', 'rgba(230,236,235,.9)');
-      if (r.x + r.w - x > 76) label('RENDER', r.x + r.w - 12, 'right', 'rgba(47,212,193,.95)');
+      // the labels ride the divider — each names the side it sits on, and
+      // steps aside when its half gets too narrow to carry it
+      if (x - r.x > 104) label('PHOTOGRAPH', x - 14, 'right', 'rgba(230,236,235,.95)');
+      if (r.x + r.w - x > 78) label('RENDER', x + 14, 'left', 'rgba(47,212,193,.95)');
       return r;
     }
 
