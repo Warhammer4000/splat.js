@@ -113,7 +113,8 @@ body { overflow: hidden; }
 }
 .card-start > * { width: min(600px, 100%); }
 .card-start > #gallery { width: min(1100px, 100%); }
-.card-start > .card-x, .card-start > .card-back { width: auto; }
+.card-start > .card-x { width: 36px; }
+.card-start > .card-back { width: 46px; height: 46px; }
 @media (max-width: 640px) {
   .card-start { padding-top: 26px; }   /* phones have no × row — title moves up */
   .card-start .eyebrow { margin-bottom: 4px; }
@@ -765,8 +766,8 @@ a.cbtn { text-decoration: none; }
 
 /* the focused detail card: back arrow + hero image above the set's story */
 .card-back {
-  position: absolute; top: 12px; left: 14px;
-  width: 36px; height: 36px; border-radius: 50%;
+  position: absolute; top: 10px; left: 12px;
+  width: 46px; height: 46px; border-radius: 50%;
   color: var(--muted); font: 300 30px/1 var(--ui);
   display: flex; align-items: center; justify-content: center;
   padding-bottom: 4px;
