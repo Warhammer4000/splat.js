@@ -1227,6 +1227,13 @@ async function restoreSession(src) {
         const { createSogView } = await import('./pcview.js');
         const ses = await createSogView(src.url, { radius: reconJson.sceneRadius || 10 });
         ses.frames = (reconJson.frames || []).map((f) => ({ ...f }));
+        // the Details sheet reads session.recon (cams/points) — same shape
+        // the old view-only path built via useReconstruction()
+        ses.recon = {
+          cams: (reconJson.cams || []).map((c) => ({ imgIdx: c.imgIdx, R: c.R, t: c.t, f: c.f, cx: c.cx, cy: c.cy })),
+          points: [],
+          k1: reconJson.k1 || 0, k2: reconJson.k2 || 0,
+        };
         finishRestore(ses, reconJson, reconJson.splats || 0, false, null);
         return;
       } catch (e) {
