@@ -2548,19 +2548,49 @@ function qslerp(a, b, t) {
 }
 
 function startTour(fromNearest = false) {
-  const cams = S.scene ? S.scene.cams.filter((c) => c.R) : [];
+  let cams = S.scene ? S.scene.cams.filter((c) => c.R) : [];
+  if (cams.length < 2) return;
+
+  // ---- a stable path needs stable NODES first ----
+  // 1) collapse co-located cameras (a pano rig contributes six orientations
+  //    at one position — flying "through" them whips the view around)
+  const centres = cams.map(camCentre);
+  const gaps = [];
+  for (let i = 1; i < centres.length; i++) {
+    const d = Math.hypot(...[0, 1, 2].map((c) => centres[i][c] - centres[i - 1][c]));
+    if (d > 1e-9) gaps.push(d);
+  }
+  gaps.sort((a, b) => a - b);
+  const medGap = gaps[gaps.length >> 1] || 1e-3;
+  const dedup = [];
+  for (let i = 0; i < cams.length; i++) {
+    const last = dedup[dedup.length - 1];
+    if (!last || Math.hypot(...[0, 1, 2].map((c) => centres[i][c] - camCentre(last)[c])) > 0.15 * medGap) {
+      dedup.push(cams[i]);
+    }
+  }
+  // 2) never spline across a real break in the capture (a second walk, a
+  //    registration gap): split into segments, fly the longest one
+  const segs = [[dedup[0]]];
+  for (let i = 1; i < dedup.length; i++) {
+    const a = camCentre(dedup[i - 1]), b = camCentre(dedup[i]);
+    const d = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+    if (d > 4 * medGap) segs.push([]);
+    segs[segs.length - 1].push(dedup[i]);
+  }
+  cams = segs.reduce((best, s) => (s.length > best.length ? s : best), []);
   const n = cams.length;
   if (n < 2) return;
 
-  // pre-smooth positions AND view directions over ±2 neighbours — a handheld
-  // capture path is jittery, and a spline through jitter is jittery too
+  // pre-smooth positions over ±3 neighbours — a handheld capture path is
+  // jittery, and a spline through jitter is jittery too
   const raw = cams.map(camCentre);
   const smooth3 = (arr) => arr.map((_, i) => {
     const acc = [0, 0, 0];
     let w = 0;
-    for (let k = -2; k <= 2; k++) {
+    for (let k = -3; k <= 3; k++) {
       const j = clamp(i + k, 0, arr.length - 1);
-      const wt = 3 - Math.abs(k);
+      const wt = 4 - Math.abs(k);
       for (let c = 0; c < 3; c++) acc[c] += arr[j][c] * wt;
       w += wt;
     }
@@ -2576,10 +2606,14 @@ function startTour(fromNearest = false) {
       qs[i] = qs[i].map((v) => -v);
     }
   }
-  const sq = qs.map((q, i) => {
-    if (i === 0 || i === qs.length - 1) return q;
-    return qslerp(q, qslerp(qs[i - 1], qs[i + 1], 0.5), 0.4);
-  });
+  // two smoothing passes: handheld roll/aim jitter goes, deliberate turns stay
+  let sq = qs;
+  for (let pass = 0; pass < 2; pass++) {
+    sq = sq.map((q, i) => {
+      if (i === 0 || i === sq.length - 1) return q;
+      return qslerp(q, qslerp(sq[i - 1], sq[i + 1], 0.5), 0.5);
+    });
+  }
 
   // Catmull-Rom, densely resampled into an arc-length table: playback walks
   // the table at EXACTLY constant velocity, whatever the gap sizes
@@ -2606,8 +2640,10 @@ function startTour(fromNearest = false) {
 
   S.tour = { cams, sq, samples, us, cum, total, speed: total / duration, s: 0, k: 0, dir: 1, pd: [] };
 
-  // replay picks up from wherever the user flew to — no jump-cut to the start
-  if (fromNearest) {
+  // ALWAYS pick up from wherever the view is — the intro starts at the
+  // landing pose (the first camera), replay from wherever the user flew to;
+  // either way, no jump-cut into the path
+  {
     const { fwd } = vp._basis();
     const eye = [vp.target[0] - fwd[0] * vp.dist, vp.target[1] - fwd[1] * vp.dist, vp.target[2] - fwd[2] * vp.dist];
     let best = 0, bd = Infinity;
@@ -2617,6 +2653,8 @@ function startTour(fromNearest = false) {
     });
     S.tour.s = cum[best];
     S.tour.k = Math.min(best, cum.length - 2);
+    // heading outward from a path end plays the return leg first
+    if (!fromNearest && S.tour.s > total * 0.5) S.tour.dir = -1;
   }
 }
 
