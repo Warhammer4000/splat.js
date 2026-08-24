@@ -2165,7 +2165,11 @@ function creationTile(it, mine) {
   // index.html explicitly: a bare "?space=" resolves against <base> to the
   // trailing-slash URL, and the CDN's slash-stripping 301 EATS the query
   const view = `index.html?space=${encodeURIComponent(it.id)}`;
+  // an optional corner chip from the stamp (e.g. "360") — same badge the
+  // last-capture tile wears
+  const badge = it.splatjs && it.splatjs.badge;
   wrap.innerHTML = `<img loading="lazy" src="${esc(img)}" alt="" onerror="this.style.visibility='hidden'">
+    ${badge ? `<i class="yours">${esc(badge)}</i>` : ''}
     <span class="galname">${esc(it.title || 'Untitled')}</span>
     <span class="galmeta">${fmt((it.splatjs && it.splatjs.splats) || 0)} splats${dB ? ` · ${(+dB).toFixed(1)} dB` : ''}</span>`;
   if (!mine) {
