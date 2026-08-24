@@ -1368,7 +1368,17 @@ function finishRestore(ses, reconJson, nSplats, hasState, gaussians) {
     $('btn-new').hidden = false;   // the way back to the front page
     renderControls();
     dock('');
-    if (cams.length > 2) startTour();
+    // ?frame=<i>(&cmp=): the link was shared from a frame focus — land
+    // exactly there instead of flying the intro
+    const fq = new URLSearchParams(location.search);
+    const fi = parseInt(fq.get('frame'), 10);
+    if (Number.isFinite(fi) && S.photos.length && fi >= 0 && fi < S.photos.length) {
+      const cmp = fq.get('cmp');
+      if (['swipe', 'loupe', 'error'].includes(cmp)) S.compare = cmp;
+      select(fi);
+    } else if (cams.length > 2) {
+      startTour();
+    }
     // the stand-in hero image fades once the model actually renders — for
     // the SOG-lite viewer that is when the asset finishes streaming
     const hero = document.getElementById('share-hero');
@@ -1514,6 +1524,7 @@ function renderControls() {
         S.compare = v;
         $('stage').dataset.cursor = cursorFor(v);
         renderControls();
+        syncFrameUrl();
       }));
   }
 
@@ -2289,6 +2300,22 @@ async function ensureErrRender(key) {
 }
 
 /** put the camera exactly on a frame's pose and lay its photograph over the model */
+/** In a restorable view (share / ?model=) the address mirrors the frame
+ *  focus and compare mode — a refresh lands exactly here. */
+function syncFrameUrl() {
+  if (S.state !== 'done') return;
+  const u = new URL(location.href);
+  if (!u.searchParams.has('space') && !u.searchParams.has('model')) return;
+  if (S.atFrame >= 0) {
+    u.searchParams.set('frame', String(S.sel));
+    u.searchParams.set('cmp', S.compare);
+  } else {
+    u.searchParams.delete('frame');
+    u.searchParams.delete('cmp');
+  }
+  history.replaceState(null, '', u);
+}
+
 function goToFrame(i) {
   stopTour();
   const cam = S.scene.cams[i];
@@ -2303,6 +2330,7 @@ function goToFrame(i) {
   S.loupe.y = $('stage').clientHeight / 2;
   $('stage').dataset.cursor = cursorFor(S.compare);
   renderControls(); paintStrip();
+  syncFrameUrl();
 }
 
 /** a drag pulls the camera off the frame — same position, same lens, now free */
@@ -2316,6 +2344,7 @@ function leaveFrame() {
   S.fadeTo = 0;
   $('stage').dataset.cursor = 'grab';
   renderControls();
+  syncFrameUrl();
 }
 
 function select(i) {
