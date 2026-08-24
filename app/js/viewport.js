@@ -80,14 +80,6 @@ export class Viewport {
       try { cv.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
     });
 
-    // double-click (orbit only): look at the content under the cursor and
-    // pivot on it — in first person taps already walk, dragging looks
-    cv.addEventListener('dblclick', (e) => {
-      if (!this.enabled || this.lock || this.fpv) return;
-      this.onDragStart?.();   // stops a running tour, exactly like a drag
-      const r = cv.getBoundingClientRect();
-      this.focusAt((e.clientX - r.left) * (this.dpr || 1), (e.clientY - r.top) * (this.dpr || 1));
-    });
 
     cv.addEventListener('pointermove', (e) => {
       const p = pts.get(e.pointerId);
@@ -149,17 +141,16 @@ export class Viewport {
       } else if (pts.size === 1) {
         mode = 'orbit'; pinch = null;   // the remaining finger orbits on
       } else {
-        // first person: a TAP (no drag) walks a careful step toward the
-        // content under it — debounced so a double-click stays "look at"
-        if (this.fpv && !this.lock && mode === 'orbit' && this._down &&
+        // a TAP (no drag) acts on the content under it: first person walks
+        // a careful step toward it, orbit aims at it and pivots on it
+        if (!this.lock && mode === 'orbit' && this._down &&
             Math.hypot(e.clientX - this._down.x, e.clientY - this._down.y) < 6 &&
             performance.now() - this._down.t < 500) {
           const r = cv.getBoundingClientRect();
           const px = (e.clientX - r.left) * (this.dpr || 1);
           const py = (e.clientY - r.top) * (this.dpr || 1);
-          // steps fire immediately — FPV has no double-click meaning, so a
-          // quick double just steps twice
-          this.stepToward(px, py);
+          if (this.fpv) this.stepToward(px, py);
+          else this.focusAt(px, py);
         }
         mode = null; pinch = null;
         this.onDragEnd?.();
