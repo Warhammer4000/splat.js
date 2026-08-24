@@ -2048,7 +2048,7 @@ function paintDetailStats() {
   const el = $('detail-stats');
   const f = S.detailFacts || {};
   const cells = [];
-  if (f.frames) cells.push([fmt(f.frames), 'photographs']);
+  if (f.frames) cells.push([fmt(f.frames), f.framesLabel || 'photographs']);
   if (f.res) cells.push([f.res, 'resolution']);
   if (f.splats) cells.push([fmt(f.splats), 'splats']);
   if (f.dB) cells.push([`${(+f.dB).toFixed(1)} dB`, f.dBLabel || 'train psnr']);
@@ -2115,6 +2115,7 @@ async function showCommunityDetail(it) {
   const sj = it.splatjs || {};
   S.detailFacts = {
     frames: sj.frames,
+    framesLabel: sj.framesLabel,
     res: sj.res,
     splats: sj.splats,
     // the held-out number is the honest one — prefer it when measured
