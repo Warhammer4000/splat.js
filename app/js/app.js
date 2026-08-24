@@ -1298,6 +1298,7 @@ function finishRestore(ses, reconJson, nSplats, hasState, gaussians) {
     // compare modes then work exactly like after a live run
     const photosBack = Array.isArray(source.urls) && source.urls.length &&
       source.urls.length === frames.length && source.urls.every(Boolean);
+    S.isPanoSet = false;
     let cams;
     if (photosBack) {
       S.photos = source.names.map((n, i) => ({ url: source.urls[i], name: n }));
@@ -1329,6 +1330,7 @@ function finishRestore(ses, reconJson, nSplats, hasState, gaussians) {
       const panoish = Array.isArray(source.urls) && source.urls.length &&
         frames.length > source.names.length && source.urls.every(Boolean) &&
         /_f\d+$/.test(String((frames[0] || {}).name || ''));
+      S.isPanoSet = !!panoish;
       if (panoish && reconJson) {
         const baseName = (n) => String(n).replace(/\.[^.]+$/, '');
         const idxOf = new Map(source.names.map((n, i) => [baseName(n), i]));
@@ -1396,8 +1398,9 @@ function finishRestore(ses, reconJson, nSplats, hasState, gaussians) {
     vp.lock = null; vp.freeF = null;
     const first = cams.find((c) => c.R);
     if (first) { vp.syncTo(first); vp.dist *= 1.15; } else vp.frameScene();
-    // the set's flag (stamp or recon) switches the controls to first person
-    vp.fpv = !!(S.fpvSet || (reconJson && reconJson.fpv));
+    // first person: the set's flag (stamp or recon) — and the DEFAULT for
+    // 360 captures, which are made from inside the scene by construction
+    vp.fpv = !!(S.fpvSet || (reconJson && reconJson.fpv) || S.isPanoSet);
     if (vp.fpv) vp.dist = Math.max(0.3, ((S.scene && S.scene.radius) || 10) * 0.1);
     $('stage').dataset.cursor = 'grab';
     $('btn-new').hidden = false;   // the way back to the front page

@@ -115,15 +115,16 @@ export class Viewport {
       if (mode === 'pan') {
         panBy(dx, dy);
       } else if (this.fpv) {
-        // first person: the head turns, the feet stay planted — the eye is
-        // fixed and the target swings around it
+        // first person, tuned like dragging a 360 sphere: the grabbed pixel
+        // stays under the finger, so the angle per pixel is 1/focal
         const { fwd } = this._basis();
         const eye = [
           this.target[0] - fwd[0] * this.dist,
           this.target[1] - fwd[1] * this.dist,
           this.target[2] - fwd[2] * this.dist];
-        this.yaw -= dx * 0.0042;
-        this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch + dy * 0.0035));
+        const f = this.freeF || Math.min(this.w, this.h) * 0.86;
+        this.yaw -= dx / f;
+        this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch + dy / f));
         const { fwd: f2 } = this._basis();
         this.target = [
           eye[0] + f2[0] * this.dist,
