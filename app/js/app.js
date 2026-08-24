@@ -1231,7 +1231,9 @@ async function restoreSession(src) {
         // the old view-only path built via useReconstruction()
         ses.recon = {
           cams: (reconJson.cams || []).map((c) => ({ imgIdx: c.imgIdx, R: c.R, t: c.t, f: c.f, cx: c.cx, cy: c.cy })),
-          points: [],
+          // the Details header counts these; the recon carries a decimated
+          // cloud, so at least report its size instead of a flat zero
+          points: { length: Math.floor(((reconJson.cloud && reconJson.cloud.xyz) || []).length / 3) },
           k1: reconJson.k1 || 0, k2: reconJson.k2 || 0,
         };
         finishRestore(ses, reconJson, reconJson.splats || 0, false, null);
