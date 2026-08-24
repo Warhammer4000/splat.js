@@ -3107,8 +3107,13 @@ function renderDetails() {
   if (vis === 'chart') {
     if (!dchart) dchart = new Chart($('d-chart'), {});
     dchart.maxIter = S.maxIters;
-    dchart.train = S.session.lossHistory.map(([i, v]) => [i, v]);
-    dchart.hold = chart ? chart.hold : (S.holdHist || []).slice();
+    // a restored share has no live loss history — its recorded training
+    // curve (recon stats) is the same line, saved at share time
+    const rstats = (S.restored && S.restored.stats) || {};
+    const hist = (S.session.lossHistory && S.session.lossHistory.length)
+      ? S.session.lossHistory : (rstats.chart || []);
+    dchart.train = hist.map(([i, v]) => [i, v]);
+    dchart.hold = chart ? chart.hold : ((S.holdHist && S.holdHist.length ? S.holdHist : rstats.holds) || []).slice();
     dchart.events = S.chartEvents.map((e) => ({ ...e, at: e.iter / S.maxIters }));
     dchart.resize();
     dchart.draw();
