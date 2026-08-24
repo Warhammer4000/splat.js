@@ -352,7 +352,7 @@ export class Session {
       ...this.opts.trainer, ...opts.trainer,
       gpu: this.gpu,
     };
-    if (gaussians.shK != null) trainerOpts.shDeg = { 0: 0, 3: 1, 8: 2 }[gaussians.shK] ?? trainerOpts.shDeg;
+    if (gaussians.shK != null) trainerOpts.shDeg = { 0: 0, 3: 1, 8: 2, 15: 3 }[gaussians.shK] ?? trainerOpts.shDeg;
     this.trainer = await GSTrainer.create(trainerOpts);
 
     let cams = [];

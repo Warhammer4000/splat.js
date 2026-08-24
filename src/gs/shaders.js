@@ -99,7 +99,7 @@ const shFns = (deg) => {
   Y[11] = ${e(SH_C3[3])} * z * (2.0 * zz - 3.0 * xx - 3.0 * yy);
   Y[12] = ${e(SH_C3[4])} * x * (4.0 * zz - xx - yy);
   Y[13] = ${e(SH_C3[5])} * z * (xx - yy);
-  Y[14] = ${e(SH_C3[6])} * x * (xx - yy);`;
+  Y[14] = ${e(SH_C3[6])} * x * (xx - 3.0 * yy);`;
     dy += `
   D[8]  = ${e(SH_C3[0])} * vec3f(6.0 * x * y, 3.0 * xx - 3.0 * yy, 0.0);
   D[9]  = ${e(SH_C3[1])} * vec3f(y * z, x * z, x * y);
@@ -107,7 +107,7 @@ const shFns = (deg) => {
   D[11] = ${e(SH_C3[3])} * vec3f(-6.0 * x * z, -6.0 * y * z, 6.0 * zz - 3.0 * xx - 3.0 * yy);
   D[12] = ${e(SH_C3[4])} * vec3f(4.0 * zz - 3.0 * xx - yy, -2.0 * x * y, 8.0 * x * z);
   D[13] = ${e(SH_C3[5])} * vec3f(2.0 * x * z, -2.0 * y * z, xx - yy);
-  D[14] = ${e(SH_C3[6])} * vec3f(3.0 * xx - yy, -2.0 * x * y, 0.0);`;
+  D[14] = ${e(SH_C3[6])} * vec3f(3.0 * xx - 3.0 * yy, -6.0 * x * y, 0.0);`;
   }
   const pre = deg >= 2
     ? 'let x = v.x; let y = v.y; let z = v.z;\n  let xx = x * x; let yy = y * y; let zz = z * z;'
