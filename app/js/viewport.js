@@ -68,7 +68,6 @@ export class Viewport {
         if (this.lock) this.onLeave?.();
         this.onDragStart?.();
         this._cancelGlide();
-        clearTimeout(this._clickTimer);
         this._down = { x: e.clientX, y: e.clientY, t: performance.now() };
         // every drag orbits around the content actually in front of the
         // camera — a stale far pivot flings the view on the first move
@@ -81,11 +80,10 @@ export class Viewport {
       try { cv.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
     });
 
-    // double-click: look at the content under the cursor and pivot on it
+    // double-click (orbit only): look at the content under the cursor and
+    // pivot on it — in first person taps already walk, dragging looks
     cv.addEventListener('dblclick', (e) => {
-      if (!this.enabled || this.lock) return;
-      clearTimeout(this._clickTimer);   // the pending single-tap step yields
-      this._cancelGlide();              // ...and a just-started one stops
+      if (!this.enabled || this.lock || this.fpv) return;
       this.onDragStart?.();   // stops a running tour, exactly like a drag
       const r = cv.getBoundingClientRect();
       this.focusAt((e.clientX - r.left) * (this.dpr || 1), (e.clientY - r.top) * (this.dpr || 1));
@@ -159,14 +157,9 @@ export class Viewport {
           const r = cv.getBoundingClientRect();
           const px = (e.clientX - r.left) * (this.dpr || 1);
           const py = (e.clientY - r.top) * (this.dpr || 1);
-          clearTimeout(this._clickTimer);
-          if (e.pointerType === 'mouse') {
-            // a mouse click steps NOW — a double-click just cancels the
-            // young glide and takes over; touch keeps the double-tap window
-            this.stepToward(px, py);
-          } else {
-            this._clickTimer = setTimeout(() => this.stepToward(px, py), 260);
-          }
+          // steps fire immediately — FPV has no double-click meaning, so a
+          // quick double just steps twice
+          this.stepToward(px, py);
         }
         mode = null; pinch = null;
         this.onDragEnd?.();
