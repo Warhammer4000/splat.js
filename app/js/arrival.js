@@ -214,7 +214,7 @@ export async function uploadFile(blob, fileName, { token, contentType = 'applica
   const resourceKey = (done.status === 'processing' && done.data.job_id)
     ? await pollJob(done.data.job_id, token, onStatus)
     : done.data.resource_key;
-  return { resourceKey, fileUrl: done.data.file_url || fileUrl };
+  return { resourceKey, fileUrl: done.data.url || done.data.file_url || fileUrl };
 }
 
 /** Sign-in errors from a revoked stored key: forget the key so the next

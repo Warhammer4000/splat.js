@@ -1903,8 +1903,8 @@ function shareDialog() {
     <b>Share this creation</b>
     <input id="sh-title" type="text" spellcheck="false" maxlength="80">
     <label class="upcard-opt"><select id="sh-priv">
-      <option value="Link Only">Anyone with the link</option>
       <option value="Public">Public — listed in the gallery</option>
+      <option value="Link Only">Anyone with the link</option>
     </select></label>
     ${needsPhotos && (S.loadedFiles || []).length ? `
     <label class="upcard-opt"><input type="checkbox" id="sh-photos">
@@ -2030,8 +2030,10 @@ async function restoreShared(spaceId) {
     S.share = null;
     document.getElementById('share-hero')?.remove();
     $('start').hidden = false;
-    // back on the classic front page nothing is selected yet — do it now
+    // back on the classic front page nothing is selected yet — do it now,
+    // and the feed too (boot skips mountWall when a share link is loading)
     if (!WALL_FIRST && !S.preset) open(PRESETS.find((p) => p.id === 'truck'));
+    mountWall();
     flash(`Could not load the shared creation: ${e.message}`, 9000);
   }
 }
@@ -2169,12 +2171,15 @@ async function mountWall() {
       <div class="galrow" data-pane="community"></div>
       ${localTab ? '<div class="galrow" data-pane="mine" hidden></div>' : ''}`;
     const row = host.querySelector('[data-pane="community"]');
-    // the visitor's own capture leads the wall; then pinned tiles
-    // (splatjs.pin, lowest first); the rest keep the server's newest-first
-    // order (Array sort is stable)
+    // the visitor's own capture leads the wall; then the official presets
+    // (pinned first via splatjs.pin, otherwise newest-first), and OTHER
+    // users' shared scenes close the feed — the space id carries its owner
     if (capTileWall) row.appendChild(capTileWall);
-    const ordered = (items || []).slice().sort((a, b) =>
-      (((a.splatjs && a.splatjs.pin) || 9e9)) - (((b.splatjs && b.splatjs.pin) || 9e9)));
+    const OFFICIAL = '42485456_';
+    const keyOf = (x) => (String(x.id).startsWith(OFFICIAL)
+      ? ((x.splatjs && x.splatjs.pin) || 9e9)
+      : 1e12);
+    const ordered = (items || []).slice().sort((a, b) => keyOf(a) - keyOf(b));
     for (const it of ordered) row.appendChild(creationTile(it, false));
     dragScroll(row);
     host.hidden = false;
