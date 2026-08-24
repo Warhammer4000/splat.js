@@ -264,7 +264,8 @@ function boot() {
   });
   $('btn-settings').addEventListener('click', () => {
     const open = $('settings').hidden;
-    const card = $('start');
+    // the gear lives on whichever card is showing — start page or detail
+    const card = $('detail').hidden ? $('start') : $('detail');
     if (open && matchMedia('(min-width: 641px)').matches) {
       // pin the card's top edge: the panel extends DOWNWARD only, and the
       // card scrolls if it outgrows the screen (full-screen phones skip this)
@@ -2247,6 +2248,7 @@ function trainFromShare() {
   $('set-desc').hidden = false;
   setStartStyle(true);
   $('btn-go').disabled = !!S.noGpu;
+  $('btn-settings').disabled = false;   // open() normally arms the gear — this path skips it
   if (WALL_FIRST) {
     $('start').hidden = false;
   } else {

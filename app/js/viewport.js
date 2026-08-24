@@ -66,11 +66,22 @@ export class Viewport {
       if (!pts.size) {
         if (this.lock) this.onLeave?.();
         this.onDragStart?.();
+        // every drag orbits around the content actually in front of the
+        // camera — a stale far pivot flings the view on the first move
+        this.anchorPivot();
         mode = (e.shiftKey || e.button === 2 || e.button === 1) ? 'pan' : 'orbit';
       }
       pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pts.size >= 2) twoBaseline();
       try { cv.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
+    });
+
+    // double-click: look at the content under the cursor and pivot on it
+    cv.addEventListener('dblclick', (e) => {
+      if (!this.enabled || this.lock) return;
+      this.onDragStart?.();   // stops a running tour, exactly like a drag
+      const r = cv.getBoundingClientRect();
+      this.focusAt((e.clientX - r.left) * (this.dpr || 1), (e.clientY - r.top) * (this.dpr || 1));
     });
 
     cv.addEventListener('pointermove', (e) => {
@@ -260,6 +271,79 @@ export class Viewport {
       fwd[0] * right[1] - fwd[1] * right[0],
     ];
     return { fwd, right, down };
+  }
+
+  /** Median depth of sparse-cloud content inside a narrow cone along `dir`
+   *  from `eye` — biased toward the NEAR content (the thing being looked at,
+   *  not the wall behind it). Null when the cone comes up empty. */
+  _contentDepth(eye, dir) {
+    const s = this.scene;
+    if (!s || !s.xyz || s.xyz.length < 9) return null;
+    const xyz = s.xyz, rad = s.radius || 10;
+    const ts = [];
+    const collect = (tanCone) => {
+      ts.length = 0;
+      for (let o = 0; o < xyz.length; o += 3) {
+        const px = xyz[o] - eye[0], py = xyz[o + 1] - eye[1], pz = xyz[o + 2] - eye[2];
+        const t = px * dir[0] + py * dir[1] + pz * dir[2];
+        if (t < rad * 0.01) continue;
+        const d2 = px * px + py * py + pz * pz - t * t;
+        const lim = t * tanCone + rad * 0.004;
+        if (d2 < lim * lim) ts.push(t);
+      }
+    };
+    collect(0.10);
+    if (ts.length < 6) collect(0.30);
+    if (!ts.length) return null;
+    ts.sort((a, b) => a - b);
+    return ts[Math.floor((ts.length - 1) * 0.35)];
+  }
+
+  /** Re-anchor the orbit pivot to the content straight ahead WITHOUT moving
+   *  the camera: the target slides along the view ray, dist follows. Deep in
+   *  a scene this makes rotation feel first-person; in front of an object it
+   *  lands on the object — one rule, no mode switch. */
+  anchorPivot() {
+    if (this.lock || this.pose) return;
+    const { fwd } = this._basis();
+    const eye = [
+      this.target[0] - fwd[0] * this.dist,
+      this.target[1] - fwd[1] * this.dist,
+      this.target[2] - fwd[2] * this.dist];
+    const rad = (this.scene && this.scene.radius) || 10;
+    let d = this._contentDepth(eye, fwd);
+    if (d == null) d = this.dist;
+    d = Math.max(rad * 0.02, Math.min(rad * 2.5, d));
+    this.target = [eye[0] + fwd[0] * d, eye[1] + fwd[1] * d, eye[2] + fwd[2] * d];
+    this.dist = d;
+    this.dirty = true;
+  }
+
+  /** Double-click focus: turn toward the content under the pixel and pivot
+   *  on it. The camera POSITION stays put — only the aim and pivot move. */
+  focusAt(px, py) {
+    if (this.lock || this.pose) return;
+    const { fwd, right, down } = this._basis();
+    const eye = [
+      this.target[0] - fwd[0] * this.dist,
+      this.target[1] - fwd[1] * this.dist,
+      this.target[2] - fwd[2] * this.dist];
+    const f = this.freeF || Math.min(this.w, this.h) * 0.86;
+    const nx = (px - this.w / 2) / f, ny = (py - this.h / 2) / f;
+    let dir = [0, 1, 2].map((i) => fwd[i] + right[i] * nx + down[i] * ny);
+    const m = Math.hypot(dir[0], dir[1], dir[2]) || 1;
+    dir = dir.map((v) => v / m);
+    const rad = (this.scene && this.scene.radius) || 10;
+    let d = this._contentDepth(eye, dir);
+    if (d == null) return;   // clicked into empty sky — nothing to focus
+    d = Math.max(rad * 0.02, Math.min(rad * 2.5, d));
+    this.target = [eye[0] + dir[0] * d, eye[1] + dir[1] * d, eye[2] + dir[2] * d];
+    const u = this.up, A = this._A, B = this._B;
+    const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    this.pitch = Math.asin(Math.max(-1, Math.min(1, dot(dir, u))));
+    this.yaw = Math.atan2(dot(dir, A), dot(dir, B));
+    this.dist = d;
+    this.dirty = true;
   }
 
   /** current free-orbit pose in the trainer's camera shape */
