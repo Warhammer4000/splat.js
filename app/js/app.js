@@ -2840,11 +2840,18 @@ function draw() {
     if (vp.dirty) S._camMovedAt = now;
     const training = S.state === 'train' && S.session.training;
     const moving = vp.dirty || now - (S._camMovedAt || 0) < 250;
-    // progressive resolution: ~1.3MP while the camera moves or training runs
-    // (fluid), the FULL device-pixel canvas once it settles (true retina) —
-    // always inside the allocated view buffers / tile-grid budget
+    // progressive resolution: reduced while the camera moves or training
+    // runs (fluid), the FULL device-pixel canvas once it settles (true
+    // retina) — always inside the allocated view buffers / tile-grid budget.
+    // The SOG viewer renders far cheaper than the compute rasterizer, so it
+    // affords a much higher moving budget (less visible softness while
+    // rotating), highest where a mouse implies desktop-class GPU.
+    const sogView = !(S.session.trainer && S.session.trainer.device);
+    const moveBudget = sogView
+      ? (matchMedia('(pointer: fine)').matches ? 2.8e6 : 1.8e6)
+      : 1.3e6;
     const budgetPx = Math.min(S.viewPixBudget || 2560 * 1440,
-      (training || moving) ? 1.3e6 : 1e9);
+      (training || moving) ? moveBudget : 1e9);
     const sc = Math.min(1, Math.sqrt(budgetPx / (w * h)));
     const gw = Math.max(2, Math.round(w * sc)), gh = Math.max(2, Math.round(h * sc));
     const key = `${gw}x${gh}|${Math.round(pose.f)}|` +
