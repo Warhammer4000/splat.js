@@ -535,26 +535,29 @@ export const makeRenderSrc = (E = DEFAULT_E_CUT, A = DEFAULT_A_MIN, tileGrad = f
 @group(0) @binding(8) var<storage, read_write> gradCam: array<atomic<i32>>;
 
 fn camAdd(idx: u32, v: f32) {
-  atomicAdd(&gradCam[idx], i32(clamp(v * FIXCAM, -1.0e9, 1.0e9)));
+  atomicAdd(&gradCam[idx], i32(round(clamp(v * FIXCAM, -1.0e9, 1.0e9))));
 }
 ` + (tileGrad ? /* wgsl */ `
 var<workgroup> wgEnd: atomic<u32>;
 var<workgroup> wgEndU: u32;
 var<workgroup> sg: array<atomic<i32>, 10>;
 fn atomAdd(slot: u32, v: f32) {
-  atomicAdd(&sg[slot], i32(clamp(v * FIXED, -1.0e9, 1.0e9)));
+  atomicAdd(&sg[slot], i32(round(clamp(v * FIXED, -1.0e9, 1.0e9))));
 }
 fn atomAddC(slot: u32, v: f32) {
-  atomicAdd(&sg[slot], i32(clamp(v * FIXEDC, -1.0e9, 1.0e9)));
+  atomicAdd(&sg[slot], i32(round(clamp(v * FIXEDC, -1.0e9, 1.0e9))));
 }
 ` : /* wgsl */ `
 fn atomAdd(idx: u32, v: f32) {
-  atomicAdd(&gradP[idx], i32(clamp(v * FIXED, -1.0e9, 1.0e9)));
+  atomicAdd(&gradP[idx], i32(round(clamp(v * FIXED, -1.0e9, 1.0e9))));
 }
 fn atomAddC(idx: u32, v: f32) {
-  atomicAdd(&gradP[idx], i32(clamp(v * FIXEDC, -1.0e9, 1.0e9)));
+  atomicAdd(&gradP[idx], i32(round(clamp(v * FIXEDC, -1.0e9, 1.0e9))));
 }
 `) + /* wgsl */ `
+// i32() truncates toward zero — a systematic shrink of every accumulated
+// gradient quantum, worst exactly where residuals are small; round() is
+// zero-mean. (The PSNR accumulator already dithers for the same reason.)
 
 @compute @workgroup_size(16, 16)
 fn main(@builtin(global_invocation_id) g: vec3u,
@@ -579,6 +582,13 @@ ${tileGrad ? '  if (pxOk) {' : '  {'}
     let i = entries[2u * k + 1u];
     let b = i * 16u;
     let d = px - vec2f(proj[b], proj[b + 1u]);
+    // cut at the BINNED radius too: when rad hits the RADCL clamp the splat
+    // is absent from farther tiles, and evaluating its (still-visible) tail
+    // only inside binned tiles steps the image at tile boundaries — the
+    // circular cut moves that edge off the tile grid. Unclamped rad
+    // circumscribes the E_CUT ellipse, so nothing changes in the normal case.
+    let rr = proj[b + 15u];
+    if (dot(d, d) > rr * rr) { continue; }
     let e = max(0.5 * (proj[b + 3u] * d.x * d.x + proj[b + 5u] * d.y * d.y) + proj[b + 4u] * d.x * d.y, 0.0);
     if (e > E_CUT) { continue; }
     let araw = proj[b + 7u] * proj[b + 6u] * exp(-e);
@@ -658,8 +668,11 @@ ${tileGrad ? '    if (lossOk && kk <= end) {' : '    {'}
     let cA = proj[b + 3u];
     let cB = proj[b + 4u];
     let cC = proj[b + 5u];
+    let rr = proj[b + 15u];
     let e = max(0.5 * (cA * d.x * d.x + cC * d.y * d.y) + cB * d.x * d.y, 0.0);
-    if (e <= E_CUT) {
+    // mirrors the forward pass's binned-radius cut exactly — a splat the
+    // forward skipped must not receive gradient or desync the S recursion
+    if (e <= E_CUT && dot(d, d) <= rr * rr) {
     let comp = proj[b + 6u];
     let opa = proj[b + 7u];
     let G = exp(-e);

@@ -66,7 +66,7 @@ function deviceDefaults() {
     Math.min(screen.width, screen.height) <= 820;
   return phone
     ? { v: 2, res: 480, buf: 1, sh: 0, iters: 0, splats: 0, lod: false }
-    : { v: 2, res: 0, buf: 1, sh: 2, iters: 0, splats: 0, lod: false };
+    : { v: 2, res: 0, buf: 1, sh: 3, iters: 0, splats: 0, lod: false };
 }
 function loadSettings() {
   const d = deviceDefaults();
@@ -75,6 +75,9 @@ function loadSettings() {
     // v gates out saves from older panel layouts (e.g. the phone-preset
     // button that wrote sh 0 onto desktops)
     const m = saved && saved.v === 2 ? { ...d, ...saved } : d;
+    // saved sh 2 predates the degree-3 default: those sessions were silently
+    // training degree 3 (the old `!== 2` guard), so 3 preserves real behavior
+    if (m.sh === 2) m.sh = 3;
     if (BUF2X) m.buf = 2;
     return m;
   } catch { return d; }
@@ -92,8 +95,8 @@ function qualityMacros() {
   return {
     draft:    { res: 480,   buf: 1, sh: 0,    iters: 10000,  splats: 300000 },
     standard: { res: d.res, buf: 1, sh: d.sh, iters: 0,      splats: 0 },
-    high:     { res: 1280,  buf: 1, sh: 2,    iters: 40000,  splats: 600000 },
-    showcase: { res: 1280,  buf: 1, sh: 2,    iters: 100000, splats: 1000000 },
+    high:     { res: 1280,  buf: 1, sh: 3,    iters: 40000,  splats: 600000 },
+    showcase: { res: 1280,  buf: 1, sh: 3,    iters: 100000, splats: 1000000 },
   };
 }
 function qualityOf(st) {
@@ -823,7 +826,10 @@ async function startPrep() {
     // every photo trains by default — held-out scoring is the ?eval
     // benchmark protocol (every Nth photo scored, never learned from)
     const trainerOpts = {};
-    if (st.sh !== 2) trainerOpts.shDeg = st.sh;
+    // always pass the selected degree — the old `!== 2` guard dated from when
+    // the trainer default WAS 2; after the default flipped to 3 it silently
+    // trained degree 3 whenever the UI said 2
+    if (st.sh != null) trainerOpts.shDeg = st.sh;
     if (st.splats) trainerOpts.maxSplats = st.splats;
     // big budgets: growth must be able to reach the cap even when the sparse
     // cloud can't seed budget/4 (measured: bar panos init ~500k, cap 4M)

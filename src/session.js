@@ -541,16 +541,18 @@ export class Session {
       if (trainer.iter > 1500 && trainer.iter - (trainer.lastRefine || 0) >= 2500) {
         trainer.lastRefine = trainer.iter;
         const r0 = performance.now();
-        trainer.refine().then((r) => {
-          if (this.perf) {
-            this.perf.marks.push({ t: Math.round(r0), kind: 'refine', iter: trainer.iter,
-              ms: Math.round(performance.now() - r0), moved: r.moved, grown: r.grown });
-          }
-          if (r.moved || r.grown) {
-            this._log(`refine @${trainer.iter}: relocated ${r.moved}, grew +${r.grown} -> ${r.n} splats`);
-            this._em.emit('event', { kind: 'refine', iter: trainer.iter, ...r });
-          }
-        });
+        // awaited: refine reads six buffers and writes them all back — steps
+        // submitted meanwhile would be silently rewound by that write-back,
+        // and the six snapshots would come from six different iterations
+        const r = await trainer.refine();
+        if (this.perf) {
+          this.perf.marks.push({ t: Math.round(r0), kind: 'refine', iter: trainer.iter,
+            ms: Math.round(performance.now() - r0), moved: r.moved, grown: r.grown });
+        }
+        if (r.moved || r.grown) {
+          this._log(`refine @${trainer.iter}: relocated ${r.moved}, grew +${r.grown} -> ${r.n} splats`);
+          this._em.emit('event', { kind: 'refine', iter: trainer.iter, ...r });
+        }
       }
 
       const now = performance.now();

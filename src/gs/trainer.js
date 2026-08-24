@@ -772,7 +772,7 @@ export class GSTrainer {
     if (grown > 0) {
       this.n += grown;
       this.adamData[23] = this.n * STRIDE;
-      this.camUniforms = this.camMeta.map((mm) => this._camUniform(mm, 1, mm.offset));
+      this.camUniforms = this.camMeta.map((mm, i) => this._camUniform(mm, 1, mm.offset, i));
     }
     d.queue.writeBuffer(this.bufParams, 0, params);
     d.queue.writeBuffer(this.bufM, 0, m);
