@@ -2165,7 +2165,7 @@ async function mountWall() {
     if ((!items || !items.length) && !localTab) return;
     const host = $('gallery');
     host.innerHTML = `
-      <div class="orline galtabs"><span><b data-tab="community" class="on">Scenes</b>${localTab ? `<b data-tab="mine">Yours</b>` : ''}</span></div>
+      <div class="orline galtabs"><span><b data-tab="community" class="on">Presets</b>${localTab ? `<b data-tab="mine">Yours</b>` : ''}</span></div>
       <div class="galrow" data-pane="community"></div>
       ${localTab ? '<div class="galrow" data-pane="mine" hidden></div>' : ''}`;
     const row = host.querySelector('[data-pane="community"]');
