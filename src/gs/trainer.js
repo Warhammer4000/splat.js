@@ -29,7 +29,7 @@ export class GSTrainer {
     this.stride = STRIDE;
     // view-dependent color: SH degree (0 disables; coeffs live in a separate
     // channel-major buffer of 3*shK floats per splat)
-    this.shDeg = opts.shDeg ?? 2;
+    this.shDeg = opts.shDeg ?? 3;   // degree 3 is the standard since 2026-08-24 (matches the INRIA reference)
     this.shK = this.shDeg > 0 ? shRestCoefs(this.shDeg) : 0;
     this.canvasFormat = navigator.gpu.getPreferredCanvasFormat();
     this._buildPipelines();
