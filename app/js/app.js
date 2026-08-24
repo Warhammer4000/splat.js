@@ -2910,9 +2910,10 @@ function draw() {
     model: !!gpuCanvas,
     cams: S.scene.cams,
     // on a photograph (compare modes) the overlays read as artefacts in the
-    // image — frustums only while moving around freely, and never during the
-    // intro flight (the scene should speak for itself there)
-    showCams: !onFrame && !S.tour,
+    // image — frustums only while moving around freely, never during the
+    // intro flight, and hidden entirely in the finished viewer (the drawing
+    // path stays; flip this when frustums earn a place there again)
+    showCams: S.state !== 'done' && !onFrame && !S.tour,
     showPath: S.state === 'train' && !onFrame,
     faint: S.state === 'done',
     skip: S.atFrame,
