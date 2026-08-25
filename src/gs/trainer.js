@@ -62,9 +62,12 @@ export class GSTrainer {
       label: 'tile-sort', layout: 'auto',
       compute: { module: mk(SORT_SRC, 'tile-sort'), entryPoint: 'main' },
     });
+    // subgroup-aggregated gradient atomics (opt-out: subgroupAgg: false)
+    this.subgroupAgg = this.tileGrad && (this.opts.subgroupAgg ?? true) &&
+      d.features && d.features.has('subgroups');
     this.pipeRender = d.createComputePipeline({
       label: 'render', layout: 'auto',
-      compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad), 'render'), entryPoint: 'main' },
+      compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg), 'render'), entryPoint: 'main' },
     });
     this.pipeChain = d.createComputePipeline({
       label: 'chain', layout: 'auto',

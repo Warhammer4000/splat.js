@@ -33,6 +33,10 @@ export async function createGpu(opts = {}) {
   // offer 2GB). Asking for the adapter's own maximum can never fail.
   const want = 4 * (1 << 30);
   const device = await adapter.requestDevice({
+    // subgroups (when the adapter has them) let the render backward
+    // aggregate its workgroup-shared gradient atomics per-subgroup —
+    // optional: shaders compile a fallback without it
+    requiredFeatures: adapter.features.has('subgroups') ? ['subgroups'] : [],
     requiredLimits: {
       maxStorageBufferBindingSize: Math.min(adapter.limits.maxStorageBufferBindingSize, want),
       maxBufferSize: Math.min(adapter.limits.maxBufferSize, want),

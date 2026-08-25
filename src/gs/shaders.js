@@ -523,8 +523,8 @@ fn main(@builtin(workgroup_id) wg: vec3u,
 //                   (TBDR) GPUs pay dearly for contended global atomics —
 //                   this is the difference between ~12 it/s and usable on an
 //                   M1. Integer sums commute, so results are bit-identical.
-export const makeRenderSrc = (E = DEFAULT_E_CUT, A = DEFAULT_A_MIN, tileGrad = false) =>
-  CAM_STRUCT + cutConsts(E, A) + /* wgsl */ `
+export const makeRenderSrc = (E = DEFAULT_E_CUT, A = DEFAULT_A_MIN, tileGrad = false, subgroups = false) =>
+  (subgroups ? 'enable subgroups;\n' : '') + CAM_STRUCT + cutConsts(E, A) + /* wgsl */ `
 @group(0) @binding(1) var<storage, read> proj: array<f32>;
 @group(0) @binding(2) var<storage, read> tileStart: array<u32>;
 @group(0) @binding(3) var<storage, read> entries: array<u32>;
@@ -541,13 +541,34 @@ fn camAdd(idx: u32, v: f32) {
 var<workgroup> wgEnd: atomic<u32>;
 var<workgroup> wgEndU: u32;
 var<workgroup> sg: array<atomic<i32>, 10>;
+` + (subgroups ? /* wgsl */ `
+// LichtFeld-style warp aggregation (their #1675: 13.6 -> 1.1 ms on the
+// analogous kernel): every thread in the lockstep walk adds to the SAME
+// sg[slot], a 256-way serialized atomic. Sum across the subgroup first —
+// one atomic per subgroup — and quantize the aggregate (less noise too).
+// MUST be called in UNIFORM control flow (WGSL validation rejects subgroup
+// builtins in divergent flow): callers accumulate into locals and flush
+// unconditionally, zeros contributing nothing to the sum.
+fn atomAdd(slot: u32, v: f32) {
+  let s = subgroupAdd(v);
+  if (subgroupElect() && s != 0.0) {
+    atomicAdd(&sg[slot], i32(round(clamp(s * FIXED, -1.0e9, 1.0e9))));
+  }
+}
+fn atomAddC(slot: u32, v: f32) {
+  let s = subgroupAdd(v);
+  if (subgroupElect() && s != 0.0) {
+    atomicAdd(&sg[slot], i32(round(clamp(s * FIXEDC, -1.0e9, 1.0e9))));
+  }
+}
+` : /* wgsl */ `
 fn atomAdd(slot: u32, v: f32) {
   atomicAdd(&sg[slot], i32(round(clamp(v * FIXED, -1.0e9, 1.0e9))));
 }
 fn atomAddC(slot: u32, v: f32) {
   atomicAdd(&sg[slot], i32(round(clamp(v * FIXEDC, -1.0e9, 1.0e9))));
 }
-` : /* wgsl */ `
+`) : /* wgsl */ `
 fn atomAdd(idx: u32, v: f32) {
   atomicAdd(&gradP[idx], i32(round(clamp(v * FIXED, -1.0e9, 1.0e9))));
 }
@@ -660,6 +681,12 @@ ${tileGrad ? /* wgsl */ `
 ${tileGrad ? /* wgsl */ `
     if (li < 10u) { atomicStore(&sg[li], 0); }
     workgroupBarrier();
+    // per-pixel slot contributions land in locals; the flush below runs in
+    // UNIFORM control flow (subgroup aggregation is illegal in divergent
+    // flow, and WGSL validation rejects it — a lesson bought with a dead
+    // pipeline that "trained" 250k no-op iterations in a minute)
+    var q0 = 0.0; var q1 = 0.0; var q2 = 0.0; var q3 = 0.0; var q4 = 0.0;
+    var q5 = 0.0; var q6 = 0.0; var q7 = 0.0; var q8 = 0.0; var q9 = 0.0;
 ` : ''}
     let i = entries[2u * (kk - 1u) + 1u];
     let b = i * 16u;
@@ -690,8 +717,8 @@ ${tileGrad ? '    if (lossOk && kk <= end) {' : '    {'}
 
     let ga = galpha * araw;
     let gmean = ga * vec2f(cA * d.x + cB * d.y, cB * d.x + cC * d.y);
-    atomAdd(${tileGrad ? '0u' : 'b'},      gmean.x);
-    atomAdd(${tileGrad ? '1u' : 'b + 1u'}, gmean.y);
+${tileGrad ? '    q0 = gmean.x;\n    q1 = gmean.y;'
+           : '    atomAdd(b,      gmean.x);\n    atomAdd(b + 1u, gmean.y);'}
     // conic grads scale with d^2 (px^2): measured at native res, big-splat
     // accumulators hit the i32 ceiling and silently wrapped (max 2.14e9 with
     // FIXEDC 4096). Normalize per splat by (1 + lambda_max) of the dilated 2D
@@ -704,21 +731,46 @@ ${tileGrad ? '    if (lossOk && kk <= end) {' : '    {'}
     let cmid = 0.5 * (cva + cvc);
     let lmax = cmid + sqrt(max(cmid * cmid - (cva * cvc - proj[b + 13u] * proj[b + 13u]), 0.0));
     let cnorm = 1.0 / (1.0 + lmax);
-    atomAddC(${tileGrad ? '2u' : 'b + 2u'}, -ga * 0.5 * d.x * d.x * cnorm);
-    atomAddC(${tileGrad ? '3u' : 'b + 3u'}, -ga * d.x * d.y * cnorm);
-    atomAddC(${tileGrad ? '4u' : 'b + 4u'}, -ga * 0.5 * d.y * d.y * cnorm);
-    atomAdd(${tileGrad ? '5u' : 'b + 5u'}, galpha * opa * G);          // d/dcomp
-    atomAdd(${tileGrad ? '6u' : 'b + 6u'}, ga * (1.0 - opa));          // d/dlogitOpacity
-    atomAdd(${tileGrad ? '7u' : 'b + 7u'}, gcv.r);
-    atomAdd(${tileGrad ? '8u' : 'b + 8u'}, gcv.g);
-    atomAdd(${tileGrad ? '9u' : 'b + 9u'}, gcv.b);
+${tileGrad ? /* wgsl */ `    q2 = -ga * 0.5 * d.x * d.x * cnorm;
+    q3 = -ga * d.x * d.y * cnorm;
+    q4 = -ga * 0.5 * d.y * d.y * cnorm;
+    q5 = galpha * opa * G;          // d/dcomp
+    q6 = ga * (1.0 - opa);          // d/dlogitOpacity
+    q7 = gcv.r;
+    q8 = gcv.g;
+    q9 = gcv.b;` : /* wgsl */ `    atomAddC(b + 2u, -ga * 0.5 * d.x * d.x * cnorm);
+    atomAddC(b + 3u, -ga * d.x * d.y * cnorm);
+    atomAddC(b + 4u, -ga * 0.5 * d.y * d.y * cnorm);
+    atomAdd(b + 5u, galpha * opa * G);          // d/dcomp
+    atomAdd(b + 6u, ga * (1.0 - opa));          // d/dlogitOpacity
+    atomAdd(b + 7u, gcv.r);
+    atomAdd(b + 8u, gcv.g);
+    atomAdd(b + 9u, gcv.b);`}
 
     S += c * alpha * Tb;
     Ta = Tb;
     }
     }
     }
-${tileGrad ? /* wgsl */ `
+${tileGrad ? (subgroups ? /* wgsl */ `
+    // UNIFORM flush: subgroup-aggregate each slot, one sg atomic per subgroup
+    atomAdd(0u, q0); atomAdd(1u, q1);
+    atomAddC(2u, q2); atomAddC(3u, q3); atomAddC(4u, q4);
+    atomAdd(5u, q5); atomAdd(6u, q6);
+    atomAdd(7u, q7); atomAdd(8u, q8); atomAdd(9u, q9);
+` : /* wgsl */ `
+    // per-thread flush (no subgroup support): skip zero contributions
+    if (q0 != 0.0) { atomAdd(0u, q0); }
+    if (q1 != 0.0) { atomAdd(1u, q1); }
+    if (q2 != 0.0) { atomAddC(2u, q2); }
+    if (q3 != 0.0) { atomAddC(3u, q3); }
+    if (q4 != 0.0) { atomAddC(4u, q4); }
+    if (q5 != 0.0) { atomAdd(5u, q5); }
+    if (q6 != 0.0) { atomAdd(6u, q6); }
+    if (q7 != 0.0) { atomAdd(7u, q7); }
+    if (q8 != 0.0) { atomAdd(8u, q8); }
+    if (q9 != 0.0) { atomAdd(9u, q9); }
+`) + /* wgsl */ `
     workgroupBarrier();
     if (li < 10u) {
       let v = atomicLoad(&sg[li]);
