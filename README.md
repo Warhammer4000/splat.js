@@ -77,8 +77,8 @@ its native 979 px, on a desktop NVIDIA GPU, in one tab:
 |---|---|
 | 3DGS (SIGGRAPH 2023) | 25.18 dB |
 | Mip-Splatting (CVPR 2024) | 25.74 dB |
-| **Splat.js — 1 M splats, 100 k cycles (~25 min)** | **25.76 dB** |
 | Scaffold-GS (CVPR 2024) | 25.77 dB |
+| **Splat.js — 2 M splats, 100 k cycles (~25 min)** | **25.95 dB** |
 | 3DGS-MCMC (NeurIPS 2024) | 26.11 dB |
 | LichtFeld Studio — measured, same machine (~5½ min) | 26.14 dB |
 | **Splat.js — 2 M splats, 250 k cycles (~60 min)** | **26.30 dB** |
