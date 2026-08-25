@@ -681,10 +681,10 @@ ${tileGrad ? /* wgsl */ `
 ${tileGrad ? /* wgsl */ `
     if (li < 10u) { atomicStore(&sg[li], 0); }
     workgroupBarrier();
-    // per-pixel slot contributions land in locals; the flush below runs in
-    // UNIFORM control flow (subgroup aggregation is illegal in divergent
-    // flow, and WGSL validation rejects it — a lesson bought with a dead
-    // pipeline that "trained" 250k no-op iterations in a minute)
+` : ''}${tileGrad && subgroups ? /* wgsl */ `
+    // subgroup variant only: contributions land in locals so the aggregated
+    // flush below runs in UNIFORM control flow (WGSL rejects subgroup
+    // builtins in divergent flow — a lesson bought with a dead pipeline)
     var q0 = 0.0; var q1 = 0.0; var q2 = 0.0; var q3 = 0.0; var q4 = 0.0;
     var q5 = 0.0; var q6 = 0.0; var q7 = 0.0; var q8 = 0.0; var q9 = 0.0;
 ` : ''}
@@ -717,7 +717,8 @@ ${tileGrad ? '    if (lossOk && kk <= end) {' : '    {'}
 
     let ga = galpha * araw;
     let gmean = ga * vec2f(cA * d.x + cB * d.y, cB * d.x + cC * d.y);
-${tileGrad ? '    q0 = gmean.x;\n    q1 = gmean.y;'
+${tileGrad ? (subgroups ? '    q0 = gmean.x;\n    q1 = gmean.y;'
+                        : '    atomAdd(0u,      gmean.x);\n    atomAdd(1u, gmean.y);')
            : '    atomAdd(b,      gmean.x);\n    atomAdd(b + 1u, gmean.y);'}
     // conic grads scale with d^2 (px^2): measured at native res, big-splat
     // accumulators hit the i32 ceiling and silently wrapped (max 2.14e9 with
@@ -731,14 +732,21 @@ ${tileGrad ? '    q0 = gmean.x;\n    q1 = gmean.y;'
     let cmid = 0.5 * (cva + cvc);
     let lmax = cmid + sqrt(max(cmid * cmid - (cva * cvc - proj[b + 13u] * proj[b + 13u]), 0.0));
     let cnorm = 1.0 / (1.0 + lmax);
-${tileGrad ? /* wgsl */ `    q2 = -ga * 0.5 * d.x * d.x * cnorm;
+${tileGrad ? (subgroups ? /* wgsl */ `    q2 = -ga * 0.5 * d.x * d.x * cnorm;
     q3 = -ga * d.x * d.y * cnorm;
     q4 = -ga * 0.5 * d.y * d.y * cnorm;
     q5 = galpha * opa * G;          // d/dcomp
     q6 = ga * (1.0 - opa);          // d/dlogitOpacity
     q7 = gcv.r;
     q8 = gcv.g;
-    q9 = gcv.b;` : /* wgsl */ `    atomAddC(b + 2u, -ga * 0.5 * d.x * d.x * cnorm);
+    q9 = gcv.b;` : /* wgsl */ `    atomAddC(2u, -ga * 0.5 * d.x * d.x * cnorm);
+    atomAddC(3u, -ga * d.x * d.y * cnorm);
+    atomAddC(4u, -ga * 0.5 * d.y * d.y * cnorm);
+    atomAdd(5u, galpha * opa * G);          // d/dcomp
+    atomAdd(6u, ga * (1.0 - opa));          // d/dlogitOpacity
+    atomAdd(7u, gcv.r);
+    atomAdd(8u, gcv.g);
+    atomAdd(9u, gcv.b);`) : /* wgsl */ `    atomAddC(b + 2u, -ga * 0.5 * d.x * d.x * cnorm);
     atomAddC(b + 3u, -ga * d.x * d.y * cnorm);
     atomAddC(b + 4u, -ga * 0.5 * d.y * d.y * cnorm);
     atomAdd(b + 5u, galpha * opa * G);          // d/dcomp
@@ -755,30 +763,16 @@ ${tileGrad ? /* wgsl */ `    q2 = -ga * 0.5 * d.x * d.x * cnorm;
 ${tileGrad ? (subgroups ? /* wgsl */ `
     // UNIFORM flush: subgroup-aggregate each slot, one sg atomic per subgroup.
     // Gate on ONE subgroupAny first — most entries touch few pixels of the
-    // tile, and paying 10 unconditional reductions per entry per thread
-    // where the old path paid conditional atomics blew kernel time into
-    // TDR territory (GPU-process crash mid-training). The branch condition
-    // is subgroup-uniform, so the inner subgroup calls stay valid. Color
-    // slots are the sufficient test: gC == 0 forces every other slot to 0.
+    // tile. The branch condition is subgroup-uniform, so the inner subgroup
+    // calls stay valid. Color slots are the sufficient test: gC == 0 forces
+    // every other slot to 0.
     if (subgroupAny(q7 != 0.0 || q8 != 0.0 || q9 != 0.0)) {
       atomAdd(0u, q0); atomAdd(1u, q1);
       atomAddC(2u, q2); atomAddC(3u, q3); atomAddC(4u, q4);
       atomAdd(5u, q5); atomAdd(6u, q6);
       atomAdd(7u, q7); atomAdd(8u, q8); atomAdd(9u, q9);
     }
-` : /* wgsl */ `
-    // per-thread flush (no subgroup support): skip zero contributions
-    if (q0 != 0.0) { atomAdd(0u, q0); }
-    if (q1 != 0.0) { atomAdd(1u, q1); }
-    if (q2 != 0.0) { atomAddC(2u, q2); }
-    if (q3 != 0.0) { atomAddC(3u, q3); }
-    if (q4 != 0.0) { atomAddC(4u, q4); }
-    if (q5 != 0.0) { atomAdd(5u, q5); }
-    if (q6 != 0.0) { atomAdd(6u, q6); }
-    if (q7 != 0.0) { atomAdd(7u, q7); }
-    if (q8 != 0.0) { atomAdd(8u, q8); }
-    if (q9 != 0.0) { atomAdd(9u, q9); }
-`) + /* wgsl */ `
+` : '') + /* wgsl */ `
     workgroupBarrier();
     if (li < 10u) {
       let v = atomicLoad(&sg[li]);
