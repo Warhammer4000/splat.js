@@ -279,7 +279,7 @@ function boot() {
     const lodOk = st.splats >= 1000000;
     $('set-lod').disabled = !lodOk;
     $('set-lod').value = lodOk && st.lod ? '1' : '';
-    $('set-mcmc').value = st.mcmc ? '1' : '';
+    $('set-mcmc').value = st.mcmc === '1' || st.mcmc === '0' ? st.mcmc : '';
   };
   showSettings();
   $('set-q').addEventListener('change', () => {
@@ -315,7 +315,7 @@ function boot() {
     st.iters = parseInt($('set-iters').value, 10) || 0;
     st.splats = parseInt($('set-splats').value, 10) || 0;
     st.lod = !!$('set-lod').value && st.splats >= 1000000;
-    st.mcmc = !!$('set-mcmc').value;
+    st.mcmc = $('set-mcmc').value;  // '' Auto | '1' on | '0' off
     showSettings();
     saveSettings();
   };
@@ -869,7 +869,9 @@ async function startPrep() {
     // MCMC experimental set (session-sticky, see the flag block up top):
     // fine refine cadence, Langevin noise, scale pressure, lifted relocation
     // cap, short-budget SH lr — measured +0.5 dB on truck@30k.
-    if (MCMC_ON || st.mcmc) {
+    const mcmcActive = MCMC_ON || st.mcmc === '1' ||
+      (st.mcmc !== '0' && S.maxIters >= 30000);   // Auto: on from 30k cycles up
+    if (mcmcActive) {
       Object.assign(trainerOpts, {
         growRate: 0.05, mcmcNoise: true, scaleReg: 0.01, moveCap: 0.25,
         ...((st.sh ?? 3) > 0 ? { shLr: 3e-4 } : {}),
@@ -880,7 +882,7 @@ async function startPrep() {
     const session = createSession({
       maxIters: S.maxIters, evalHoldEvery: 2500,
       holdout: -1,
-      ...((MCMC_ON || st.mcmc) ? { refineEvery: 500 } : {}),
+      ...(mcmcActive ? { refineEvery: 500 } : {}),
       evalSplit: EVAL.on ? EVAL.split : 0,
       initTarget: lodOn ? 250000 : (st.splats ? Math.round(st.splats / 4) : undefined),
       maxViewW: mvW, maxViewH: mvH,

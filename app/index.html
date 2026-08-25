@@ -122,10 +122,11 @@
           <option value="">Off</option>
           <option value="1">On</option>
         </select></div>
-      <div class="setrow" title="Experimental MCMC-style optimizer: fine-grained growth and relocation, exploration noise, scale pressure. Measured stronger at 30,000+ cycles; can trail the standard schedule on short runs."><label for="set-mcmc">MCMC optimizer</label>
+      <div class="setrow" title="MCMC-style optimizer: fine-grained growth and relocation, exploration noise, scale pressure. Auto = on from 30,000 cycles up, where it measures ahead; off below, where the standard schedule wins."><label for="set-mcmc">MCMC optimizer</label>
         <select id="set-mcmc">
-          <option value="">Off</option>
+          <option value="">Auto</option>
           <option value="1">On</option>
+          <option value="0">Off</option>
         </select></div>
       <div class="setrow" title="Training cycles. A finished run can always continue with +10,000 more."><label for="set-iters">Cycles</label>
         <select id="set-iters">
