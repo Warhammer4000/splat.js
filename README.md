@@ -63,8 +63,7 @@ The gear next to **Start training** holds one-knob quality presets — *Draft*
 for a fast first look, *Showcase* for a long high-detail run — plus the
 individual knobs (resolution, spherical harmonics, splat budget, cycles,
 optimizer) they drive. The splat budget auto-sizes from the cycle budget
-and device; from 30,000 cycles up the MCMC-style optimizer engages
-automatically.
+and device, and the MCMC-style optimizer is the default schedule.
 
 ## Measured quality
 
