@@ -279,7 +279,7 @@ function boot() {
     const lodOk = st.splats >= 1000000;
     $('set-lod').disabled = !lodOk;
     $('set-lod').value = lodOk && st.lod ? '1' : '';
-    $('set-mcmc').value = st.mcmc === '1' || st.mcmc === '0' ? st.mcmc : '';
+    $('set-mcmc').value = st.mcmc === '0' ? '0' : '';
   };
   showSettings();
   $('set-q').addEventListener('change', () => {
@@ -868,10 +868,11 @@ async function startPrep() {
     }
     // the ?iters override must land BEFORE anything reads the budget
     if (ITERS_OVERRIDE >= 1000) S.maxIters = ITERS_OVERRIDE;
-    // MCMC set (session-sticky flag, gear setting, or Auto from 30k cycles
-    // up — the measured boundary: +0.3 dB at 30k, -0.36 at 20k)
-    const mcmcActive = MCMC_ON || st.mcmc === '1' ||
-      (st.mcmc !== '0' && S.maxIters >= 30000);
+    // MCMC set: ON by default — measured garden 20k/40k +1.12/+0.61 dB and
+    // truck 30k +0.3; the one loss (truck 20k, -0.36) is scene-specific
+    // (base growth happened to land near-optimal there). Off in the gear
+    // restores the classic schedule.
+    const mcmcActive = MCMC_ON || st.mcmc !== '0';
     if (mcmcActive) {
       Object.assign(trainerOpts, {
         growRate: 0.05, mcmcNoise: true, scaleReg: 0.01, moveCap: 0.25,
