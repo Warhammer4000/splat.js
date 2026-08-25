@@ -849,9 +849,25 @@ async function startPrep() {
     } else {
       S.lodPlan = null;
     }
+    // ?mcmc: the experimental MCMC-ification set (fine refine cadence,
+    // Langevin noise, scale pressure, lifted relocation cap, short-budget SH
+    // lr) — watchable live; measured +0.5 dB on truck@30k. ?iters=N overrides
+    // the cycle count for exact benchmark shapes.
+    const mq = new URLSearchParams(location.search);
+    const MCMC_ON = mq.has('mcmc');
+    if (MCMC_ON) {
+      Object.assign(trainerOpts, {
+        growRate: 0.05, mcmcNoise: true, scaleReg: 0.01, moveCap: 0.25,
+        ...((st.sh ?? 3) > 0 ? { shLr: 3e-4 } : {}),
+      });
+      flash('MCMC experimental set active', 5000);
+    }
+    const itersQ = parseInt(mq.get('iters'), 10);
+    if (Number.isFinite(itersQ) && itersQ >= 1000) S.maxIters = itersQ;
     const session = createSession({
       maxIters: S.maxIters, evalHoldEvery: 2500,
       holdout: -1,
+      ...(MCMC_ON ? { refineEvery: 500 } : {}),
       evalSplit: EVAL.on ? EVAL.split : 0,
       initTarget: lodOn ? 250000 : (st.splats ? Math.round(st.splats / 4) : undefined),
       maxViewW: mvW, maxViewH: mvH,
