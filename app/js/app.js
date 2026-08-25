@@ -58,6 +58,18 @@ const BUF2X = new URLSearchParams(location.search).has('2x');
 const EVAL_Q = new URLSearchParams(location.search).get('eval');
 const EVAL = { on: EVAL_Q != null, split: Math.max(2, parseInt(EVAL_Q, 10) || 8) };
 
+// ?mcmc + ?iters=N: the experimental optimizer set. STICKY for the browser
+// session — preset tiles are real links, so a plain query flag would be shed
+// on the first click. ?mcmc=0 clears; the toast fires at boot and at train.
+{
+  const q = new URLSearchParams(location.search);
+  if (q.get('mcmc') === '0') { sessionStorage.removeItem('splatjs_mcmc'); sessionStorage.removeItem('splatjs_iters'); }
+  else if (q.has('mcmc')) sessionStorage.setItem('splatjs_mcmc', '1');
+  if (q.get('iters')) sessionStorage.setItem('splatjs_iters', q.get('iters'));
+}
+const MCMC_ON = sessionStorage.getItem('splatjs_mcmc') === '1';
+const ITERS_OVERRIDE = parseInt(sessionStorage.getItem('splatjs_iters'), 10) || 0;
+
 // training settings (start-card panel), persisted across visits.
 // res 0 = auto, iters 0 = the 20k default, buf = working-buffer scale.
 // Phones start from lighter defaults; anything saved wins.
@@ -399,6 +411,9 @@ function boot() {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
   showIntro();
+  if (MCMC_ON) {
+    flash(`MCMC experimental set armed${ITERS_OVERRIDE ? ` · ${ITERS_OVERRIDE.toLocaleString()} cycles` : ''} — sticky this session (?mcmc=0 clears)`, 6000);
+  }
   const mp = new URLSearchParams(location.search);
   const viewing = mp.get('space') || mp.get('model');
   if (WALL_FIRST) {
@@ -849,12 +864,9 @@ async function startPrep() {
     } else {
       S.lodPlan = null;
     }
-    // ?mcmc: the experimental MCMC-ification set (fine refine cadence,
-    // Langevin noise, scale pressure, lifted relocation cap, short-budget SH
-    // lr) — watchable live; measured +0.5 dB on truck@30k. ?iters=N overrides
-    // the cycle count for exact benchmark shapes.
-    const mq = new URLSearchParams(location.search);
-    const MCMC_ON = mq.has('mcmc');
+    // MCMC experimental set (session-sticky, see the flag block up top):
+    // fine refine cadence, Langevin noise, scale pressure, lifted relocation
+    // cap, short-budget SH lr — measured +0.5 dB on truck@30k.
     if (MCMC_ON) {
       Object.assign(trainerOpts, {
         growRate: 0.05, mcmcNoise: true, scaleReg: 0.01, moveCap: 0.25,
@@ -862,8 +874,7 @@ async function startPrep() {
       });
       flash('MCMC experimental set active', 5000);
     }
-    const itersQ = parseInt(mq.get('iters'), 10);
-    if (Number.isFinite(itersQ) && itersQ >= 1000) S.maxIters = itersQ;
+    if (ITERS_OVERRIDE >= 1000) S.maxIters = ITERS_OVERRIDE;
     const session = createSession({
       maxIters: S.maxIters, evalHoldEvery: 2500,
       holdout: -1,
