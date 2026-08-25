@@ -105,10 +105,10 @@ const QKEYS = ['res', 'buf', 'sh', 'iters', 'splats'];
 function qualityMacros() {
   const d = deviceDefaults();
   return {
-    draft:    { res: 480,   buf: 1, sh: 0,    iters: 10000,  splats: 300000 },
+    draft:    { res: 480,   buf: 1, sh: 0,    iters: 10000,  splats: 0 },
     standard: { res: d.res, buf: 1, sh: d.sh, iters: 0,      splats: 0 },
-    high:     { res: 1280,  buf: 1, sh: 3,    iters: 40000,  splats: 600000 },
-    showcase: { res: 1280,  buf: 1, sh: 3,    iters: 100000, splats: 1000000 },
+    high:     { res: 1280,  buf: 1, sh: 3,    iters: 40000,  splats: 0 },
+    showcase: { res: 1280,  buf: 1, sh: 3,    iters: 100000, splats: 0 },
   };
 }
 function qualityOf(st) {
@@ -866,11 +866,12 @@ async function startPrep() {
     } else {
       S.lodPlan = null;
     }
-    // MCMC experimental set (session-sticky, see the flag block up top):
-    // fine refine cadence, Langevin noise, scale pressure, lifted relocation
-    // cap, short-budget SH lr — measured +0.5 dB on truck@30k.
+    // the ?iters override must land BEFORE anything reads the budget
+    if (ITERS_OVERRIDE >= 1000) S.maxIters = ITERS_OVERRIDE;
+    // MCMC set (session-sticky flag, gear setting, or Auto from 30k cycles
+    // up — the measured boundary: +0.3 dB at 30k, -0.36 at 20k)
     const mcmcActive = MCMC_ON || st.mcmc === '1' ||
-      (st.mcmc !== '0' && S.maxIters >= 30000);   // Auto: on from 30k cycles up
+      (st.mcmc !== '0' && S.maxIters >= 30000);
     if (mcmcActive) {
       Object.assign(trainerOpts, {
         growRate: 0.05, mcmcNoise: true, scaleReg: 0.01, moveCap: 0.25,
@@ -878,7 +879,16 @@ async function startPrep() {
       });
       flash('MCMC experimental set active', 5000);
     }
-    if (ITERS_OVERRIDE >= 1000) S.maxIters = ITERS_OVERRIDE;
+    // Auto splat budget: sized from the CYCLE budget, not just the solve —
+    // the measured capacity law (~15 splats/cycle classic, ~35 under MCMC),
+    // clamped to the device class. Explicit user choices always win.
+    if (!st.splats) {
+      const phoneClass = matchMedia('(any-pointer: coarse)').matches &&
+        Math.min(screen.width, screen.height) <= 820;
+      trainerOpts.maxSplats = Math.max(150000, Math.min(phoneClass ? 600000 : 2000000,
+        Math.round(S.maxIters * (mcmcActive ? 35 : 15))));
+      trainerOpts.capMult = 8; // growth must reach the computed cap from a lean seed
+    }
     const session = createSession({
       maxIters: S.maxIters, evalHoldEvery: 2500,
       holdout: -1,

@@ -60,9 +60,11 @@ photo sets are served on the hosted demo). Video input exists in the library
 selection is up to the quality bar.
 
 The gear next to **Start training** holds one-knob quality presets — *Draft*
-for a fast first look, *Showcase* for a long run at the full 1 M splat budget —
-plus the individual knobs (resolution, spherical harmonics, splat budget,
-cycles) they drive.
+for a fast first look, *Showcase* for a long high-detail run — plus the
+individual knobs (resolution, spherical harmonics, splat budget, cycles,
+optimizer) they drive. The splat budget auto-sizes from the cycle budget
+and device; from 30,000 cycles up the MCMC-style optimizer engages
+automatically.
 
 ## Measured quality
 
