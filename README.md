@@ -80,7 +80,7 @@ its native 979 px, on a desktop NVIDIA GPU, in one tab:
 | Scaffold-GS (CVPR 2024) | 25.77 dB |
 | **Splat.js — 2 M splats, 100 k cycles (~25 min)** | **25.95 dB** |
 | 3DGS-MCMC (NeurIPS 2024) | 26.11 dB |
-| LichtFeld Studio — measured, same machine (~5½ min) | 26.14 dB |
+| LichtFeld Studio v0.5.3-370-gf9d2c4f9 — measured (~5½ min) | 26.14 dB |
 | **Splat.js — 2 M splats, 250 k cycles (~60 min)** | **26.30 dB** |
 | Student Splatting & Scooping (CVPR 2025) | 26.41 dB |
 
