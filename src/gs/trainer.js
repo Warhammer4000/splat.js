@@ -62,8 +62,13 @@ export class GSTrainer {
       label: 'tile-sort', layout: 'auto',
       compute: { module: mk(SORT_SRC, 'tile-sort'), entryPoint: 'main' },
     });
-    // subgroup-aggregated gradient atomics (opt-out: subgroupAgg: false)
-    this.subgroupAgg = this.tileGrad && (this.opts.subgroupAgg ?? true) &&
+    // subgroup-aggregated gradient atomics — DEFAULT OFF (2026-08-25):
+    // Tint only allows subgroup builtins in fully-uniform flow, and the
+    // unconditional 10-reduction flush that satisfies it TDR-crashed truck
+    // training; the subgroupAny-gated version fails validation (Tint's
+    // uniformity analysis doesn't track subgroup-uniform conditions).
+    // Revisit when the analysis learns subgroup scopes.
+    this.subgroupAgg = this.tileGrad && (this.opts.subgroupAgg ?? false) &&
       d.features && d.features.has('subgroups');
     this.pipeRender = d.createComputePipeline({
       label: 'render', layout: 'auto',

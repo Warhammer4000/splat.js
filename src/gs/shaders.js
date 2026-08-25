@@ -753,11 +753,19 @@ ${tileGrad ? /* wgsl */ `    q2 = -ga * 0.5 * d.x * d.x * cnorm;
     }
     }
 ${tileGrad ? (subgroups ? /* wgsl */ `
-    // UNIFORM flush: subgroup-aggregate each slot, one sg atomic per subgroup
-    atomAdd(0u, q0); atomAdd(1u, q1);
-    atomAddC(2u, q2); atomAddC(3u, q3); atomAddC(4u, q4);
-    atomAdd(5u, q5); atomAdd(6u, q6);
-    atomAdd(7u, q7); atomAdd(8u, q8); atomAdd(9u, q9);
+    // UNIFORM flush: subgroup-aggregate each slot, one sg atomic per subgroup.
+    // Gate on ONE subgroupAny first — most entries touch few pixels of the
+    // tile, and paying 10 unconditional reductions per entry per thread
+    // where the old path paid conditional atomics blew kernel time into
+    // TDR territory (GPU-process crash mid-training). The branch condition
+    // is subgroup-uniform, so the inner subgroup calls stay valid. Color
+    // slots are the sufficient test: gC == 0 forces every other slot to 0.
+    if (subgroupAny(q7 != 0.0 || q8 != 0.0 || q9 != 0.0)) {
+      atomAdd(0u, q0); atomAdd(1u, q1);
+      atomAddC(2u, q2); atomAddC(3u, q3); atomAddC(4u, q4);
+      atomAdd(5u, q5); atomAdd(6u, q6);
+      atomAdd(7u, q7); atomAdd(8u, q8); atomAdd(9u, q9);
+    }
 ` : /* wgsl */ `
     // per-thread flush (no subgroup support): skip zero contributions
     if (q0 != 0.0) { atomAdd(0u, q0); }
