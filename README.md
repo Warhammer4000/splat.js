@@ -75,7 +75,7 @@ its native 979 px, on a desktop NVIDIA GPU, in one tab:
 
 | method | Truck test PSNR |
 |---|---|
-| **Splat.js — 30 k cycles (~3 min train)** | **25.02 dB** |
+| **Splat.js — 30 k cycles (~5 min train)** | **25.12 dB** |
 | 3DGS (SIGGRAPH 2023) | 25.18 dB |
 | Mip-Splatting (CVPR 2024) | 25.74 dB |
 | Scaffold-GS (CVPR 2024) | 25.77 dB |
