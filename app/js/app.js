@@ -24,6 +24,8 @@ import { bmp, readyBmp } from './img.js';
 const $ = (id) => document.getElementById(id);
 const fmt = (n) => Math.round(n).toLocaleString('en-US');
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 // Two front doors, one codebase: the classic view keeps the preset row
 // (splat-js), the wall-first redesign leads with community creations
@@ -739,6 +741,7 @@ async function useOwnVideo(file) {
 
 /** reset everything and show a set's start card (autostart commits a switch) */
 async function open(preset, autostart = false) {
+  document.getElementById('failcard')?.remove();
   if (preset.list && !preset.names) {
     try { await loadPresetList(preset); }
     catch { flash('Could not load that set\'s file list.', 5000); return; }
@@ -811,6 +814,7 @@ const beatIndex = (stage) =>
   ({ decode: 0, features: 1, matching: 2, focal: 3, register: 3, ba: 3, solved: 3, seed: 4 }[stage] ?? 0);
 
 async function startPrep() {
+  document.getElementById('failcard')?.remove();
   const gen = S.gen;
   $('start').hidden = true;
   $('detail').hidden = true;
@@ -965,7 +969,7 @@ async function startPrep() {
     console.error(e);
     solveFailed(/parallax|overlap|initialization|matches|register/i.test(e.message)
       ? 'The photos don\'t overlap enough to connect into one scene.'
-      : e.message);
+      : (e.message || 'An unexpected error occurred during reconstruction.'));
     S.state = 'ready';
     dock('');
     $('start').hidden = false;
@@ -980,14 +984,14 @@ function solveFailed(why) {
   c.id = 'failcard';
   c.innerHTML = `
     <b>That capture didn't solve</b>
-    <p class="fail-why">${why}</p>
+    <p class="fail-why">${esc(why)}</p>
     <ul class="fail-tips">
       <li><b>Move sideways.</b> Depth comes from a change of viewpoint — turning on the spot gives the solver nothing.</li>
       <li><b>Overlap generously.</b> Each photo should share most of its view with the one before.</li>
       <li><b>Pause, then shoot.</b> Motion blur, mirrors and glass are the usual killers.</li>
     </ul>
     <div class="upcard-row"><button class="btn btn-accent" id="fail-ok">Got it</button></div>`;
-  $('stage').appendChild(c);
+  document.body.appendChild(c);
   c.querySelector('#fail-ok').addEventListener('click', () => c.remove());
 }
 
@@ -1000,7 +1004,7 @@ function onStage(e) {
     // stay ahead of the decoder so the beat shows photos, not black
     for (let k = 1; k <= 3; k++) {
       const nx = S.photos[Math.min(e.detail.image + k, S.photos.length - 1)];
-      if (nx) bmp(nx.url);
+      if (nx && nx.url) bmp(nx.url);
     }
     paintStrip();
   }
@@ -1010,11 +1014,13 @@ function onStage(e) {
     if (e.detail.pair) { S.lastPairEv = e.detail.pair; S.sel = e.detail.pair.i; }
   }
   if (e.stage === 'register' && e.detail && e.detail.R) {
-    const fr = S.session.frames[e.detail.image];
-    S.regCams.push({
-      i: e.detail.image, R: e.detail.R, t: e.detail.t, f: e.detail.f,
-      w: fr.fw, h: fr.fh, cx: fr.fw / 2, cy: fr.fh / 2, state: 'placed',
-    });
+    const fr = S.session && S.session.frames && S.session.frames[e.detail.image];
+    if (fr) {
+      S.regCams.push({
+        i: e.detail.image, R: e.detail.R, t: e.detail.t, f: e.detail.f,
+        w: fr.fw, h: fr.fh, cx: fr.fw / 2, cy: fr.fh / 2, state: 'placed',
+      });
+    }
     if (e.detail.cloud && e.detail.cloud.length) {
       S.regPts = e.detail.cloud;
       S.regRgb = e.detail.cloudRgb || null;
@@ -1023,30 +1029,32 @@ function onStage(e) {
     // an overview that keeps FOLLOWING the growing reconstruction — framing
     // once at 3 cameras left everything after out of shot
     const cs = S.regCams.map(camCentre);
-    const c = cs.reduce((a, p) => [a[0] + p[0], a[1] + p[1], a[2] + p[2]], [0, 0, 0])
-      .map((v) => v / cs.length);
-    let tgt = c;
-    if (S.regPts && S.regPts.length) {
-      // midpoint of camera ring and cloud puts both in frame
-      let px = 0, py = 0, pz = 0;
-      const m = S.regPts.length / 3;
-      for (let i = 0; i < S.regPts.length; i += 3) {
-        px += S.regPts[i]; py += S.regPts[i + 1]; pz += S.regPts[i + 2];
+    if (cs.length) {
+      const c = cs.reduce((a, p) => [a[0] + p[0], a[1] + p[1], a[2] + p[2]], [0, 0, 0])
+        .map((v) => v / cs.length);
+      let tgt = c;
+      if (S.regPts && S.regPts.length) {
+        // midpoint of camera ring and cloud puts both in frame
+        let px = 0, py = 0, pz = 0;
+        const m = S.regPts.length / 3;
+        for (let i = 0; i < S.regPts.length; i += 3) {
+          px += S.regPts[i]; py += S.regPts[i + 1]; pz += S.regPts[i + 2];
+        }
+        tgt = [(c[0] + px / m) / 2, (c[1] + py / m) / 2, (c[2] + pz / m) / 2];
       }
-      tgt = [(c[0] + px / m) / 2, (c[1] + py / m) / 2, (c[2] + pz / m) / 2];
-    }
-    // radius from the CAMERAS only — the cloud has outliers, the ring doesn't
-    const r = Math.max(1e-3, ...cs.map((p) => Math.hypot(p[0] - tgt[0], p[1] - tgt[1], p[2] - tgt[2])));
-    vp.scene = { center: tgt, radius: r * 1.1, xyz: null, rgb: null };
-    if (S.regCams.length === 3) {
-      vp.detectUp(S.regCams);
-      vp.frameScene();
-    } else if (S.regCams.length > 3) {
-      vp.detectUp(S.regCams);
-      const k = 0.3;   // damped follow: no jumps, just a slow zoom-out
-      for (let i = 0; i < 3; i++) vp.target[i] += (tgt[i] - vp.target[i]) * k;
-      vp.dist += (r * 2.4 - vp.dist) * k;
-      vp.dirty = true;
+      // radius from the CAMERAS only — the cloud has outliers, the ring doesn't
+      const r = Math.max(1e-3, ...cs.map((p) => Math.hypot(p[0] - tgt[0], p[1] - tgt[1], p[2] - tgt[2])));
+      vp.scene = { center: tgt, radius: r * 1.1, xyz: null, rgb: null };
+      if (S.regCams.length === 3) {
+        vp.detectUp(S.regCams);
+        vp.frameScene();
+      } else if (S.regCams.length > 3) {
+        vp.detectUp(S.regCams);
+        const k = 0.3;   // damped follow: no jumps, just a slow zoom-out
+        for (let i = 0; i < 3; i++) vp.target[i] += (tgt[i] - vp.target[i]) * k;
+        vp.dist += (r * 2.4 - vp.dist) * k;
+        vp.dirty = true;
+      }
     }
   }
 }
@@ -1055,27 +1063,74 @@ function onStage(e) {
 function buildSceneFromSession() {
   const ses = S.session;
   const recon = ses.recon;
-  const cams = S.photos.map((p, i) => ({
-    i, url: p.url, name: p.name, R: null, t: null, state: 'unplaced', ci: -1, psnr: null,
-  }));
-  ses.trainer.camMeta.forEach((m, ci) => {
-    const c = cams[m.imgIdx];
-    const fr = ses.frames[m.imgIdx];
-    Object.assign(c, {
-      R: m.R, t: m.t, f: recon.cams.find((rc) => rc.imgIdx === m.imgIdx).f,
-      w: fr.fw, h: fr.fh, cx: fr.fw / 2, cy: fr.fh / 2,
-      state: ci === ses.holdout || ses.testCams.includes(ci) ? 'holdout' : 'placed', ci,
-      feats: (S.feats.get(m.imgIdx) || {}).n || 0,
+  const panoish = !!ses.rigInfo || (ses.frames && ses.frames.length > S.photos.length);
+  S.isPanoSet = panoish;
+  let cams;
+  if (panoish) {
+    const best = new Array(S.photos.length).fill(null);
+    if (recon && recon.cams) {
+      recon.cams.forEach((rc) => {
+        const rig = ses.rigInfo ? ses.rigInfo[rc.imgIdx] : null;
+        const panoIdx = rig ? rig.id : Math.floor(rc.imgIdx / 6);
+        if (panoIdx >= 0 && panoIdx < S.photos.length) {
+          const ci = ses.trainer && ses.trainer.camMeta
+            ? ses.trainer.camMeta.findIndex((m) => m.imgIdx === rc.imgIdx) : -1;
+          if (!best[panoIdx]) best[panoIdx] = { rc, ci };
+        }
+      });
+    }
+    cams = S.photos.map((p, i) => {
+      const b = best[i];
+      if (!b) return { i, ci: -1, R: null, t: null, url: p.url, name: p.name,
+                       w: 4, h: 3, cx: 2, cy: 1.5, state: 'unplaced', feats: 0, psnr: null, pano: true };
+      const fr = (ses.frames && ses.frames[b.rc.imgIdx]) || {};
+      const w = fr.fw || 1000, h = fr.fh || 1000;
+      return {
+        i, ci: b.ci, R: b.rc.R, t: b.rc.t, f: b.rc.f,
+        w, h, cx: w / 2, cy: h / 2,
+        url: p.url, name: p.name,
+        state: b.ci === ses.holdout || (ses.testCams && ses.testCams.includes(b.ci)) ? 'holdout' : 'placed',
+        feats: (S.feats.get(b.rc.imgIdx) || {}).n || 0,
+        psnr: null, pano: true,
+      };
     });
-  });
-  const pts = recon.points;
+  } else {
+    cams = S.photos.map((p, i) => ({
+      i, url: p.url, name: p.name, R: null, t: null, state: 'unplaced', ci: -1, psnr: null,
+    }));
+    if (ses.trainer && ses.trainer.camMeta) {
+      ses.trainer.camMeta.forEach((m, ci) => {
+        const c = cams[m.imgIdx];
+        if (!c) return;
+        const rc = recon && recon.cams && recon.cams.find((r) => r.imgIdx === m.imgIdx);
+        const fr = (ses.frames && ses.frames[m.imgIdx]) || {};
+        const w = fr.fw || 1000, h = fr.fh || 1000;
+        Object.assign(c, {
+          R: m.R, t: m.t, f: rc ? rc.f : (m.f || 1000),
+          w, h, cx: w / 2, cy: h / 2,
+          state: ci === ses.holdout || (ses.testCams && ses.testCams.includes(ci)) ? 'holdout' : 'placed',
+          ci,
+          feats: (S.feats.get(m.imgIdx) || {}).n || 0,
+        });
+      });
+    }
+  }
+  const pts = (recon && recon.points) || [];
   const xyz = new Float32Array(pts.length * 3);
   const rgb = new Uint8Array(pts.length * 3);
   pts.forEach((p, k) => {
-    xyz.set(p.X, k * 3);
-    rgb[k * 3] = p.rgb[0] * 255; rgb[k * 3 + 1] = p.rgb[1] * 255; rgb[k * 3 + 2] = p.rgb[2] * 255;
+    if (p.X) xyz.set(p.X, k * 3);
+    if (p.rgb) {
+      rgb[k * 3] = p.rgb[0] * 255;
+      rgb[k * 3 + 1] = p.rgb[1] * 255;
+      rgb[k * 3 + 2] = p.rgb[2] * 255;
+    }
   });
-  S.scene = { cams, xyz, rgb, center: ses.model.center, radius: ses.model.radius };
+  S.scene = {
+    cams, xyz, rgb,
+    center: (ses.model && ses.model.center) || [0, 0, 0],
+    radius: (ses.model && ses.model.radius) || 1,
+  };
   vp.setScene(S.scene);
   vp.detectUp(cams);
   paintStrip();
@@ -2086,9 +2141,6 @@ async function restoreShared(spaceId) {
   }
 }
 
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
-  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-
 /** Viewing is the detail card's primary action when a trained model exists;
  *  Start training steps back to the outline style there. Cards without a
  *  View button keep Start as the accent. */
@@ -2988,7 +3040,7 @@ function draw() {
 function photoStage(ctx, w, h, dpr, marks = false) {
   ctx.fillStyle = '#070909';
   ctx.fillRect(0, 0, w, h);
-  if (!S.photos.length || !S.photos[S.sel]) return; // intro: bare stage
+  if (!S.photos.length || !S.photos[S.sel] || !S.photos[S.sel].url) return; // intro: bare stage
   // fast machines outrun the decoder during the landmarks beat (the selected
   // frame changes every ~90ms, a full-res decode takes longer) — hold the
   // last DECODED photo instead of flashing black, and mark that one
@@ -3013,13 +3065,15 @@ function photoStage(ctx, w, h, dpr, marks = false) {
 /** the solver's actual keypoints, appearing as they are found */
 function drawRealMarks(ctx, r, imgIdx) {
   const f = S.feats.get(imgIdx);
-  const fr = S.session && S.session.frames[imgIdx];
-  if (!f || !fr) return;
-  const sx = r.w / fr.fw, sy = r.h / fr.fh;
+  const fr = S.session && S.session.frames && S.session.frames[imgIdx];
+  if (!f || !fr || !f.x || !f.y) return;
+  const sx = r.w / (fr.fw || 1), sy = r.h / (fr.fh || 1);
   ctx.fillStyle = 'rgba(47,212,193,.8)';
-  const n = Math.min(f.n, 1200);
+  const n = Math.min(f.n || 0, 1200);
   for (let k = 0; k < n; k++) {
-    ctx.fillRect(r.x + f.x[k] * sx - 1, r.y + f.y[k] * sy - 1, 2, 2);
+    if (f.x[k] != null && f.y[k] != null) {
+      ctx.fillRect(r.x + f.x[k] * sx - 1, r.y + f.y[k] * sy - 1, 2, 2);
+    }
   }
   ctx.fillStyle = '#93a1a0';
   ctx.font = '500 10px "Spline Sans Mono", monospace';
@@ -3032,8 +3086,11 @@ function pairStage(ctx, w, h, dpr) {
   ctx.fillRect(0, 0, w, h);
   const ev = S.lastPairEv;
   if (!ev) return;
-  const a = readyBmp(S.photos[ev.i].url);
-  const b = readyBmp(S.photos[ev.j].url);
+  const p1 = S.photos && S.photos[ev.i];
+  const p2 = S.photos && S.photos[ev.j];
+  if (!p1 || !p2 || !p1.url || !p2.url) return;
+  const a = readyBmp(p1.url);
+  const b = readyBmp(p2.url);
   if (!a || !b) return;
   const half = w / dpr / 2;
   ctx.save(); ctx.scale(dpr, dpr);
@@ -3046,15 +3103,19 @@ function pairStage(ctx, w, h, dpr) {
   ctx.globalAlpha = 1;
 
   const fa = S.feats.get(ev.i), fb = S.feats.get(ev.j);
-  const f1 = S.session.frames[ev.i], f2 = S.session.frames[ev.j];
-  if (fa && fb && f1 && f2) {
+  const f1 = S.session && S.session.frames && S.session.frames[ev.i];
+  const f2 = S.session && S.session.frames && S.session.frames[ev.j];
+  if (fa && fb && f1 && f2 && fa.x && fb.x && ev.sample) {
     ctx.strokeStyle = 'rgba(47,212,193,.4)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let k = 0; k + 1 < ev.sample.length * 2 && k < 100; k += 2) {
-      const [ia, ib] = ev.sample[k / 2];
-      const x1 = r1.x + fa.x[ia] * (r1.w / f1.fw), y1 = r1.y + fa.y[ia] * (r1.h / f1.fh);
-      const x2 = r2.x + fb.x[ib] * (r2.w / f2.fw), y2 = r2.y + fb.y[ib] * (r2.h / f2.fh);
+      const pair = ev.sample[k / 2];
+      if (!pair) continue;
+      const [ia, ib] = pair;
+      if (ia == null || ib == null || fa.x[ia] == null || fb.x[ib] == null) continue;
+      const x1 = r1.x + fa.x[ia] * (r1.w / (f1.fw || 1)), y1 = r1.y + fa.y[ia] * (r1.h / (f1.fh || 1));
+      const x2 = r2.x + fb.x[ib] * (r2.w / (f2.fw || 1)), y2 = r2.y + fb.y[ib] * (r2.h / (f2.fh || 1));
       ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
     }
     ctx.stroke();
@@ -3286,8 +3347,9 @@ function detailFlip(dir) {
   const n = S.photos.length;
   if (!n) return;
   S.sel = (S.sel + dir + n) % n;
-  bmp(S.photos[S.sel].url);                                  // decode now
-  bmp(S.photos[(S.sel + dir + n) % n].url);                  // prefetch onward
+  if (S.photos[S.sel]?.url) bmp(S.photos[S.sel].url);                                  // decode now
+  const next = (S.sel + dir + n) % n;
+  if (S.photos[next]?.url) bmp(S.photos[next].url);                  // prefetch onward
   renderDetails();
 }
 
@@ -3312,7 +3374,9 @@ function drawDetail() {
   const w = cv.width, h = cv.height;
   if (S.detailTab === 'marks') {
     ctx.fillStyle = '#070909'; ctx.fillRect(0, 0, w, h);
-    const img = readyBmp(S.photos[S.sel].url);
+    const p = S.photos && S.photos[S.sel];
+    if (!p || !p.url) return;
+    const img = readyBmp(p.url);
     if (!img) return;
     const r = fitRect(img.width, img.height, w / dpr, h / dpr, 6);
     ctx.save(); ctx.scale(dpr, dpr);
