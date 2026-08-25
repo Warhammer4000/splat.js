@@ -77,8 +77,8 @@ function deviceDefaults() {
   const phone = matchMedia('(any-pointer: coarse)').matches &&
     Math.min(screen.width, screen.height) <= 820;
   return phone
-    ? { v: 2, res: 480, buf: 1, sh: 0, iters: 0, splats: 0, lod: false }
-    : { v: 2, res: 0, buf: 1, sh: 3, iters: 0, splats: 0, lod: false };
+    ? { v: 2, res: 480, buf: 1, sh: 0, iters: 0, splats: 0, lod: false, mcmc: false }
+    : { v: 2, res: 0, buf: 1, sh: 3, iters: 0, splats: 0, lod: false, mcmc: false };
 }
 function loadSettings() {
   const d = deviceDefaults();
@@ -279,6 +279,7 @@ function boot() {
     const lodOk = st.splats >= 1000000;
     $('set-lod').disabled = !lodOk;
     $('set-lod').value = lodOk && st.lod ? '1' : '';
+    $('set-mcmc').value = st.mcmc ? '1' : '';
   };
   showSettings();
   $('set-q').addEventListener('change', () => {
@@ -314,10 +315,11 @@ function boot() {
     st.iters = parseInt($('set-iters').value, 10) || 0;
     st.splats = parseInt($('set-splats').value, 10) || 0;
     st.lod = !!$('set-lod').value && st.splats >= 1000000;
+    st.mcmc = !!$('set-mcmc').value;
     showSettings();
     saveSettings();
   };
-  for (const id of ['set-res', 'set-buf', 'set-sh', 'set-iters', 'set-splats', 'set-lod']) {
+  for (const id of ['set-res', 'set-buf', 'set-sh', 'set-iters', 'set-splats', 'set-lod', 'set-mcmc']) {
     $(id).addEventListener('change', readSettings);
   }
   // count slider: live label while dragging, the (cheaper) photo-list rebuild
@@ -878,7 +880,7 @@ async function startPrep() {
     const session = createSession({
       maxIters: S.maxIters, evalHoldEvery: 2500,
       holdout: -1,
-      ...(MCMC_ON ? { refineEvery: 500 } : {}),
+      ...((MCMC_ON || st.mcmc) ? { refineEvery: 500 } : {}),
       evalSplit: EVAL.on ? EVAL.split : 0,
       initTarget: lodOn ? 250000 : (st.splats ? Math.round(st.splats / 4) : undefined),
       maxViewW: mvW, maxViewH: mvH,
