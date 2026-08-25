@@ -35,11 +35,12 @@ loads it back into the viewer, capture-path tour included:
 **26.30 dB on the photographs it never saw** — above 3DGS-MCMC, ~60 min in
 one tab.
 
-**[The Bar — a real bar from 76 handheld 360° panoramas](https://arrival.space/splat-js/index.html?model=https://ugc.arrival.space/splatjs/models/bar360_4m_1024.sog&recon=https://ugc.arrival.space/splatjs/models/bar360_4m_1024_recon.json)**
-— each panorama sliced into cube faces and solved as one camera rig,
-4,000,000 Gaussians trained at 1024 px for 400 k cycles: **27.4 dB against
-its training photographs**, ~2.5 h in one tab. (Scene from
-[360Roam](https://huajianup.github.io/research/360Roam/), CC BY-NC-SA.)
+**[The Bar — a real bar from 102 handheld 360° panoramas](https://arrival.space/splat-js/index.html?model=https://ugc.arrival.space/splatjs/models/bar360_v5test.sog&recon=https://ugc.arrival.space/splatjs/models/bar360_v5test_recon.json)**
+— each panorama sliced into cube faces and solved as one camera rig
+(600 of 612 faces placed at 0.76 px), 4,000,000 Gaussians trained at
+912 px for 372 k cycles across both capture walks, ~2.6 h in one tab.
+(Scene from [360Roam](https://huajianup.github.io/research/360Roam/),
+CC BY-NC-SA.)
 
 Or locally:
 
