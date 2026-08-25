@@ -1064,7 +1064,6 @@ function buildSceneFromSession() {
   const ses = S.session;
   const recon = ses.recon;
   const panoish = !!ses.rigInfo || (ses.frames && ses.frames.length > S.photos.length);
-  S.isPanoSet = panoish;
   let cams;
   if (panoish) {
     const best = new Array(S.photos.length).fill(null);
@@ -1073,9 +1072,14 @@ function buildSceneFromSession() {
         const rig = ses.rigInfo ? ses.rigInfo[rc.imgIdx] : null;
         const panoIdx = rig ? rig.id : Math.floor(rc.imgIdx / 6);
         if (panoIdx >= 0 && panoIdx < S.photos.length) {
+          const fr = (ses.frames && ses.frames[rc.imgIdx]) || {};
+          const m = fr.name && String(fr.name).match(/_f(\d+)$/);
+          const face = m ? +m[1] : (rc.imgIdx % 6);
           const ci = ses.trainer && ses.trainer.camMeta
-            ? ses.trainer.camMeta.findIndex((m) => m.imgIdx === rc.imgIdx) : -1;
-          if (!best[panoIdx]) best[panoIdx] = { rc, ci };
+            ? ses.trainer.camMeta.findIndex((meta) => meta.imgIdx === rc.imgIdx) : -1;
+          if (!best[panoIdx] || face < best[panoIdx].face) {
+            best[panoIdx] = { rc, ci, face };
+          }
         }
       });
     }
