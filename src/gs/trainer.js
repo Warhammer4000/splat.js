@@ -335,7 +335,10 @@ export class GSTrainer {
     this.horizon = this.opts.maxIters ?? 60000;
     this.adamData = new Float32Array(28);
     const r = sceneRadius;
-    this.basePosLr = 3e-4 * r;
+    // posLrScale: experiment knob — the reference implementations run their
+    // position lr 20-60x LOWER relative to scene extent (median vs our P90,
+    // 1.6e-5 vs 3e-4 coefficient); sweepable before touching the default
+    this.basePosLr = 3e-4 * r * (this.opts.posLrScale ?? 1);
     const lrs = new Float32Array(16);
     lrs[0] = lrs[1] = lrs[2] = this.basePosLr;      // position
     lrs[3] = lrs[4] = lrs[5] = 5e-3;                // log scales
@@ -354,7 +357,10 @@ export class GSTrainer {
       Math.log(r * (this.opts.minScale ?? 1e-4)), Math.log(r * 0.05), 8.0, this.n * STRIDE,
       // 0.01 (was 0.05): matches standard 3DGS-MCMC; the strong early-era pull
       // kept splats semi-transparent and layered ("milky")
-      this.opts.opacityReg ?? 0.01, 0, 0, 0,
+      this.opts.opacityReg ?? 0.01,
+      this.opts.scaleReg ?? 0,                          // 3DGS-MCMC scale pressure
+      this.opts.mcmcNoise === true ? 5e5 : (this.opts.mcmcNoise ?? 0),  // Langevin prefactor
+      0,
     ], 16);
     this.lastRefine = 0;
     this.rand = () => Math.random();
@@ -716,7 +722,10 @@ export class GSTrainer {
       else if (o > 0.4) donors.push(i);
     }
     if (donors.length < 16) return { moved: 0, grown: 0, n: this.n };
-    const moveCap = Math.ceil(this.n * 0.05);
+    // relocation ceiling per refine — at the old hard 5%, any dead fraction
+    // above it stayed dead FOREVER (a monotonic capacity leak; the reference
+    // relocates every dead splat every 100 iters)
+    const moveCap = Math.ceil(this.n * (this.opts.moveCap ?? 0.05));
     if (dead.length > moveCap) dead = dead.slice(0, moveCap);
 
     const gauss = () => {

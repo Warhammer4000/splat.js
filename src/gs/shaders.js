@@ -1075,7 +1075,8 @@ struct AdamU {
   lr3: vec4f,   // lr slots 12..15 (color b, logitOpacity, pads)
   hp: vec4f,    // beta1, beta2, eps, step t
   cl: vec4f,    // minLogScale, maxLogScale, maxAbsLogit, totalParams (n*16)
-  reg: vec4f,   // x = opacity regularization weight
+  reg: vec4f,   // x = opacity reg weight, y = scale reg weight,
+                // z = MCMC noise prefactor (0 = off; reference uses 5e5)
 };
 @group(0) @binding(0) var<uniform> au: AdamU;
 @group(0) @binding(1) var<storage, read_write> params: array<f32>;
@@ -1103,6 +1104,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u,
     let sg = 1.0 / (1.0 + exp(-clamp(params[j], -9.0, 9.0)));
     g += au.reg.x * sg * (1.0 - sg); // opacity regularizer
   }
+  if (slot >= 3u && slot <= 5u && au.reg.y > 0.0) {
+    // 3DGS-MCMC scale pressure: shrink unless the data disagrees
+    g += au.reg.y * exp(clamp(params[j], -20.0, 5.0));
+  }
 
   let b1 = au.hp.x;
   let b2 = au.hp.y;
@@ -1114,6 +1119,39 @@ fn main(@builtin(global_invocation_id) gid: vec3u,
   let mh = m / (1.0 - pow(b1, t));
   let vh = v / (1.0 - pow(b2, t));
   var p = params[j] - lr * mh / (sqrt(vh) + au.hp.z);
+
+  // 3DGS-MCMC Langevin exploration (paper eq. 8 / reference NOISE_LR 5e5):
+  // near-dead splats random-walk inside their own covariance every iteration
+  // instead of waiting for a refine event. Gate ~ sigmoid(-100(opacity-0.005))
+  // so healthy splats are untouched. Same epsilon for a splat's three
+  // position slots: the hash seeds on (splat, step) only.
+  if (slot < 3u && au.reg.z > 0.0) {
+    let base = (j / 16u) * 16u;
+    let opa = 1.0 / (1.0 + exp(-clamp(params[base + 13u], -9.0, 9.0)));
+    let gate = 1.0 / (1.0 + exp(100.0 * (opa - 0.005)));
+    if (gate > 1e-4) {
+      var h = (j / 16u) * 747796405u + u32(au.hp.w) * 2891336453u + 277803737u;
+      var e: vec3f;
+      for (var k = 0u; k < 3u; k++) {
+        h = h * 747796405u + 2891336453u;
+        let a = f32((h >> 9u) & 0x7fffffu) / 8388608.0;    // (0,1)
+        h = h * 747796405u + 2891336453u;
+        let b = f32((h >> 9u) & 0x7fffffu) / 8388608.0;
+        e[k] = sqrt(max(-2.0 * log(max(a, 1e-7)), 0.0)) * cos(6.2831853 * b);
+      }
+      // Sigma e = R diag(exp(2 logS)) R^T e
+      let q = normalize(vec4f(params[base + 6u], params[base + 7u],
+                              params[base + 8u], params[base + 9u]));
+      let w = q.x; let x = q.y; let y = q.z; let z = q.w;
+      let R = mat3x3f(
+        1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y + w * z),       2.0 * (x * z - w * y),
+        2.0 * (x * y - w * z),       1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z + w * x),
+        2.0 * (x * z + w * y),       2.0 * (y * z - w * x),       1.0 - 2.0 * (x * x + y * y));
+      let s2 = exp(2.0 * vec3f(params[base + 3u], params[base + 4u], params[base + 5u]));
+      let u = R * (s2 * (transpose(R) * e));
+      p += au.reg.z * lr * gate * u[slot];
+    }
+  }
 
   if (slot >= 3u && slot <= 5u) { p = clamp(p, au.cl.x, au.cl.y); }
   if (slot >= 10u && slot <= 13u) { p = clamp(p, -au.cl.z, au.cl.z); } // logits

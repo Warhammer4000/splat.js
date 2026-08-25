@@ -538,7 +538,8 @@ export class Session {
       const tEnc = performance.now() - t0;
 
       // periodic refinement: relocate dead splats + grow capacity (MCMC-lite)
-      if (trainer.iter > 1500 && trainer.iter - (trainer.lastRefine || 0) >= 2500) {
+      if (trainer.iter > 1500 &&
+          trainer.iter - (trainer.lastRefine || 0) >= (this.opts.refineEvery ?? 2500)) {
         trainer.lastRefine = trainer.iter;
         const r0 = performance.now();
         // awaited: refine reads six buffers and writes them all back — steps
