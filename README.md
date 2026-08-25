@@ -76,8 +76,8 @@ its native 979 px, on a desktop NVIDIA GPU, in one tab:
 
 | method | Truck test PSNR |
 |---|---|
-| **Splat.js — 30 k cycles (~5 min train)** | **25.12 dB** |
 | 3DGS (SIGGRAPH 2023) | 25.18 dB |
+| **Splat.js — 40 k cycles (~10 min train)** | **25.49 dB** |
 | Mip-Splatting (CVPR 2024) | 25.74 dB |
 | Scaffold-GS (CVPR 2024) | 25.77 dB |
 | 3DGS-MCMC (NeurIPS 2024) | 26.11 dB |
@@ -90,10 +90,11 @@ are training only — the Splat.js in-browser camera solve adds ~4 minutes.
 The [LichtFeld Studio](https://github.com/MrNeRF/LichtFeld-Studio) row is
 not a paper citation — it was measured on the same desktop (RTX 5080, MCMC
 strategy, 2 M Gaussians, 30 k iterations) from precomputed COLMAP poses.
-The 30 k Splat.js row uses the papers' iteration budget; the 250 k row is
-the same system with a longer one. The published methods run 2–2.6 M
-Gaussians with degree-3 spherical harmonics on native CUDA; Splat.js
-matches that configuration in the browser. (Benchmark mode pins the native
+The published methods train 30 k iterations of 2–2.6 M Gaussians with
+degree-3 spherical harmonics on native CUDA. The 40 k Splat.js row is a
+ten-minute browser run at 1.4 M Gaussians; the 250 k row is the same
+system with a longer budget at 2 M, matching the papers' configuration in
+the browser. (Benchmark mode pins the native
 resolution: on big sets the app otherwise trades resolution for memory, and
 PSNR at reduced resolution is not comparable.)
 
