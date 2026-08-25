@@ -869,7 +869,7 @@ async function startPrep() {
     // MCMC experimental set (session-sticky, see the flag block up top):
     // fine refine cadence, Langevin noise, scale pressure, lifted relocation
     // cap, short-budget SH lr — measured +0.5 dB on truck@30k.
-    if (MCMC_ON) {
+    if (MCMC_ON || st.mcmc) {
       Object.assign(trainerOpts, {
         growRate: 0.05, mcmcNoise: true, scaleReg: 0.01, moveCap: 0.25,
         ...((st.sh ?? 3) > 0 ? { shLr: 3e-4 } : {}),
