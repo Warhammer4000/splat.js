@@ -15,9 +15,9 @@ Gaussians trained, all live in one Chrome tab.*
   full Tanks & Temples *Truck* scene its poses are **pixel-identical to
   COLMAP's** (0.00% of path length, table below).
 - **A WebGPU 3DGS trainer**: anisotropic Gaussians, global sorted binning,
-  spherical harmonics (degree 2 by default), MCMC-style relocation and growth,
+  spherical harmonics (degree 3 by default), MCMC-style relocation and growth,
   Mip-Splatting opacity compensation, FD-validated analytic gradients. Scales
-  past **1,000,000 splats**.
+  past **4,000,000 splats**.
 - **A standard `.ply` export** (INRIA layout, SH included, opacity compensation
   baked) that opens in any splat viewer.
 
@@ -50,7 +50,7 @@ node serve.mjs 8734
 ```
 
 Needs a browser with WebGPU — current Chrome, Edge, Firefox and Safari
-(iPhones included) all run it, vanilla. It installs as a PWA too: the
+(iPhones included) all run it without flags or extensions. It installs as a PWA too: the
 browser's install button (or *Add to Home Screen* on iOS) gives the capture
 tool its own icon and window — same pipeline, nothing extra. Drop 20–200 overlapping
 photos of one place into the app — or capture them straight from the device
@@ -66,7 +66,7 @@ cycles) they drive.
 
 ## Measured quality
 
-### Novel-view synthesis, the standard protocol
+### Novel-view synthesis
 
 Append **`?eval`** to the app URL and every 8th photo is held out of training
 and scored at the end — photographs the model has never seen, the metric the
@@ -81,7 +81,7 @@ its native 979 px, on a desktop NVIDIA GPU, in one tab:
 | Scaffold-GS (CVPR 2024) | 25.77 dB |
 | 3DGS-MCMC (NeurIPS 2024) | 26.11 dB |
 | LichtFeld Studio v0.5.3 — measured (~5½ min train) | 26.14 dB |
-| **Splat.js — 2 M splats, 250 k cycles (~55 min train)** | **26.30 dB** |
+| **Splat.js — 250 k cycles (~55 min train)** | **26.30 dB** |
 | Student Splatting & Scooping (CVPR 2025) | 26.41 dB |
 
 Same images, same resolution, same held-out-every-8th protocol; all times
@@ -89,10 +89,10 @@ are training only — the Splat.js in-browser camera solve adds ~4 minutes.
 The [LichtFeld Studio](https://github.com/MrNeRF/LichtFeld-Studio) row is
 not a paper citation — it was measured on the same desktop (RTX 5080, MCMC
 strategy, 2 M Gaussians, 30 k iterations) from precomputed COLMAP poses.
-The 30 k Splat.js row is the papers' iteration budget; the 250 k row is
-where the same tab lands given an hour. The published methods run 2–2.6 M
-Gaussians with degree-3 spherical harmonics on native CUDA; Splat.js runs
-degree 3 too — in a tab. (Benchmark mode pins the native
+The 30 k Splat.js row uses the papers' iteration budget; the 250 k row is
+the same system with a longer one. The published methods run 2–2.6 M
+Gaussians with degree-3 spherical harmonics on native CUDA; Splat.js
+matches that configuration in the browser. (Benchmark mode pins the native
 resolution: on big sets the app otherwise trades resolution for memory, and
 PSNR at reduced resolution is not comparable.)
 
