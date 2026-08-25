@@ -80,12 +80,18 @@ its native 979 px, on a desktop NVIDIA GPU, in one tab:
 | **Splat.js — 1 M splats, 100 k cycles (~25 min)** | **25.76 dB** |
 | Scaffold-GS (CVPR 2024) | 25.77 dB |
 | 3DGS-MCMC (NeurIPS 2024) | 26.11 dB |
+| LichtFeld Studio — measured, same machine (~5½ min) | 26.14 dB |
 | **Splat.js — 2 M splats, 250 k cycles (~60 min)** | **26.30 dB** |
 | Student Splatting & Scooping (CVPR 2025) | 26.41 dB |
 
-Same images, same resolution, same held-out-every-8th protocol. The published
-methods run 2–2.6 M Gaussians with degree-3 spherical harmonics on native
-CUDA; Splat.js runs degree 3 too — in a tab. (Benchmark mode pins the native
+Same images, same resolution, same held-out-every-8th protocol. The
+[LichtFeld Studio](https://github.com/MrNeRF/LichtFeld-Studio) row is not a
+paper citation — it was measured on the same desktop (RTX 5080, MCMC
+strategy, 2 M Gaussians, 30 k iterations, 5 m 32 s) starting from
+precomputed COLMAP poses; the Splat.js timings include solving the cameras
+in the browser first. The published methods run 2–2.6 M Gaussians with
+degree-3 spherical harmonics on native CUDA; Splat.js runs degree 3 too —
+in a tab. (Benchmark mode pins the native
 resolution: on big sets the app otherwise trades resolution for memory, and
 PSNR at reduced resolution is not comparable.)
 
