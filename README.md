@@ -32,7 +32,7 @@ loads it back into the viewer, capture-path tour included:
 **[The Truck — Tanks & Temples](https://arrival.space/splat-js/index.html?model=https://ugc.arrival.space/splatjs/models/truck_sh3_250k.sog&recon=https://ugc.arrival.space/splatjs/models/truck_sh3_250k_recon.json)**
 — the benchmark model from the table below: 251 photographs at native
 979 px, 2,000,000 Gaussians, degree-3 spherical harmonics, 250 k cycles:
-**26.30 dB on the photographs it never saw** — above 3DGS-MCMC, ~60 min in
+**26.37 dB on the photographs it never saw** — above 3DGS-MCMC, ~65 min in
 one tab.
 
 **[The Bar — a real bar from 102 handheld 360° panoramas](https://arrival.space/splat-js/index.html?model=https://ugc.arrival.space/splatjs/models/bar360_v5test.sog&recon=https://ugc.arrival.space/splatjs/models/bar360_v5test_recon.json)**
@@ -82,7 +82,7 @@ its native 979 px, on a desktop NVIDIA GPU, in one tab:
 | Scaffold-GS (CVPR 2024) | 25.77 dB |
 | 3DGS-MCMC (NeurIPS 2024) | 26.11 dB |
 | LichtFeld Studio v0.5.3 — measured (~5½ min train) | 26.14 dB |
-| **Splat.js — 250 k cycles (~55 min train)** | **26.30 dB** |
+| **Splat.js — 250 k cycles (~60 min train)** | **26.37 dB** |
 | Student Splatting & Scooping (CVPR 2025) | 26.41 dB |
 
 Same images, same resolution, same held-out-every-8th protocol; all times
