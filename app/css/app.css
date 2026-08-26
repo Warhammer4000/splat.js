@@ -395,6 +395,7 @@ body { overflow: hidden; }
   font: 400 12px var(--mono); color: var(--dim);
 }
 .about-foot a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.about-ver { color: var(--dim); font: 11px "Spline Sans Mono", monospace; margin-left: auto; }
 .about-foot a:hover { color: #5ee7d6; }
 
 /* run-length hint on the start card */
