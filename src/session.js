@@ -589,7 +589,10 @@ export class Session {
       // (desktop) behave as before.
       this._fences.push(trainer.device.queue.onSubmittedWorkDone());
       const s0 = performance.now();
-      if (this._fences.length > 4) await this._fences.shift();
+      // fence ring depth trades UI latency for fence-latency overlap
+      // (phones run 2: the compositor shares the GPU with training, and
+      // 4 x 0.4s of queued dispatches is the "whole system stalls" feel)
+      if (this._fences.length > (this.opts.fenceRing ?? 4)) await this._fences.shift();
       const tStall = performance.now() - s0;
 
       // adapt the batch to the measured cadence (steady-state ~= GPU time of
@@ -601,7 +604,11 @@ export class Session {
       // reads 5ms frames when fences resolve stale and pushes the batch to
       // the clamp — fine on a desktop, ten queued seconds on a phone.
       if (this._ips != null) {
-        this._batch = Math.min(this._batch, Math.max(8, Math.round(this._ips * 0.4)));
+        // gpuChunkMs bounds how much GPU work one batch queues — phones run
+        // ~120ms so the compositor (which shares the GPU) gets a slot every
+        // frame or two instead of stalling behind 0.4s of dispatches
+        const chunk = (this.opts.gpuChunkMs ?? 400) / 1000;
+        this._batch = Math.min(this._batch, Math.max(8, Math.round(this._ips * chunk)));
       }
       if (this.perf) {
         this.perf.frames.push([Math.round(now), trainer.iter, batch, trainer.n,

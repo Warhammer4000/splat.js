@@ -34,7 +34,7 @@ for (let j = 0; j < NP; j++)
 const cams = gtCams.map((c) => ({ R: Array.from(c.R), t: c.t.slice() }));
 const points = gtPts.map((p) => [p[0] + gauss() * 0.03, p[1] + gauss() * 0.03, p[2] + gauss() * 0.06]);
 
-const res = bundleAdjust(
+const res = await bundleAdjust(
   { cams, points, obs, f: 640, cx, cy },
   { maxIters: 40, huberPx: 1.5, refineDistortion: true, refineAspect: true, log: () => {} });
 console.log(`rms ${res.rmsBefore.toFixed(2)} -> ${res.rmsAfter.toFixed(3)}px`);

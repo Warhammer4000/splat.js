@@ -122,20 +122,38 @@ export function unzipStore(bytes) {
     const size = dv.getUint32(o + 18, true);
     const nameLen = dv.getUint16(o + 26, true);
     const extraLen = dv.getUint16(o + 28, true);
-    const name = new TextDecoder().decode(bytes.subarray(o + 30, o + 30 + nameLen));
-    const start = o + 30 + nameLen + extraLen;
+    const nameEnd = o + 30 + nameLen;
+    const start = nameEnd + extraLen;
+    const end = start + size;
+    if (nameEnd > bytes.length || start > bytes.length || end > bytes.length) {
+      throw new Error('truncated zip entry');
+    }
+    const name = new TextDecoder().decode(bytes.subarray(o + 30, nameEnd));
     if (method !== 0) throw new Error(`zip entry ${name} is compressed — not a splat.js session zip`);
-    out.set(name, bytes.subarray(start, start + size));
-    o = start + size;
+    out.set(name, bytes.subarray(start, end));
+    o = end;
   }
   return out;
 }
 
 export function parseState(bytes) {
+  if (bytes.length < 4) throw new Error('truncated state header');
   const headLen = new DataView(bytes.buffer, bytes.byteOffset).getUint32(0, true);
+  if (headLen > bytes.length - 4) throw new Error('truncated state header');
   const head = JSON.parse(new TextDecoder().decode(bytes.subarray(4, 4 + headLen)));
-  if (head.magic !== 'splatjs-state') throw new Error('not a splat.js state blob');
+  if (head.magic !== 'splatjs-state' || head.version !== 1) {
+    throw new Error('not a supported splat.js state blob');
+  }
+  if (!Number.isSafeInteger(head.n) || head.n < 1 ||
+      ![0, 3, 8, 15].includes(head.shK) ||
+      !Number.isSafeInteger(head.iter) || head.iter < 0) {
+    throw new Error('invalid state metadata');
+  }
   let o = 4 + headLen;
+  const expected = head.n * (STRIDE * 4 + head.shK * 3 * 4);
+  if (!Number.isSafeInteger(expected) || bytes.length - o !== expected) {
+    throw new Error('state data length does not match its header');
+  }
   const params = new Float32Array(head.n * STRIDE);
   new Uint8Array(params.buffer).set(bytes.subarray(o, o + params.byteLength));
   o += params.byteLength;
@@ -154,23 +172,48 @@ export function parsePlyGaussians(bytes) {
   const headText = new TextDecoder().decode(bytes.subarray(0, 4096));
   const end = headText.indexOf('end_header\n');
   if (end < 0 || !headText.startsWith('ply')) throw new Error('not a PLY file');
+  if (!/^format binary_little_endian 1\.0$/m.test(headText.slice(0, end))) {
+    throw new Error('PLY must use binary_little_endian 1.0');
+  }
   const bodyAt = end + 'end_header\n'.length;
-  let n = 0;
+  let n = 0, vertex = false;
   const props = [];
   for (const l of headText.slice(0, end).split('\n')) {
-    const mv = l.match(/^element vertex (\d+)/);
-    if (mv) n = +mv[1];
-    const mp = l.match(/^property float (\S+)/);
-    if (mp) props.push(mp[1]);
+    const me = l.match(/^element (\S+) (\d+)/);
+    if (me) {
+      vertex = me[1] === 'vertex';
+      if (vertex) n = +me[2];
+      continue;
+    }
+    const mp = l.match(/^property (\S+) (\S+)/);
+    if (vertex && mp) {
+      if (mp[1] !== 'float') throw new Error(`unsupported PLY vertex property type ${mp[1]}`);
+      props.push(mp[2]);
+    }
+  }
+  if (!Number.isSafeInteger(n) || n < 1 || new Set(props).size !== props.length) {
+    throw new Error('invalid PLY vertex header');
   }
   const idx = Object.fromEntries(props.map((p, i) => [p, i]));
-  const need = ['x', 'y', 'z', 'f_dc_0', 'opacity', 'scale_0', 'rot_0'];
+  const need = [
+    'x', 'y', 'z', 'f_dc_0', 'f_dc_1', 'f_dc_2', 'opacity',
+    'scale_0', 'scale_1', 'scale_2', 'rot_0', 'rot_1', 'rot_2', 'rot_3',
+  ];
   for (const k of need) if (idx[k] == null) throw new Error(`PLY has no ${k} — not a 3DGS splat file`);
-  const K = props.filter((p) => p.startsWith('f_rest_')).length / 3;
+  const rest = props.filter((p) => p.startsWith('f_rest_'));
+  const K = rest.length / 3;
+  if (![0, 3, 8, 15].includes(K) ||
+      rest.some((_, k) => idx[`f_rest_${k}`] == null)) {
+    throw new Error('unsupported or incomplete PLY spherical harmonics');
+  }
   const stride = props.length;
+  const bodyBytes = n * stride * 4;
+  if (!Number.isSafeInteger(bodyBytes) || bodyBytes > bytes.length - bodyAt) {
+    throw new Error('truncated PLY vertex data');
+  }
   // slice: the body must land 4-aligned for the Float32Array view (a PLY
   // header has arbitrary length, and zip entries sit at arbitrary offsets)
-  const body = bytes.slice(bodyAt, bodyAt + n * stride * 4);
+  const body = bytes.slice(bodyAt, bodyAt + bodyBytes);
   const src = new Float32Array(body.buffer, 0, n * stride);
   const data = new Float32Array(n * STRIDE);
   const sh = K ? new Float32Array(n * K * 3) : null;

@@ -1116,7 +1116,7 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
     /** Joint sparse BA over the whole current reconstruction. Applies the
      *  result (poses, shared f, point positions) and returns the ba result,
      *  or null when the problem is too small / dimensions are mixed. */
-    function runGlobalBA(tag, o = {}) {
+    async function runGlobalBA(tag, o = {}) {
       if (registered.size < 8) return null;
       const regList = [...registered].sort((a, b) => a - b);
       const sameDims = regList.every((img) =>
@@ -1142,12 +1142,15 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
       const t0 = performance.now();
       // rigs enter BA as ONE 6-DOF block per rig — no per-face pose exists
       const baRig = rigOf ? regList.map((img) => rigOf[img] ? { id: rigOf[img].id, Rf: rigOf[img].R } : null) : null;
-      const res = bundleAdjust(
+      const res = await bundleAdjust(
         { cams: baCams, points: baPoints, obs: baObs, camRig: baRig,
           f: K[regList[0]].f, cx: K[regList[0]].cx, cy: K[regList[0]].cy },
         { maxIters: o.maxIters ?? 30, huberPx: 1.5,
           refineDistortion: o.refineDistortion ?? (sfmOpts.refineDistortion ?? true),
           refineAspect: sfmOpts.refineAspect ?? false,
+          // phones: yield the main thread between LM iterations (uiYield);
+          // desktop stays a straight synchronous burn
+          yieldFn: sfmOpts.uiYield ? tick : undefined,
           log: o.verbose ? vlog : () => {} });
       vlog(`BA ${tag} (${baCams.length} cams, ${baPoints.length} pts, ${baObs.length} obs) ` +
            `in ${((performance.now() - t0) / 1000).toFixed(1)}s: ` +
@@ -1206,8 +1209,8 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
      *  into a bent basin that no final BA can escape (two self-consistent
      *  minima at ~0.6px rms exist on the truck set; only one matches COLMAP).
      *  Frequent joint solves + filtering keep growth inside the right basin. */
-    function interimBA() {
-      const res = runGlobalBA(`interim @${registered.size}`, { maxIters: 12, refineDistortion: false });
+    async function interimBA() {
+      const res = await runGlobalBA(`interim @${registered.size}`, { maxIters: 12, refineDistortion: false });
       if (!res) return;
       for (const tr of tracks) triangulateTrack(tr);
       baFilterObs(res.k1, res.k2, `interim @${registered.size}`);
@@ -1404,10 +1407,10 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
     if (withBA && sfmOpts.ba !== false && registered.size >= 3) {
       ev({ stage: 'ba', done: 0, total: 1 });
       if (sfmOpts.lkRefine !== false) { refineObsLK(images, feats, tracks, poses, vlog); refreshNorm(); }
-      baResult = runGlobalBA('pass 1', { verbose: true });
+      baResult = await runGlobalBA('pass 1', { verbose: true });
       if (baResult && sfmOpts.obsFilter !== false) {
         if (baFilterObs(baResult.k1, baResult.k2, 'after pass 1') > 0.002)
-          baResult = runGlobalBA('pass 1b', { verbose: true }) || baResult;
+          baResult = (await runGlobalBA('pass 1b', { verbose: true })) || baResult;
       }
       // ---- guided track extension ----
       // Mean track length ~3 obs makes the camera chain bendable; project
@@ -1426,7 +1429,7 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
           // refine the freshly added obs to subpixel too (idempotent for
           // already-refined ones — they are at their converged position)
           if (sfmOpts.lkRefine !== false) { refineObsLK(images, feats, tracks, poses, vlog); refreshNorm(); }
-          baResult = runGlobalBA(`pass ${1 + round}`, { verbose: true }) || baResult;
+          baResult = (await runGlobalBA(`pass ${1 + round}`, { verbose: true })) || baResult;
         }
       }
       if (baResult && sfmOpts.obsFilter !== false) {
@@ -1434,7 +1437,7 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
         // reveals outliers the previous bent model was hiding)
         for (let round = 1; round <= 3; round++) {
           if (baFilterObs(baResult.k1, baResult.k2, `final round ${round}`) <= 0.002) break;
-          baResult = runGlobalBA(`final ${round}`, { verbose: true }) || baResult;
+          baResult = (await runGlobalBA(`final ${round}`, { verbose: true })) || baResult;
         }
       }
       await tick();
@@ -1538,7 +1541,7 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
           }
         }
         for (const tr of touched) triangulateTrack(tr);
-        baResult = runGlobalBA(`rig audit ${round}`, { verbose: true }) || baResult;
+        baResult = (await runGlobalBA(`rig audit ${round}`, { verbose: true })) || baResult;
         if (sfmOpts.obsFilter !== false) baFilterObs(baResult.k1, baResult.k2, `rig audit ${round}`);
         for (const tr of tracks) if (tr.X) triangulateTrack(tr);
         if (!rescued) break;   // nothing re-entered; a second round can't improve

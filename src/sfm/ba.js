@@ -54,7 +54,11 @@ function cholSolve(L, g, n) {
  * opts: { maxIters, huberPx, refineDistortion, refineF, refineAspect, log }
  * returns { fScale, f, k1, k2, aspect, rmsBefore, rmsAfter, iters }
  */
-export function bundleAdjust(problem, opts = {}) {
+// async since 2026-08-26: opts.yieldFn (phones) lets the UI breathe between
+// LM iterations — one synchronous BA over a 50-camera set is a multi-second
+// main-thread freeze on a phone. Without yieldFn the loop never awaits and
+// the only cost is promise wrapping.
+export async function bundleAdjust(problem, opts = {}) {
   const { cams, points, obs } = problem;
   const cx = problem.cx, cy = problem.cy;
   const maxIters = opts.maxIters ?? 25;
@@ -200,6 +204,7 @@ export function bundleAdjust(problem, opts = {}) {
   const gpAll = new Float64Array(np * 3);
 
   for (let iter = 0; iter < maxIters; iter++) {
+    if (opts.yieldFn && iter > 0) await opts.yieldFn();
     iters = iter + 1;
     H.fill(0); g.fill(0);
 

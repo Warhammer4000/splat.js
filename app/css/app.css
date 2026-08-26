@@ -221,8 +221,20 @@ body { overflow: hidden; }
 .prep-stages [data-on="1"] { font: 500 15px var(--ui); color: var(--accent); }
 .prep-stages [data-on="done"] { color: var(--accent-30); }
 .prep-sub { font: 400 12px var(--mono); color: var(--dim); }
-.prep-meter { height: 5px; background: var(--panel-2); border-radius: var(--pill); overflow: hidden; margin-top: 9px; }
+.prep-meter { height: 5px; background: var(--panel-2); border-radius: var(--pill); overflow: hidden; margin-top: 9px; position: relative; }
 .prep-meter i { display: block; height: 100%; background: var(--accent); transition: width .12s linear; }
+/* compositor-driven liveness sweep: transform/opacity animations keep
+   running through main-thread JS bursts (BA, RANSAC), so the meter visibly
+   works even when progress numbers pause */
+.prep-live {
+  position: absolute; inset: 0 auto 0 0; width: 70px; pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(94, 231, 214, .45), transparent);
+  animation: prep-sweep 1.5s linear infinite; will-change: transform;
+}
+@keyframes prep-sweep {
+  from { transform: translateX(-70px); }
+  to   { transform: translateX(100vw); }
+}
 
 /* phones: both docks stack — side-by-side columns squeezed the chart to a
    sliver, the play button to an egg, and the stage label to one word a line.

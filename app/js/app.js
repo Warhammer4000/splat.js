@@ -911,7 +911,11 @@ async function startPrep() {
       // worker pool, and dropping gray/rgb once each stage has consumed them
       ...(phoneClass ? {
         lowMem: true,
-        sfm: { workers: 3 },
+        // uiYield breaks BA's multi-second synchronous bursts during the
+        // solve (10s+ frozen UI on phones). Training is untouched: measured
+        // fine on-device, and fenceRing/gpuChunkMs (library opts) would tax
+        // throughput for nothing.
+        sfm: { workers: 3, uiYield: true },
       } : {}),
       frames: phoneClass ? { ...(frames || {}), featMaxDim: 720 } : frames,
       trainer: Object.keys(trainerOpts).length ? trainerOpts : undefined,
@@ -2561,7 +2565,7 @@ function dock(kind) {
         <div class="prep-stages" id="p-steps">${BEATS.map((s, i) =>
           `<span data-k="${i}">${s.label}</span>`).join('')}</div>
         <div class="prep-sub" id="p-sub">—</div>
-        <div class="prep-meter"><i id="p-bar" style="width:0%"></i></div>
+        <div class="prep-meter"><i id="p-bar" style="width:0%"></i><span class="prep-live" aria-hidden="true"></span></div>
       </div>`;
     return;
   }

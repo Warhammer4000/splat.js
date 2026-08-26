@@ -76,7 +76,7 @@ const e0 = poseErr();
 console.log(`before: rot ${e0.rotDeg.toFixed(3)} deg, trans ${e0.trans.toFixed(4)} (scene depth ~6)`);
 
 const t0 = Date.now();
-const res = bundleAdjust(
+const res = await bundleAdjust(
   { cams, points, obs, f: fInit, cx, cy },
   { maxIters: 40, log: (m) => console.log(m) });
 console.log(`BA took ${((Date.now() - t0) / 1000).toFixed(1)}s, iters ${res.iters}`);
