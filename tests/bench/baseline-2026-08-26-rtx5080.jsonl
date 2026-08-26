@@ -16,3 +16,4 @@
 {"set":"bar360","iters":40000,"psnrTest":20.641,"heldOut":48,"protocol":"eval8","trainMin":7.9,"solveMin":6.3,"splats":1319040,"cams":600,"of":612,"rms":0.763,"res":912,"ts":"2026-08-26T16:34:14.100Z"}
 {"set":"synthetic","iters":20000,"psnrTest":38.854,"heldOut":1,"protocol":"holdout1","trainMin":0.8,"solveMin":0,"splats":112366,"cams":12,"of":12,"rms":0.459,"res":1600,"ts":"2026-08-26T16:36:05.170Z"}
 {"set":"synthetic","iters":40000,"psnrTest":38.915,"heldOut":1,"protocol":"holdout1","trainMin":2.5,"solveMin":0,"splats":265400,"cams":12,"of":12,"rms":0.459,"res":1600,"ts":"2026-08-26T16:38:45.567Z"}
+{"set":"truck","iters":250000,"psnrTest":26.373,"heldOut":32,"protocol":"eval8","trainMin":60.7,"solveMin":4,"splats":2000000,"cams":251,"of":251,"rms":0.67,"res":979,"config":"classic-2M (README row)","ts":"2026-08-26T17:46:18Z"}
