@@ -35,9 +35,18 @@
  * @property {(msg: string) => void} [log]
  */
 
+import { probeImageSize } from './pano.js';
+
 export const FEAT_MAX_DIM = 960;
 export const TRAIN_MAX_DIM = 1600; // hard ceiling; actual res = native, memory permitting
 const TARGET_BUDGET_BYTES = 700e6;
+
+/** iOS Safari frees canvas/bitmap backing stores lazily — 50 twelve-MP
+ *  photos' worth of "already garbage" transients outrun the collector and
+ *  jetsam kills the tab. Zeroing the dimensions releases the store NOW. */
+const releaseCanvas = (cv) => {
+  if (cv && cv.width) { cv.width = 0; cv.height = 0; }
+};
 
 /** Train at the PROVIDED resolution up to trainMaxDim, shrunk only if the
  *  whole image set would blow the GPU target budget. Call once per dataset
@@ -89,6 +98,7 @@ function drawScaled(src, srcW, srcH, w, h) {
     cctx.imageSmoothingEnabled = true;
     cctx.imageSmoothingQuality = 'high';
     cctx.drawImage(cur, 0, 0, cw, ch, 0, 0, nw, nh);
+    if (cur !== src) releaseCanvas(cur); // intermediate halving step, done with it
     cur = cv; cw = nw; ch = nh;
   }
   const cv = mkCanvas(w, h);
@@ -96,6 +106,7 @@ function drawScaled(src, srcW, srcH, w, h) {
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(cur, 0, 0, cw, ch, 0, 0, w, h);
+  if (cur !== src) releaseCanvas(cur);
   return ctx;
 }
 
@@ -103,23 +114,30 @@ function drawScaled(src, srcW, srcH, w, h) {
  *  grayscale: the residual high-frequency detail (incl. mild aliasing) is
  *  discriminative texture for corner detection — the smooth variant registers
  *  measurably fewer cameras. */
-function drawScaledFast(src, w, h) {
+function drawScaledFast(src, w, h, preResized = false) {
   const cv = mkCanvas(w, h);
   const ctx = cv.getContext('2d', { willReadFrequently: true });
+  // preResized sources are within 2x of the gray target by construction
+  // (decode-to-target uses 2x featMaxDim), so this single bilinear step is
+  // the halving chain's own terminal condition. Do NOT be tempted to switch
+  // smoothing off to fake the native path's alias texture: nearest at a
+  // non-integer stride moirés content-locked patterns that collapse
+  // cross-view matching (measured: truck-42 registration 42 -> 3).
   ctx.drawImage(src, 0, 0, w, h);
   return ctx;
 }
 
 /** Process one drawable source (ImageBitmap or canvas) into a Frame.
  *  trainCap: per-dataset training resolution from adaptiveTrainCap(). */
-export function processSource(src, srcW, srcH, name, trainCap, opts = {}) {
+export function processSource(src, srcW, srcH, name, trainCap, opts = {}, preResized = false) {
   const featCap = opts.featMaxDim || FEAT_MAX_DIM;
   const [fw, fh] = fitDims(srcW, srcH, featCap);
   // only an explicit trainScale may push the working buffer past native
   const [tw, th] = fitDims(srcW, srcH, trainCap || TRAIN_MAX_DIM, !!opts.trainScale);
 
-  const fctx = drawScaledFast(src, fw, fh);
+  const fctx = drawScaledFast(src, fw, fh, preResized);
   const fdata = fctx.getImageData(0, 0, fw, fh).data;
+  releaseCanvas(fctx.canvas);
   const gray = new Float32Array(fw * fh);
   for (let i = 0; i < fw * fh; i++) {
     gray[i] = (0.299 * fdata[i * 4] + 0.587 * fdata[i * 4 + 1] + 0.114 * fdata[i * 4 + 2]) / 255;
@@ -141,6 +159,7 @@ export function processSource(src, srcW, srcH, name, trainCap, opts = {}) {
 
   const tctx = drawScaled(src, srcW, srcH, tw, th);
   const tdata = tctx.getImageData(0, 0, tw, th).data;
+  releaseCanvas(tctx.canvas);
   const rgb = new Float32Array(tw * th * 3);
   for (let i = 0; i < tw * th; i++) {
     rgb[i * 3] = tdata[i * 4] / 255;
@@ -174,16 +193,43 @@ export async function decodeFrames(files, opts = {}) {
   const log = opts.log || (() => {});
   const out = [];
   let trainCap = 0;
+  let saidResize = false;
   for (const file of files) {
     const source = file.source || file;
     const name = file.name || 'frame';
     try {
-      const bmp = await createImageBitmap(source);
+      // Decode-to-target: a 12MP phone photo decoded at native res is ~48MB
+      // of bitmap that exists only to be thrown away — 50 of those is what
+      // OOMs iPhones. When the header tells us the native size (JPEG/PNG),
+      // ask the decoder for at most 2x the largest scale we keep (the final
+      // filtered draw still gets a >=2x supersampled source, so quality is
+      // the same as the full halving chain). resizeWidth ALONE keeps the
+      // scale uniform whatever EXIF orientation does to the axes.
+      let bmp = null;
+      let resized = false;
+      const dims = source instanceof Blob ? await probeImageSize(source) : null;
+      if (!trainCap && dims) {
+        trainCap = adaptiveTrainCap(files.length, dims.w, dims.h, opts);
+        log(`training resolution: ${trainCap}px max dim (${files.length} images)`);
+      }
+      if (dims && trainCap && !opts.trainScale && !opts.decodeNative) {
+        const need = 2 * Math.max(opts.featMaxDim || FEAT_MAX_DIM, trainCap);
+        const nat = Math.max(dims.w, dims.h);
+        if (nat > need * 1.05) {
+          const rw = Math.round(dims.w * (need / nat));
+          try {
+            bmp = await createImageBitmap(source, { resizeWidth: rw, resizeQuality: 'high' });
+            resized = true;
+            if (!saidResize) { saidResize = true; log(`decoding at ${need}px (native ${nat}px)`); }
+          } catch { bmp = null; /* resize options unsupported: decode native */ }
+        }
+      }
+      if (!bmp) bmp = await createImageBitmap(source);
       if (!trainCap) {
         trainCap = adaptiveTrainCap(files.length, bmp.width, bmp.height, opts);
         log(`training resolution: ${trainCap}px max dim (${files.length} images)`);
       }
-      out.push(processSource(bmp, bmp.width, bmp.height, name, trainCap, opts));
+      out.push(processSource(bmp, bmp.width, bmp.height, name, trainCap, opts, resized));
       bmp.close();
     } catch (e) {
       log(`skipped ${name}: ${e.message}`);

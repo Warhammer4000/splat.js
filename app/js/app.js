@@ -887,9 +887,9 @@ async function startPrep() {
     // Auto splat budget: sized from the CYCLE budget, not just the solve —
     // the measured capacity law (~15 splats/cycle classic, ~35 under MCMC),
     // clamped to the device class. Explicit user choices always win.
+    const phoneClass = matchMedia('(any-pointer: coarse)').matches &&
+      Math.min(screen.width, screen.height) <= 820;
     if (!st.splats) {
-      const phoneClass = matchMedia('(any-pointer: coarse)').matches &&
-        Math.min(screen.width, screen.height) <= 820;
       trainerOpts.maxSplats = Math.max(150000, Math.min(phoneClass ? 600000 : 2000000,
         Math.round(S.maxIters * (mcmcActive ? 35 : 15))));
       trainerOpts.capMult = 8; // growth must reach the computed cap from a lean seed
@@ -901,7 +901,14 @@ async function startPrep() {
       evalSplit: EVAL.on ? EVAL.split : 0,
       initTarget: lodOn ? 250000 : (st.splats ? Math.round(st.splats / 4) : undefined),
       maxViewW: mvW, maxViewH: mvH,
-      frames,
+      // phones: iOS jetsams the tab long before the GPU is the limit —
+      // decode-to-target (in the library), 720px features, a smaller SIFT
+      // worker pool, and dropping gray/rgb once each stage has consumed them
+      ...(phoneClass ? {
+        lowMem: true,
+        sfm: { workers: 3 },
+      } : {}),
+      frames: phoneClass ? { ...(frames || {}), featMaxDim: 720 } : frames,
       trainer: Object.keys(trainerOpts).length ? trainerOpts : undefined,
     });
     S.session = session;

@@ -32,24 +32,34 @@ export async function probeImageSize(src) {
     return { w: src.width, h: src.height };
   }
   if (!(src instanceof Blob)) return null;
-  const head = new Uint8Array(await src.slice(0, 262144).arrayBuffer());
+  // 2MB window: camera JPEGs (Sony, iPhone) park multi-hundred-KB EXIF
+  // preview blobs before the SOF marker — a 256KB slice missed them and
+  // silently disabled decode-to-target downstream
+  const head = new Uint8Array(await src.slice(0, 2097152).arrayBuffer());
   // PNG: 8-byte signature, IHDR width/height at 16/20
   if (head.length > 24 && head[0] === 0x89 && head[1] === 0x50) {
     const dv = new DataView(head.buffer);
     return { w: dv.getUint32(16), h: dv.getUint32(20) };
   }
-  // JPEG: walk segments to the first SOFn
+  // JPEG: walk the TOP-LEVEL segment stream to the first SOFn. STRICT: no
+  // byte-resync — a resyncing walker wanders into EXIF-embedded preview
+  // JPEGs (Sony, iPhone) and reports the thumbnail's dimensions. Any
+  // nonconforming stream returns null (callers fall back to a full decode).
   if (head.length > 4 && head[0] === 0xff && head[1] === 0xd8) {
     let p = 2;
     while (p + 9 < head.length) {
-      if (head[p] !== 0xff) { p++; continue; }
-      const m = head[p + 1];
-      if (m === 0xd8 || (m >= 0xd0 && m <= 0xd9)) { p += 2; continue; }
-      const len = (head[p + 2] << 8) | head[p + 3];
+      if (head[p] !== 0xff) return null;      // desynced: distrust everything
+      let q = p;
+      while (head[q + 1] === 0xff && q + 9 < head.length) q++; // fill bytes
+      const m = head[q + 1];
+      if (m === 0x01 || (m >= 0xd0 && m <= 0xd7)) { p = q + 2; continue; }
+      if (m === 0xd9 || m === 0xda) return null; // EOI/SOS before any SOF
+      const len = (head[q + 2] << 8) | head[q + 3];
+      if (len < 2) return null;
       if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) {
-        return { w: (head[p + 7] << 8) | head[p + 8], h: (head[p + 5] << 8) | head[p + 6] };
+        return { w: (head[q + 7] << 8) | head[q + 8], h: (head[q + 5] << 8) | head[q + 6] };
       }
-      p += 2 + len;
+      p = q + 2 + len;
     }
   }
   return null;
@@ -116,5 +126,8 @@ export function sliceEquirect(source, size, fovDeg = 100) {
     ctx.putImageData(out, 0, 0);
     faces.push(cv);
   }
+  // release the full-res working copy NOW — iOS frees canvas stores lazily,
+  // and a 6080x3040 pano's read canvas is 74MB of already-dead memory
+  rd.canvas.width = 0; rd.canvas.height = 0;
   return { faces, f, size };
 }

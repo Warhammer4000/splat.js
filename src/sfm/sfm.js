@@ -318,7 +318,7 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
   if (useSift && typeof Worker !== 'undefined' && opts.workers !== false) {
     // SIFT extraction is ~1s/image of pure CPU — run it on a worker pool
     const t0f = performance.now();
-    const nW = Math.min(8, Math.max(2, (navigator.hardwareConcurrency || 4) - 2));
+    const nW = Math.min(opts.workers || 8, Math.max(2, (navigator.hardwareConcurrency || 4) - 2));
     const workers = Array.from({ length: nW },
       () => new Worker(new URL('./featworker.js', import.meta.url), { type: 'module' }));
     const results = new Array(n);
@@ -414,7 +414,7 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
         feats[f.id] = f;
       };
       if (typeof Worker !== 'undefined' && opts.workers !== false) {
-        const nW = Math.min(8, Math.max(2, (navigator.hardwareConcurrency || 4) - 2));
+        const nW = Math.min(opts.workers || 8, Math.max(2, (navigator.hardwareConcurrency || 4) - 2));
         const workers = Array.from({ length: nW },
           () => new Worker(new URL('./featworker.js', import.meta.url), { type: 'module' }));
         let doneR = 0;

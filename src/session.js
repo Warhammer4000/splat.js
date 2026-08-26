@@ -230,6 +230,11 @@ export class Session {
     if (undistortFrames(this.frames, this.recon)) {
       this._log(`undistorted training images (k1 ${this.recon.k1.toFixed(4)}, k2 ${this.recon.k2.toFixed(4)})`);
     }
+    if (this.opts.lowMem) {
+      // the feature-scale grayscale is solve-only (SIFT + LK); on phones
+      // 50 frames of it is ~140MB standing between us and the trainer
+      for (const f of this.frames) f.gray = null;
+    }
     this._stage({ stage: 'solved', done: 1, total: 1, detail: {
       cams: this.recon.cams.length, points: this.recon.points.length,
       rms: this.recon.rmsBA,
@@ -275,6 +280,11 @@ export class Session {
     const maxW = Math.max(this.opts.maxViewW ?? 2560, ...cams.map((c) => c.w));
     const maxH = Math.max(this.opts.maxViewH ?? 1440, ...cams.map((c) => c.h));
     this.trainer.setup(this.model, cams, this.frames, maxW, maxH, this.model.radius);
+    if (this.opts.lowMem) {
+      // targets now live on the GPU (packed RGBA8); the float32 CPU copies
+      // are 3x that size and nothing reads them after setup
+      for (const f of this.frames) { f.rgb = null; f.sampleColor = () => [0.5, 0.5, 0.5]; }
+    }
 
     // blur-aware training: the blurriest frames stay registered (their poses
     // hold the chain together) but are excluded from the loss so the model
