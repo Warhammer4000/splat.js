@@ -29,7 +29,7 @@ Or open a finished result straight away — every trained run can be saved and
 shared, and `?model=<url>` (+ `&recon=<url>` for the solved camera path)
 loads it back into the viewer, capture-path tour included:
 
-**[The Truck — Tanks & Temples](https://arrival.space/splat-js/index.html?model=https://ugc.arrival.space/splatjs/models/truck_sh3_250k.sog&recon=https://ugc.arrival.space/splatjs/models/truck_sh3_250k_recon.json)**
+**[The Truck — Tanks & Temples](https://arrival.space/splat-js/index.html?model=https://ugc.arrival.space/splatjs/models/truck_sh3_250k_v2.sog&recon=https://ugc.arrival.space/splatjs/models/truck_sh3_250k_v2_recon.json)**
 — the benchmark model from the table below: 251 photographs at native
 979 px, 2,000,000 Gaussians, degree-3 spherical harmonics, 250 k cycles:
 **26.37 dB on the photographs it never saw** — above 3DGS-MCMC, ~65 min in
