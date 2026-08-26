@@ -79,7 +79,9 @@ function deviceDefaults() {
   const phone = matchMedia('(any-pointer: coarse)').matches &&
     Math.min(screen.width, screen.height) <= 820;
   return phone
-    ? { v: 2, res: 480, buf: 1, sh: 0, iters: 0, splats: 0, lod: false, mcmc: false }
+    // iters 10000 = the Draft macro exactly: a phone's first run should hit
+    // the magic moment in ~5 minutes; the done screen offers +10k cycles
+    ? { v: 2, res: 480, buf: 1, sh: 0, iters: 10000, splats: 0, lod: false, mcmc: false }
     : { v: 2, res: 0, buf: 1, sh: 3, iters: 0, splats: 0, lod: false, mcmc: false };
 }
 function loadSettings() {
@@ -92,6 +94,9 @@ function loadSettings() {
     // saved sh 2 predates the degree-3 default: those sessions were silently
     // training degree 3 (the old `!== 2` guard), so 3 preserves real behavior
     if (m.sh === 2) m.sh = 3;
+    // phones: iters 0 (the old 20k default) was never an explicit choice —
+    // migrate to the 10k draft default so first runs stay ~5 minutes
+    if (d.iters === 10000 && m.iters === 0) m.iters = 10000;
     if (BUF2X) m.buf = 2;
     return m;
   } catch { return d; }
