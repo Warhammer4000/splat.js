@@ -2000,7 +2000,9 @@ function uploadDialog() {
         onStatus: (m) => flash(m, 120000),
         onProgress: (pct) => flash(`Uploading … ${pct}%`, 120000),
       });
-      flash(`<b>${title}</b> is live · <a href="${spaceUrl}" target="_blank" rel="noopener">Open your space ↗</a>`, 300000);
+      flash(`${title} is live`, 300000, [
+        { label: 'Open your space ↗', href: spaceUrl, blank: true },
+      ]);
     } catch (e) {
       console.error(e);
       if (popup && !popup.closed) popup.close();
@@ -2067,9 +2069,11 @@ function shareDialog() {
         onStatus: (m) => flash(m, 120000),
         onProgress: (pct) => flash(`Uploading … ${pct}%`, 120000),
       });
-      flash(`<b>${title}</b> is shared · <a href="${link}">View link</a> · ` +
-        `<a href="${spaceUrl}" target="_blank" rel="noopener">Enter the space ↗</a> · ` +
-        `<a href="#" onclick="navigator.clipboard.writeText('${link}');this.textContent='Copied';return false">Copy link</a>`, 300000);
+      flash(`${title} is shared`, 300000, [
+        { label: 'View link', href: link },
+        { label: 'Enter the space ↗', href: spaceUrl, blank: true },
+        { label: 'Copy link', copy: link },
+      ]);
     } catch (e) {
       console.error(e);
       if (popup && !popup.closed) popup.close();
@@ -2615,16 +2619,44 @@ function chartTip(h) {
 }
 
 // ── flash ───────────────────────────────────────────────────────────────────
-function flash(msg, ms = 2800) {
-  S.flash = { msg, until: performance.now() + ms };
+function flash(msg, ms = 2800, links = []) {
+  S.flash = { msg: String(msg), links, until: performance.now() + ms };
 }
 
 function renderHud() {
-  const chips = [];
-  if (S.flash) chips.push(`<span class="chip" data-tone="accent">${S.flash.msg}</span>`);
   const hud = $('hud');
-  const next = `<div class="chip-row">${chips.join('')}</div>`;
-  if (hud.dataset.k !== next) { hud.innerHTML = next; hud.dataset.k = next; }
+  const key = S.flash ? JSON.stringify(S.flash) : '';
+  if (hud.dataset.k === key) return;
+  hud.dataset.k = key;
+  const row = document.createElement('div');
+  row.className = 'chip-row';
+  if (S.flash) {
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.dataset.tone = 'accent';
+    chip.textContent = S.flash.msg;
+    for (const link of S.flash.links) {
+      const a = document.createElement('a');
+      a.textContent = link.label;
+      if (link.copy != null) {
+        a.href = '#';
+        a.addEventListener('click', async (e) => {
+          e.preventDefault();
+          try { await navigator.clipboard.writeText(link.copy); a.textContent = 'Copied'; }
+          catch { a.textContent = 'Copy failed'; }
+        });
+      } else {
+        let url;
+        try { url = new URL(link.href, location.href); } catch { continue; }
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') continue;
+        a.href = url.href;
+        if (link.blank) { a.target = '_blank'; a.rel = 'noopener'; }
+      }
+      chip.append(' · ', a);
+    }
+    row.appendChild(chip);
+  }
+  hud.replaceChildren(row);
 }
 
 // ── screen wake lock ────────────────────────────────────────────────────────
