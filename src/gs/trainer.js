@@ -3,6 +3,7 @@
 import {
   STRIDE, TILE, ENTRIES_CAP, makeProjectSrc, makeRenderSrc, makeChainSrc,
   SCAN_SRC, SCATTER_SRC, SORT_SRC, ADAM_SRC, SH_ADAM_SRC, BLIT_SRC, shRestCoefs,
+  GATHER_SRC, REFINE_APPLY_SRC,
 } from './shaders.js';
 import { rodrigues, m3mul } from '../sfm/geometry.js';
 import { createGpu } from '../gpu/context.js';
@@ -91,6 +92,14 @@ export class GSTrainer {
         compute: { module: mk(SH_ADAM_SRC, 'sh-adam'), entryPoint: 'main' },
       });
     }
+    this.pipeGather = d.createComputePipeline({
+      label: 'refine-gather', layout: 'auto',
+      compute: { module: mk(GATHER_SRC, 'refine-gather'), entryPoint: 'main' },
+    });
+    this.pipeRefineApply = d.createComputePipeline({
+      label: 'refine-apply', layout: 'auto',
+      compute: { module: mk(REFINE_APPLY_SRC, 'refine-apply'), entryPoint: 'main' },
+    });
     const blitModule = mk(BLIT_SRC, 'blit');
     this.pipeBlit = d.createRenderPipeline({
       label: 'blit', layout: 'auto',
@@ -206,6 +215,22 @@ export class GSTrainer {
     this.uniView = buf(144, B.UNIFORM | B.COPY_DST, 'uniView');
     this.uniAdam = buf(112, B.UNIFORM | B.COPY_DST, 'uniAdam');
 
+    // phase-2 refine: 16 bytes/splat gathered for the CPU decision, a plan of
+    // 32-byte ops back, executed GPU-side (no params/moments round trip).
+    // Plan bound: every dead/new row is one op + at most one op per donor.
+    this.bufGather = buf(this.cap * 16, B.STORAGE | B.COPY_SRC, 'refine-gather');
+    this.bufGatherRead = buf(this.cap * 16, B.COPY_DST | B.MAP_READ, 'refine-gatherRead');
+    this.planCap = Math.ceil(this.cap * 0.75);
+    this.bufPlan = buf(this.planCap * 32, B.STORAGE | B.COPY_DST, 'refine-plan');
+    this.uniGather = buf(16, B.UNIFORM | B.COPY_DST, 'uniGather');
+    this.uniRefine = buf(16, B.UNIFORM | B.COPY_DST, 'uniRefine');   // clone slice
+    this.uniRefineB = buf(16, B.UNIFORM | B.COPY_DST, 'uniRefineB'); // donor slice
+    if (!this.shK) {
+      // refine-apply statically references the SH bindings; distinct dummies
+      // (aliased writable bindings are a dispatch-time validation error)
+      this.bufShDummy = [buf(16, B.STORAGE, 'shd0'), buf(16, B.STORAGE, 'shd1'), buf(16, B.STORAGE, 'shd2')];
+    }
+
     const bgProject = (uni) => d.createBindGroup({
       layout: this.pipeProject.getBindGroupLayout(0),
       entries: [
@@ -300,6 +325,31 @@ export class GSTrainer {
         { binding: 4, resource: { buffer: this.bufV } },
       ],
     });
+    this.bgGather = d.createBindGroup({
+      layout: this.pipeGather.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.uniGather } },
+        { binding: 1, resource: { buffer: this.bufParams } },
+        { binding: 2, resource: { buffer: this.bufGradP } },
+        { binding: 3, resource: { buffer: this.bufGather } },
+      ],
+    });
+    const shTriple = this.shK ? [this.bufSH, this.bufSHM, this.bufSHV] : this.bufShDummy;
+    const bgApply = (uni) => d.createBindGroup({
+      layout: this.pipeRefineApply.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: uni } },
+        { binding: 1, resource: { buffer: this.bufPlan } },
+        { binding: 2, resource: { buffer: this.bufParams } },
+        { binding: 3, resource: { buffer: this.bufM } },
+        { binding: 4, resource: { buffer: this.bufV } },
+        { binding: 5, resource: { buffer: shTriple[0] } },
+        { binding: 6, resource: { buffer: shTriple[1] } },
+        { binding: 7, resource: { buffer: shTriple[2] } },
+      ],
+    });
+    this.bgRefineApply = bgApply(this.uniRefine);
+    this.bgRefineApplyB = bgApply(this.uniRefineB);
     if (this.shK) {
       this.bgSHAdam = d.createBindGroup({
         layout: this.pipeSHAdam.getBindGroupLayout(0),
@@ -681,7 +731,206 @@ export class GSTrainer {
     this.renderView(meta, ctx, 0, meta.offset);
   }
 
-  /** MCMC-lite refinement: relocate dead splats onto jittered copies of
+  /** Phase-2 MCMC refine (default): dead splats relocate as EXACT copies of
+   *  donors sampled by ERROR MASS (gradP slots 10/11, accumulated since the
+   *  last refine), with 3DGS-MCMC eq-9 conserving each donor group's density
+   *  (opacity 1-(1-o)^(1/n), scale x o/denom) — no more 0.25-opacity clones
+   *  that can't mature inside short budgets. Growth spends new capacity
+   *  through the same mechanic. The readback is 16 bytes/splat (opacity +
+   *  error mass + mean log-scale); relocation executes GPU-side from a plan
+   *  buffer, so refineEvery 100 is affordable. opts.refineV2 = false restores
+   *  the legacy jitter-clone path. Returns { moved, grown, n }. */
+  async refine(rng = Math.random) {
+    // OPT-IN while unproven: at truck 40k the v2 mechanics plateau 0.1-0.2 dB
+    // BELOW the legacy path (best 25.38 vs 25.49) and one knob combination
+    // (v1 opacity semantics + error-guided donors, eq9=0) death-spiraled to
+    // 12.7 dB over a full run while passing every 3k smoke. The cheap
+    // gather/plan infrastructure is sound — the donor policy is not.
+    if (this.opts.refineV2 !== true) return this._refineLegacy(rng);
+    const canReloc = this.iter < (this.opts.relocUntil ?? Infinity);
+    const limit = Math.min(this.cap, this.growLimit || this.cap);
+    const canGrow = this.iter < (this.opts.growUntil ?? 0.75 * this.horizon) && this.n < limit;
+    if (!canReloc && !canGrow) return { moved: 0, grown: 0, n: this.n };
+    const d = this.device;
+
+    // gather (o, w-mass, e-mass, mean logS) and zero the accumulator window
+    d.queue.writeBuffer(this.uniGather, 0, new Uint32Array([this.n, 0, 0, 0]));
+    {
+      const enc = d.createCommandEncoder();
+      const p = enc.beginComputePass();
+      p.setPipeline(this.pipeGather);
+      p.setBindGroup(0, this.bgGather);
+      const groups = Math.ceil(this.n / 256);
+      if (groups <= 65535) p.dispatchWorkgroups(groups);
+      else p.dispatchWorkgroups(65535, Math.ceil(groups / 65535));
+      p.end();
+      enc.copyBufferToBuffer(this.bufGather, 0, this.bufGatherRead, 0, this.n * 16);
+      d.queue.submit([enc.finish()]);
+    }
+    await this.bufGatherRead.mapAsync(GPUMapMode.READ, 0, this.n * 16);
+    const g = new Float32Array(this.bufGatherRead.getMappedRange(0, this.n * 16)).slice();
+    this.bufGatherRead.unmap();
+
+    const sig = (x) => 1 / (1 + Math.exp(-x));
+    let dead = [];
+    const pool = [];      // donor candidates (alive enough to carry mass)
+    for (let i = 0; i < this.n; i++) {
+      const o = sig(g[i * 4]);
+      if (o < 0.02) { if (canReloc) dead.push(i); }
+      else if (o >= 0.05) pool.push(i);
+    }
+    if (pool.length < 16) return { moved: 0, grown: 0, n: this.n };
+    const moveCap = Math.ceil(this.n * (this.opts.moveCap ?? 1.0));
+    if (dead.length > moveCap) dead = dead.slice(0, moveCap);
+    const grown = canGrow
+      ? Math.max(0, Math.min(Math.ceil(this.n * (this.opts.growRate ?? 0.15)), limit - this.n)) : 0;
+    if (dead.length === 0 && grown === 0) return { moved: 0, grown: 0, n: this.n };
+
+    // donor sampling ∝ accumulated error mass (fallback: opacity, e.g. the
+    // first refine of a run before any window has accumulated)
+    const cdf = new Float64Array(pool.length);
+    let acc = 0;
+    for (let k = 0; k < pool.length; k++) { acc += g[pool[k] * 4 + 2]; cdf[k] = acc; }
+    if (!(acc > 0)) {
+      acc = 0;
+      for (let k = 0; k < pool.length; k++) { acc += sig(g[pool[k] * 4]); cdf[k] = acc; }
+    }
+    const draw = () => {
+      const r = rng() * acc;
+      let lo = 0, hi = pool.length - 1;
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (cdf[mid] < r) lo = mid + 1; else hi = mid; }
+      return pool[lo];
+    };
+
+    // growth first: legacy-style SPLIT of the biggest donors (footprint
+    // conserved, both halves /1.6) — the one v1 heuristic eq-9 cloning
+    // measurably undershoots; error-guided eq-9 stays for relocation only.
+    // Split donors are chosen up front and EXCLUDED from relocation draws:
+    // a row adjusted by two concurrent donor ops is a lost-update race.
+    // opts.growSplit = false grows through the eq-9 mechanic instead.
+    const splitOps = [];
+    const splitDonors = new Set();
+    const eqGrow = [];
+    if (grown > 0 && (this.opts.growSplit ?? false)) {
+      const bigs = pool.filter((p) => g[p * 4] > -0.405).sort((a, b) => g[b * 4 + 3] - g[a * 4 + 3])
+        .slice(0, Math.min(pool.length - 8, Math.max(16, pool.length >> 2)));
+      let bi = 0;
+      for (let k = 0; k < grown; k++) {
+        if (bi >= bigs.length) { eqGrow.push(this.n + k); continue; } // ran out: eq-9 clone
+        const don = bigs[bi++]; // one split per donor per refine
+        splitOps.push([this.n + k, don]);
+        splitDonors.add(don);
+      }
+    } else {
+      for (let k = 0; k < grown; k++) eqGrow.push(this.n + k);
+    }
+    // relocation (+ eq-9 growth overflow): donor -> destination rows.
+    // ratioCap spreads selection across the error distribution: unbounded
+    // error-weighted sampling piles dozens of clones onto the few hottest
+    // donors and eq-9 then slashes exactly those splats' opacity to dust
+    const groupsMap = new Map();
+    const ratioCap = this.opts.ratioCap ?? 3;
+    const assign = (dst, mustPlace) => {
+      let don = draw();
+      for (let t = 0; t < 6 &&
+        (splitDonors.has(don) || (groupsMap.get(don) || []).length >= ratioCap); t++) don = draw();
+      if (splitDonors.has(don)) {
+        // a NEW row must be written (it goes live when n grows) — any
+        // non-split donor will do; a dead slot can simply stay dead a round
+        if (!mustPlace) return;
+        don = pool.find((p) => !splitDonors.has(p));
+        if (don == null) return;
+      }
+      if (!groupsMap.has(don)) groupsMap.set(don, []);
+      groupsMap.get(don).push(dst);
+    };
+    for (const slot of dead) assign(slot, false);
+    for (const dst of eqGrow) assign(dst, true);
+
+    // eq-9 per donor group (binoms are tiny — compute on the fly)
+    if (!this._binoms) {
+      const NMAX = 51;
+      const b = [];
+      for (let i = 0; i < NMAX; i++) {
+        b.push(new Float64Array(i + 1));
+        for (let k = 0; k <= i; k++) b[i][k] = k === 0 || k === i ? 1 : b[i - 1][k - 1] + b[i - 1][k];
+      }
+      this._binoms = b;
+    }
+    // plan layout: clone-copies first, donor adjustments after — executed as
+    // two ORDERED dispatches so no clone can copy an already-adjusted donor
+    // row (single-dispatch racing double-applied the eq-9 shrink at random)
+    const u32 = new Uint32Array(this.planCap * 8);
+    const f32 = new Float32Array(u32.buffer);
+    const donorOps = [];
+    let nClone = 0;
+    const pushOp = (at, dst, src, flags, newO, dls, seed = 0) => {
+      const o = at * 8;
+      u32[o] = dst; u32[o + 1] = src; u32[o + 2] = flags; u32[o + 3] = seed;
+      f32[o + 4] = newO; f32[o + 5] = dls;
+    };
+    // opts.eq9 = false swaps in v1 opacity semantics (clone born 0.25 at
+    // x0.85 scale, donor untouched) while keeping error-guided donor CHOICE —
+    // the isolation knob for whether eq-9's donor tax pays for itself
+    const useEq9 = this.opts.eq9 ?? true;
+    for (const [don, dsts] of groupsMap) {
+      if (!useEq9) {
+        const nO = Math.log(0.25 / 0.75), dl = Math.log(0.85);
+        for (const dst of dsts) pushOp(nClone++, dst, don, 1 | 2 | 4 | 16, nO, dl, (rng() * 4294967295) >>> 0);
+        continue;
+      }
+      const ratio = Math.min(51, dsts.length + 1);
+      const oldO = sig(g[don * 4]);
+      const newO = Math.max(1 - Math.pow(1 - oldO, 1 / ratio), 0.005);
+      let denom = 0;
+      for (let i = 1; i <= ratio; i++) {
+        for (let k = 0; k <= i - 1; k++) {
+          denom += this._binoms[i - 1][k] * (Math.pow(-1, k) / Math.sqrt(k + 1)) * Math.pow(newO, k + 1);
+        }
+      }
+      const dls = Math.log(Math.max(1e-6, oldO / denom));
+      const newLogit = Math.log(newO / (1 - newO));
+      donorOps.push([don, newLogit, dls]);
+      for (const dst of dsts) pushOp(nClone++, dst, don, 1 | 2 | 4 | 16, newLogit, dls, (rng() * 4294967295) >>> 0);
+    }
+    // splits ride the same two ordered dispatches: clone-copy first (copy +
+    // /1.6 shrink, opacity inherited via the copy), donor shrink second
+    const SHRINK = Math.log(1 / 1.6);
+    for (const [dst, don] of splitOps) pushOp(nClone++, dst, don, 1 | 4 | 16, 0, SHRINK, (rng() * 4294967295) >>> 0);
+    const nDonor = donorOps.length + splitOps.length;
+    let dk = nClone;
+    donorOps.forEach(([don, newLogit, dls]) => pushOp(dk++, don, don, 2 | 4 | 8, newLogit, dls));
+    for (const [, don] of splitOps) pushOp(dk++, don, don, 4 | 8, 0, SHRINK);
+    const nOps = nClone + nDonor;
+
+    d.queue.writeBuffer(this.bufPlan, 0, u32, 0, nOps * 8);
+    d.queue.writeBuffer(this.uniRefine, 0, new Uint32Array([nClone, this.shK * 3, 0, 0]));
+    d.queue.writeBuffer(this.uniRefineB, 0, new Uint32Array([nDonor, this.shK * 3, nClone, 0]));
+    {
+      const enc = d.createCommandEncoder();
+      const p = enc.beginComputePass();
+      p.setPipeline(this.pipeRefineApply);
+      const disp = (bg, count) => {
+        if (!count) return;
+        p.setBindGroup(0, bg);
+        const groups = Math.ceil(count / 256);
+        if (groups <= 65535) p.dispatchWorkgroups(groups);
+        else p.dispatchWorkgroups(65535, Math.ceil(groups / 65535));
+      };
+      disp(this.bgRefineApply, nClone);
+      disp(this.bgRefineApplyB, nDonor);
+      p.end();
+      d.queue.submit([enc.finish()]);
+    }
+    if (grown > 0) {
+      this.n += grown;
+      this.adamData[23] = this.n * STRIDE;
+      this.camUniforms = this.camMeta.map((mm, i) => this._camUniform(mm, 1, mm.offset, i));
+    }
+    return { moved: dead.length, grown, n: this.n };
+  }
+
+  /** Legacy MCMC-lite refinement: relocate dead splats onto jittered copies of
    *  well-supported donors (resetting their Adam state) and grow the splat
    *  count by up to 5% per call until the buffer cap is reached.
    *  opts.relocUntil stops the relocation churn after that iteration so the
@@ -689,7 +938,7 @@ export class GSTrainer {
    *  born at opacity 0.25 and half-trained clones would otherwise ship in
    *  the export); default Infinity = relocate for the whole run.
    *  Returns { moved, grown, n }. */
-  async refine(rng = Math.random) {
+  async _refineLegacy(rng = Math.random) {
     const canReloc = this.iter < (this.opts.relocUntil ?? Infinity);
     const canGrow = this.iter < (this.opts.growUntil ?? 0.75 * this.horizon) && this.n < Math.min(this.cap, this.growLimit || this.cap);
     if (!canReloc && !canGrow) return { moved: 0, grown: 0, n: this.n };

@@ -156,6 +156,10 @@ override ENTCAP: u32 = ${ENTRIES_CAP}u;
 const FIXED = ${FIXED.toExponential()};
 const FIXEDC = ${FIXED_CONIC.toExponential()};
 const FIXCAM = 64.0; // camera grads sum over all splats: coarse fixed point
+// error-mass accumulators (gradP slots 10/11) integrate across a whole refine
+// window (up to ~500 iters x screen-area pixels), so the quantum is coarse to
+// keep the i32 ceiling out of reach; they only feed donor SAMPLING weights
+const WFIX = 8.0;
 `;
 
 // Shared per-splat geometry: params -> normalized quat, rotation, cam-space
@@ -540,7 +544,7 @@ fn camAdd(idx: u32, v: f32) {
 ` + (tileGrad ? /* wgsl */ `
 var<workgroup> wgEnd: atomic<u32>;
 var<workgroup> wgEndU: u32;
-var<workgroup> sg: array<atomic<i32>, 10>;
+var<workgroup> sg: array<atomic<i32>, 12>; // 0-9 grads, 10-11 error mass
 ` + (subgroups ? /* wgsl */ `
 // LichtFeld-style warp aggregation (their #1675: 13.6 -> 1.1 ms on the
 // analogous kernel): every thread in the lockstep walk adds to the SAME
@@ -561,6 +565,12 @@ fn atomAddC(slot: u32, v: f32) {
     atomicAdd(&sg[slot], i32(round(clamp(s * FIXEDC, -1.0e9, 1.0e9))));
   }
 }
+fn atomAddW(slot: u32, v: f32) {
+  let s = subgroupAdd(v);
+  if (subgroupElect() && s != 0.0) {
+    atomicAdd(&sg[slot], i32(round(clamp(s * WFIX, 0.0, 1.0e9))));
+  }
+}
 ` : /* wgsl */ `
 fn atomAdd(slot: u32, v: f32) {
   atomicAdd(&sg[slot], i32(round(clamp(v * FIXED, -1.0e9, 1.0e9))));
@@ -568,12 +578,18 @@ fn atomAdd(slot: u32, v: f32) {
 fn atomAddC(slot: u32, v: f32) {
   atomicAdd(&sg[slot], i32(round(clamp(v * FIXEDC, -1.0e9, 1.0e9))));
 }
+fn atomAddW(slot: u32, v: f32) {
+  atomicAdd(&sg[slot], i32(round(clamp(v * WFIX, 0.0, 1.0e9))));
+}
 `) : /* wgsl */ `
 fn atomAdd(idx: u32, v: f32) {
   atomicAdd(&gradP[idx], i32(round(clamp(v * FIXED, -1.0e9, 1.0e9))));
 }
 fn atomAddC(idx: u32, v: f32) {
   atomicAdd(&gradP[idx], i32(round(clamp(v * FIXEDC, -1.0e9, 1.0e9))));
+}
+fn atomAddW(idx: u32, v: f32) {
+  atomicAdd(&gradP[idx], i32(round(clamp(v * WFIX, 0.0, 1.0e9))));
 }
 `) + /* wgsl */ `
 // i32() truncates toward zero — a systematic shrink of every accumulated
@@ -636,6 +652,7 @@ ${tileGrad ? '  if (pxOk) {' : '  {'}
   let off = bitcast<u32>(cam.misc.w); // raw u32 PIXEL offset (f32 exact only to 2^24)
 ${tileGrad ? '  var lossOk = pxOk;' : '  var lossOk = true;'}
   var gC = vec3f(0.0);
+  var perr = 0.0; // this pixel's Charbonnier loss, for the error-mass accumulators
   if (lossOk) {
     let packed = tgtImg[off + pi];
     if ((packed >> 24u) == 0u) {
@@ -656,6 +673,7 @@ ${tileGrad ? '  var lossOk = pxOk;' : '  var lossOk = true;'}
       let eg = err / root;         // dL / d(exposure-adjusted color)
       gC = gain * eg;              // dL / d(rendered color)
       let lossv = (root.x + root.y + root.z) - 3.0 * DELTA;
+      perr = lossv;
       atomicAdd(&stats[1], u32(lossv * 32768.0)); // training loss (grad-check)
       let ci8 = u32(cam.misc2.y) * 8u;
       camAdd(ci8 + 6u, dot(eg, C) * gain); // d/d(log gain)
@@ -679,7 +697,7 @@ ${tileGrad ? /* wgsl */ `
   var Ta = T;
   for (var kk = endMax; kk > segS; kk--) {
 ${tileGrad ? /* wgsl */ `
-    if (li < 10u) { atomicStore(&sg[li], 0); }
+    if (li < 12u) { atomicStore(&sg[li], 0); }
     workgroupBarrier();
 ` : ''}${tileGrad && subgroups ? /* wgsl */ `
     // subgroup variant only: contributions land in locals so the aggregated
@@ -687,6 +705,7 @@ ${tileGrad ? /* wgsl */ `
     // builtins in divergent flow — a lesson bought with a dead pipeline)
     var q0 = 0.0; var q1 = 0.0; var q2 = 0.0; var q3 = 0.0; var q4 = 0.0;
     var q5 = 0.0; var q6 = 0.0; var q7 = 0.0; var q8 = 0.0; var q9 = 0.0;
+    var q10 = 0.0; var q11 = 0.0;
 ` : ''}
     let i = entries[2u * (kk - 1u) + 1u];
     let b = i * 16u;
@@ -739,21 +758,27 @@ ${tileGrad ? (subgroups ? /* wgsl */ `    q2 = -ga * 0.5 * d.x * d.x * cnorm;
     q6 = ga * (1.0 - opa);          // d/dlogitOpacity
     q7 = gcv.r;
     q8 = gcv.g;
-    q9 = gcv.b;` : /* wgsl */ `    atomAddC(2u, -ga * 0.5 * d.x * d.x * cnorm);
+    q9 = gcv.b;
+    q10 = alpha * Tb;
+    q11 = alpha * Tb * perr;` : /* wgsl */ `    atomAddC(2u, -ga * 0.5 * d.x * d.x * cnorm);
     atomAddC(3u, -ga * d.x * d.y * cnorm);
     atomAddC(4u, -ga * 0.5 * d.y * d.y * cnorm);
     atomAdd(5u, galpha * opa * G);          // d/dcomp
     atomAdd(6u, ga * (1.0 - opa));          // d/dlogitOpacity
     atomAdd(7u, gcv.r);
     atomAdd(8u, gcv.g);
-    atomAdd(9u, gcv.b);`) : /* wgsl */ `    atomAddC(b + 2u, -ga * 0.5 * d.x * d.x * cnorm);
+    atomAdd(9u, gcv.b);
+    atomAddW(10u, alpha * Tb);              // rendered mass (refine sampling)
+    atomAddW(11u, alpha * Tb * perr);       // error mass (refine sampling)`) : /* wgsl */ `    atomAddC(b + 2u, -ga * 0.5 * d.x * d.x * cnorm);
     atomAddC(b + 3u, -ga * d.x * d.y * cnorm);
     atomAddC(b + 4u, -ga * 0.5 * d.y * d.y * cnorm);
     atomAdd(b + 5u, galpha * opa * G);          // d/dcomp
     atomAdd(b + 6u, ga * (1.0 - opa));          // d/dlogitOpacity
     atomAdd(b + 7u, gcv.r);
     atomAdd(b + 8u, gcv.g);
-    atomAdd(b + 9u, gcv.b);`}
+    atomAdd(b + 9u, gcv.b);
+    atomAddW(b + 10u, alpha * Tb);              // rendered mass (refine sampling)
+    atomAddW(b + 11u, alpha * Tb * perr);       // error mass (refine sampling)`}
 
     S += c * alpha * Tb;
     Ta = Tb;
@@ -766,15 +791,19 @@ ${tileGrad ? (subgroups ? /* wgsl */ `
     // tile. The branch condition is subgroup-uniform, so the inner subgroup
     // calls stay valid. Color slots are the sufficient test: gC == 0 forces
     // every other slot to 0.
+    // (w/e mass rides the same gate: gC == 0 zeroes the error slot anyway,
+    // and a perfectly-fit pixel under-counting slot 10 only softens a
+    // SAMPLING weight)
     if (subgroupAny(q7 != 0.0 || q8 != 0.0 || q9 != 0.0)) {
       atomAdd(0u, q0); atomAdd(1u, q1);
       atomAddC(2u, q2); atomAddC(3u, q3); atomAddC(4u, q4);
       atomAdd(5u, q5); atomAdd(6u, q6);
       atomAdd(7u, q7); atomAdd(8u, q8); atomAdd(9u, q9);
+      atomAddW(10u, q10); atomAddW(11u, q11);
     }
 ` : '') + /* wgsl */ `
     workgroupBarrier();
-    if (li < 10u) {
+    if (li < 12u) {
       let v = atomicLoad(&sg[li]);
       if (v != 0) { atomicAdd(&gradP[b + li], v); }
     }
@@ -1179,5 +1208,117 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
     clamp(outImg[i + 1u], 0.0, 1.0),
     clamp(outImg[i + 2u], 0.0, 1.0),
     1.0);
+}
+`;
+
+// ---- phase-2 MCMC refine: gather + plan-apply (no CPU params round-trip) ----
+// GATHER compacts per-splat refine inputs to 4 floats — logit-opacity, the
+// two error-mass accumulators (gradP slots 10/11, zeroed here to start the
+// next window), and mean log-scale — so refine() reads back 16 bytes/splat
+// instead of params+moments+SH (~700 bytes). The relocation decisions stay
+// on the CPU; APPLY executes them GPU-side.
+export const GATHER_SRC = /* wgsl */ `
+const WFIX = 8.0;
+struct GUni { n: u32, shr: u32, pad0: u32, pad1: u32 };
+@group(0) @binding(0) var<uniform> gu: GUni;
+@group(0) @binding(1) var<storage, read> params: array<f32>;
+@group(0) @binding(2) var<storage, read_write> gradP: array<atomic<i32>>;
+@group(0) @binding(3) var<storage, read_write> outv: array<f32>;
+
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) gid: vec3u,
+        @builtin(num_workgroups) nw: vec3u) {
+  let i = gid.x + gid.y * nw.x * 256u;
+  if (i >= gu.n) { return; }
+  let b = i * 16u;
+  outv[i * 4u] = params[b + 13u];
+  outv[i * 4u + 1u] = f32(atomicExchange(&gradP[b + 10u], 0)) / WFIX;
+  outv[i * 4u + 2u] = f32(atomicExchange(&gradP[b + 11u], 0)) / WFIX;
+  outv[i * 4u + 3u] = (params[b + 3u] + params[b + 4u] + params[b + 5u]) / 3.0;
+}
+`;
+
+// APPLY: one thread per plan op. Op = { dst, src, flags, seed, newLogitO,
+// dLogScale }. flags bit0 = copy row src->dst (params + SH, fresh moments),
+// bit1 = set logit-opacity to newLogitO, bit2 = add dLogScale to the three
+// log-scales, bit3 = reset dst moments (donor rows: shape changed under the
+// optimizer). Relocations are EXACT copies (3DGS-MCMC eq-9 semantics — the
+// Langevin noise does the dispersing); the eq-9 opacity/scale adjustment is
+// precomputed on the CPU from the gathered opacities.
+export const REFINE_APPLY_SRC = /* wgsl */ `
+// base/nOps window a SLICE of the plan: clone-copies dispatch first, donor
+// in-place adjustments second (ordered dispatches in one pass) — in a single
+// dispatch a clone racing its donor's adjustment could copy the already-
+// shrunk scale and apply the eq-9 coefficient twice
+struct Op { dst: u32, src: u32, flags: u32, seed: u32, newO: f32, dls: f32, p0: f32, p1: f32 };
+struct RUni { nOps: u32, shr: u32, base: u32, pad1: u32 };
+@group(0) @binding(0) var<uniform> ru: RUni;
+@group(0) @binding(1) var<storage, read> plan: array<Op>;
+@group(0) @binding(2) var<storage, read_write> params: array<f32>;
+@group(0) @binding(3) var<storage, read_write> mBuf: array<f32>;
+@group(0) @binding(4) var<storage, read_write> vBuf: array<f32>;
+@group(0) @binding(5) var<storage, read_write> sh: array<f32>;
+@group(0) @binding(6) var<storage, read_write> shM: array<f32>;
+@group(0) @binding(7) var<storage, read_write> shV: array<f32>;
+
+fn h32(x0: u32) -> u32 {
+  var x = x0;
+  x ^= x >> 16u; x *= 0x7feb352du;
+  x ^= x >> 15u; x *= 0x846ca68bu;
+  x ^= x >> 16u;
+  return x;
+}
+
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) gid: vec3u,
+        @builtin(num_workgroups) nw: vec3u) {
+  let k = gid.x + gid.y * nw.x * 256u;
+  if (k >= ru.nOps) { return; }
+  let op = plan[ru.base + k];
+  let bd = op.dst * 16u;
+  let bs = op.src * 16u;
+  if ((op.flags & 1u) != 0u) {
+    for (var j = 0u; j < 16u; j++) {
+      params[bd + j] = params[bs + j];
+      mBuf[bd + j] = 0.0;
+      vBuf[bd + j] = 0.0;
+    }
+    if (ru.shr > 0u) {
+      let sd = op.dst * ru.shr;
+      let ss = op.src * ru.shr;
+      for (var j = 0u; j < ru.shr; j++) {
+        sh[sd + j] = sh[ss + j];
+        shM[sd + j] = 0.0;
+        shV[sd + j] = 0.0;
+      }
+    }
+    // a fresh row starts a fresh error window
+    // (gradP slots were zeroed by the gather that planned this refine)
+  }
+  if ((op.flags & 16u) != 0u) {
+    // clone jitter, v1-style: 0.7 sigma of the (just-copied) donor scale —
+    // an exact-copy pair is gradient-degenerate and separates too slowly on
+    // Langevin noise alone (measured -0.45 dB at 40k)
+    let mls = (params[bd + 3u] + params[bd + 4u] + params[bd + 5u]) / 3.0;
+    let s = exp(mls) * 0.7;
+    for (var c = 0u; c < 3u; c++) {
+      let u1 = (f32(h32(op.seed ^ (op.dst * 3u + c))) + 0.5) / 4294967296.0;
+      let u2 = (f32(h32(op.seed ^ (op.dst * 3u + c) ^ 0x9e3779b9u)) + 0.5) / 4294967296.0;
+      params[bd + c] += s * sqrt(-2.0 * log(u1)) * cos(6.2831853 * u2);
+    }
+  }
+  if ((op.flags & 2u) != 0u) { params[bd + 13u] = op.newO; }
+  if ((op.flags & 4u) != 0u) {
+    params[bd + 3u] += op.dls;
+    params[bd + 4u] += op.dls;
+    params[bd + 5u] += op.dls;
+  }
+  if ((op.flags & 8u) != 0u) {
+    for (var j = 0u; j < 16u; j++) { mBuf[bd + j] = 0.0; vBuf[bd + j] = 0.0; }
+    if (ru.shr > 0u) {
+      let sd = op.dst * ru.shr;
+      for (var j = 0u; j < ru.shr; j++) { shM[sd + j] = 0.0; shV[sd + j] = 0.0; }
+    }
+  }
 }
 `;
