@@ -621,9 +621,16 @@ async function localRunTiles() {
       : (S.runId === r.id && S.state === 'train')
         ? `training now · ${fmt(r.iter || 0)} cycles`
         : `interrupted · ${fmt(r.iter || 0)} cycles`;
+    // same anatomy as a preset tile: name, a description referring back to
+    // the capture, then the stats line
+    const desc = r.status === 'finished'
+      ? `Trained on this device from ${r.frames ? `${fmt(r.frames)} photos` : 'your photos'}` +
+        `${r.iter ? `, ${fmt(r.iter)} cycles` : ''}${r.minutes ? ` in ${r.minutes} min` : ''}. Never uploaded.`
+      : '';
     b.innerHTML = `
       <button class="run-x" title="Remove from this device">${TRASH_ICON}</button>
       <span class="galname">${esc(r.name || 'Training run')}</span>
+      ${desc ? `<span class="galdesc">${esc(desc)}</span>` : ''}
       <span class="galmeta">${state}</span>`;
     if (r.thumb) b.prepend(Object.assign(new Image(), { src: URL.createObjectURL(r.thumb), alt: '' }));
     armTrash(b.querySelector('.run-x'), async () => {
