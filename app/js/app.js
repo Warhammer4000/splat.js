@@ -534,8 +534,11 @@ async function lastCaptureTile() {
     <span class="galmeta">${rec.files.length} frames · local</span>`;
   const img = Object.assign(new Image(), { src: URL.createObjectURL(rec.files[0].blob), alt: '' });
   b.prepend(img);
-  const makeSet = () => {
+  const makeSet = async () => {
     const files = rec.files.map((e) => new File([e.blob], e.name, { type: e.blob.type || 'image/jpeg' }));
+    // records saved before capture-sorting existed replay in stored order —
+    // sort on the way out, same rules as a fresh pick
+    await sortByCapture(files);
     if (S.ownUrls) S.ownUrls.forEach(URL.revokeObjectURL);
     S.ownUrls = files.map((f) => URL.createObjectURL(f));
     const set = ownSet(files, S.ownUrls);
@@ -545,9 +548,9 @@ async function lastCaptureTile() {
       'own storage. They never left this device.';
     return set;
   };
-  b.addEventListener('click', () => {
-    if (S.picking) { S.pending = makeSet(); paintCard(S.pending); return; }
-    const set = makeSet();
+  b.addEventListener('click', async () => {
+    if (S.picking) { S.pending = await makeSet(); paintCard(S.pending); return; }
+    const set = await makeSet();
     open(set);
     if (!WALL_FIRST) showDetail(set);
   });
@@ -772,6 +775,25 @@ function tiffDate(b, off, size) {
   return Number.isFinite(t) && t > 0 ? t : null;
 }
 
+/** Restore the capture sequence in place. EXIF time rules when present;
+ *  when the WHOLE set has none (iOS transcodes on pick and strips EXIF,
+ *  stamping mtime with the SELECTION moment — sorting by it preserves the
+ *  shuffle), the numeric name order (IMG_0421…, wide_date_time_seq…) is the
+ *  trustworthy key. Also feeds the landmarks beat's bottom-right overlay. */
+async function sortByCapture(files) {
+  const exifs = new Map(await Promise.all(files.map(async (f) => [f, await exifCaptureTime(f)])));
+  const anyExif = [...exifs.values()].some((v) => v != null);
+  const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
+  if (anyExif) {
+    const stamps = new Map(files.map((f) => [f, exifs.get(f) ?? f.lastModified ?? 0]));
+    files.sort((a, b) => (stamps.get(a) - stamps.get(b)) || byName(a, b));
+  } else {
+    files.sort(byName);
+  }
+  S.capDates = new Map(files.map((f) => [f.name, exifs.get(f) ?? null]));
+  return files;
+}
+
 async function useOwnPhotos(list) {
   const all = [...list];
   // video intake is OFF for now — the sharp-frame extraction is not good
@@ -788,21 +810,8 @@ async function useOwnPhotos(list) {
     return;
   }
   // the phone picker hands files over in SELECTION order — restore the
-  // capture sequence. EXIF time rules when present; when the WHOLE set has
-  // none (iOS transcodes on pick and strips EXIF, stamping mtime with the
-  // SELECTION moment — sorting by it preserves the shuffle), the numeric
-  // name order (IMG_0421…) is the trustworthy key.
-  const exifs = new Map(await Promise.all(files.map(async (f) => [f, await exifCaptureTime(f)])));
-  const anyExif = [...exifs.values()].some((v) => v != null);
-  const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
-  if (anyExif) {
-    const stamps = new Map(files.map((f) => [f, exifs.get(f) ?? f.lastModified ?? 0]));
-    files.sort((a, b) => (stamps.get(a) - stamps.get(b)) || byName(a, b));
-  } else {
-    files.sort(byName);
-  }
-  // the landmarks beat overlays these bottom-right (n/a = no EXIF)
-  S.capDates = new Map(files.map((f) => [f.name, exifs.get(f) ?? null]));
+  // capture sequence (shared with the saved-capture restore path)
+  await sortByCapture(files);
   if (S.ownUrls) S.ownUrls.forEach(URL.revokeObjectURL);
   S.ownUrls = files.map((f) => URL.createObjectURL(f));
   // survive a refresh: the capture is kept on-device and offered back
