@@ -564,16 +564,24 @@ async function lastCaptureTile() {
     ? new Date(rec.created).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
     : null;
   b.innerHTML = `
-    <button class="run-x" title="Remove from this device">${TRASH_ICON}</button>
+    <button class="run-menu" title="Options">⋯</button>
     <span class="galname">${rec.files.length} photos</span>
     <span class="galmeta">${capWhen ? `${capWhen} · ` : ''}local</span>`;
   const img = Object.assign(new Image(), { src: URL.createObjectURL(rec.files[0].blob), alt: '' });
   b.prepend(img);
-  armTrash(b.querySelector('.run-x'), async () => {
-    const { deleteLastCapture } = await import('./store.js');
-    await deleteLastCapture();
-    b.remove();
-  });
+  tileMenu(b.querySelector('.run-menu'), [
+    { label: 'Train', act: async () => {
+      const set = await openCaptureSet(rec);
+      if (!set) return;
+      open(set);
+      if (!WALL_FIRST) showDetail(set);
+    } },
+    { label: 'Delete', danger: true, act: async () => {
+      const { deleteLastCapture } = await import('./store.js');
+      await deleteLastCapture();
+      b.remove();
+    } },
+  ]);
   b.addEventListener('click', async () => {
     if (S.picking) { S.pending = await openCaptureSet(rec); paintCard(S.pending); return; }
     const set = await openCaptureSet(rec);
@@ -587,23 +595,46 @@ async function lastCaptureTile() {
 /** tiles for the local runs library — every training run this device has
  *  started. Finished runs reopen in the viewer straight from their stored
  *  result; interrupted ones stay listed (and deletable) as a record. */
-const TRASH_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v5.5M14 11v5.5"/></svg>';
-/** two-step delete: first tap arms into "Delete?", second within 3s fires */
-function armTrash(btn, onDelete) {
-  btn.addEventListener('click', async (e) => {
+/** The tile's "⋯" options menu. items: [{ label, act, danger }] — danger
+ *  items arm into "Delete?" first; anything else fires and closes. */
+function tileMenu(btn, items) {
+  btn.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (btn.dataset.armed !== '1') {
-      btn.dataset.armed = '1';
-      btn.textContent = 'Delete?';
-      btn.classList.add('armed');
-      setTimeout(() => {
-        btn.dataset.armed = '';
-        btn.innerHTML = TRASH_ICON;
-        btn.classList.remove('armed');
-      }, 3000);
-      return;
+    const existing = btn.parentElement.querySelector('.tilemenu');
+    document.querySelectorAll('.tilemenu').forEach((x) => x.remove());
+    if (existing) return; // second tap on the same ⋯ just closes
+    const m = document.createElement('div');
+    m.className = 'tilemenu';
+    for (const it of items) {
+      if (!it) continue;
+      const b = document.createElement('button');
+      b.textContent = it.label;
+      if (it.danger) b.className = 'danger';
+      b.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        if (it.danger && b.dataset.armed !== '1') {
+          b.dataset.armed = '1';
+          b.textContent = 'Delete?';
+          b.classList.add('armed');
+          setTimeout(() => {
+            b.dataset.armed = '';
+            b.textContent = it.label;
+            b.classList.remove('armed');
+          }, 3000);
+          return;
+        }
+        m.remove();
+        await it.act();
+      });
+      m.appendChild(b);
     }
-    await onDelete();
+    btn.parentElement.appendChild(m);
+    const close = (ev) => {
+      if (m.contains(ev.target) || ev.target === btn) return;
+      m.remove();
+      removeEventListener('pointerdown', close, true);
+    };
+    addEventListener('pointerdown', close, true);
   });
 }
 
@@ -628,15 +659,22 @@ async function localRunTiles() {
         `${r.iter ? `, ${fmt(r.iter)} cycles` : ''}${r.minutes ? ` in ${r.minutes} min` : ''}. Never uploaded.`
       : '';
     b.innerHTML = `
-      <button class="run-x" title="Remove from this device">${TRASH_ICON}</button>
+      <button class="run-menu" title="Options">⋯</button>
       <span class="galname">${esc(r.name || 'Training run')}</span>
       ${desc ? `<span class="galdesc">${esc(desc)}</span>` : ''}
       <span class="galmeta">${state}</span>`;
     if (r.thumb) b.prepend(Object.assign(new Image(), { src: URL.createObjectURL(r.thumb), alt: '' }));
-    armTrash(b.querySelector('.run-x'), async () => {
-      await deleteRun(r.id);
-      b.remove();
+    const openRun = () => restoreSession({
+      url: URL.createObjectURL(r.sog),
+      reconUrl: URL.createObjectURL(new Blob([JSON.stringify(r.recon)], { type: 'application/json' })),
+      localRun: r,
     });
+    tileMenu(b.querySelector('.run-menu'), [
+      r.sog && r.recon && { label: 'View', act: openRun },
+      (r.sog || r.ownSrc) && { label: 'Train', act: () => { S._localRun = r; trainLocalChoice(); } },
+      r.sog && r.recon && { label: 'Share', act: () => shareDialog(r) },
+      { label: 'Delete', danger: true, act: async () => { await deleteRun(r.id); b.remove(); } },
+    ]);
     b.addEventListener('click', () => {
       if (r.sog && r.recon) {
         restoreSession({
@@ -2446,14 +2484,16 @@ function uploadDialog() {
 
 /** Share the finished run: one link that opens the viewer (tour + compare
  *  + stats) with an arrival space behind it. Same sign-in as Upload. */
-function shareDialog() {
+function shareDialog(rec = null) {
+  // rec: share a STORED local scene (sog + recon + thumb from IndexedDB) —
+  // no live session required
   document.getElementById('upcard')?.remove();
   const card = document.createElement('div');
   card.className = 'upcard';
   card.id = 'upcard';
   // preset photographs already live on public URLs — only own captures
   // need uploading for the viewer-side comparison
-  const needsPhotos = !(S.loadedFiles || []).length || !(S.loadedFiles || []).every((f) => f.url);
+  const needsPhotos = !rec && (!(S.loadedFiles || []).length || !(S.loadedFiles || []).every((f) => f.url));
   const photoMb = ((S.loadedFiles || []).reduce((a, f) => a + ((f.source || f).size || 0), 0) / 1e6).toFixed(0);
   card.innerHTML = `
     <b>Share this creation</b>
@@ -2471,7 +2511,8 @@ function shareDialog() {
     </div>`;
   $('stage').appendChild(card);
   const input = card.querySelector('#sh-title');
-  input.value = S.preset.id === '__own' ? 'My splat' : S.preset.name;
+  input.value = rec ? (rec.name || 'Local Scene')
+    : (S.preset.id === '__own' ? 'My splat' : S.preset.name);
   input.focus();
   input.select();
   const close = () => card.remove();
@@ -2493,10 +2534,11 @@ function shareDialog() {
     S.uploading = true;
     try {
       const { shareCreation } = await import('./share.js');
-      const sog = await getSogBlob();
-      const thumb = (await photoThumb()) || (await renderShareThumb());
+      const sog = rec ? rec.sog : await getSogBlob();
+      const thumb = rec ? (rec.thumb || null) : ((await photoThumb()) || (await renderShareThumb()));
       const { spaceId, spaceUrl, link } = await shareCreation(S, sog, {
         title, privacy, includePhotos, thumbBlob: thumb, popup,
+        ...(rec ? { recon: rec.recon } : {}),
         onStatus: (m) => flash(m, 120000),
         onProgress: (pct) => flash(`Uploading … ${pct}%`, 120000),
       });

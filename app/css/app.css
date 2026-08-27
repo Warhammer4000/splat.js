@@ -211,21 +211,30 @@ body { overflow: hidden; }
    thumbnail can look exactly like a share's when the capture WAS of that
    scene (the badge needs the tile as its positioning box) */
 .galtile { position: relative; }
-.galtile .run-x {
-  position: absolute; top: 8px; right: 8px; z-index: 2;
-  width: 34px; height: 34px; border-radius: 50%; border: 0; cursor: pointer;
-  background: rgba(10, 14, 14, .65); color: var(--muted);
-  font: 500 12px/1 var(--ui); display: none;
-  align-items: center; justify-content: center;
+/* the tile's options button — a round, always-visible "⋯" */
+.galtile .run-menu {
+  position: absolute; top: 16px; right: 16px; z-index: 2;
+  width: 36px; height: 36px; border-radius: 50%; border: 0; cursor: pointer;
+  background: rgba(10, 14, 14, .72); color: #fff;
+  font: 700 18px/1 var(--ui); letter-spacing: .02em;
+  display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(4px);
 }
-.galtile .run-x svg { width: 17px; height: 17px; display: block; margin: auto; }
-.galtile:hover .run-x { display: block; }
-.galtile .run-x:hover { color: #fff; background: rgba(10, 14, 14, .9); }
-.galtile .run-x.armed {
-  width: auto; padding: 0 12px; border-radius: var(--pill);
-  color: #fff; background: rgba(178, 58, 58, .92);
-  font: 500 11px var(--ui);
+.galtile .run-menu:hover { background: rgba(10, 14, 14, .92); }
+.tilemenu {
+  position: absolute; top: 58px; right: 16px; z-index: 6;
+  display: grid; gap: 2px; padding: 6px; min-width: 150px;
+  background: rgba(18, 22, 23, .97); border: 1px solid var(--line-2);
+  border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
 }
+.tilemenu button {
+  text-align: left; padding: 9px 12px; border-radius: 8px;
+  background: none; border: 0; cursor: pointer;
+  color: var(--paper); font: 500 13.5px var(--ui);
+}
+.tilemenu button:hover { background: rgba(255, 255, 255, .07); }
+.tilemenu button.danger { color: #ff8585; }
+.tilemenu button.danger.armed { background: rgba(178, 58, 58, .92); color: #fff; }
 .galtile .yours {
   position: absolute; top: 6px; right: 6px; z-index: 1;
   padding: 1px 6px 2px; border-radius: 5px;
@@ -881,4 +890,3 @@ a.cbtn { text-decoration: none; }
 @media (max-width: 640px) {
   .detail-hero { max-height: 160px; }
 }
-@media (any-pointer: coarse) { .galtile .run-x { display: block; } }
