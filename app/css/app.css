@@ -179,6 +179,14 @@ body { overflow: hidden; }
    thumbnail can look exactly like a share's when the capture WAS of that
    scene (the badge needs the tile as its positioning box) */
 .galtile { position: relative; }
+.galtile .run-x {
+  position: absolute; top: 6px; right: 6px; z-index: 2;
+  width: 22px; height: 22px; border-radius: 50%; border: 0; cursor: pointer;
+  background: rgba(10, 14, 14, .65); color: var(--muted);
+  font: 500 14px/1 var(--ui); display: none;
+}
+.galtile:hover .run-x { display: block; }
+.galtile .run-x:hover { color: #fff; background: rgba(10, 14, 14, .9); }
 .galtile .yours {
   position: absolute; top: 6px; right: 6px; z-index: 1;
   padding: 1px 6px 2px; border-radius: 5px;
@@ -825,3 +833,4 @@ a.cbtn { text-decoration: none; }
 @media (max-width: 640px) {
   .detail-hero { max-height: 160px; }
 }
+@media (any-pointer: coarse) { .galtile .run-x { display: block; } }

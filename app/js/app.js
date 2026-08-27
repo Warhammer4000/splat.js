@@ -551,6 +551,46 @@ async function lastCaptureTile() {
   return b;
 }
 
+/** tiles for the local runs library — every training run this device has
+ *  started. Finished runs reopen in the viewer straight from their stored
+ *  result; interrupted ones stay listed (and deletable) as a record. */
+async function localRunTiles() {
+  const { listRuns, deleteRun } = await import('./store.js');
+  const runs = await listRuns();
+  return runs.map((r) => {
+    const b = document.createElement('div');
+    b.className = 'galtile';
+    b.style.cursor = r.sog ? 'pointer' : 'default';
+    const when = new Date(r.createdAt).toLocaleDateString();
+    const state = r.status === 'finished'
+      ? `${fmt(r.iter || 0)} cycles${r.psnr != null ? ` · ${(+r.psnr).toFixed(1)} dB` : ''}`
+      : (S.runId === r.id && S.state === 'train')
+        ? `training now · ${fmt(r.iter || 0)} cycles`
+        : `interrupted · ${fmt(r.iter || 0)} cycles`;
+    b.innerHTML = `<i class="yours">this device</i>
+      <button class="run-x" title="Remove from this device">&times;</button>
+      <span class="galname">${esc(r.name || 'Training run')}</span>
+      <span class="galmeta">${state} · ${when}</span>`;
+    if (r.thumb) b.prepend(Object.assign(new Image(), { src: URL.createObjectURL(r.thumb), alt: '' }));
+    b.querySelector('.run-x').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await deleteRun(r.id);
+      b.remove();
+    });
+    b.addEventListener('click', () => {
+      if (r.sog && r.recon) {
+        restoreSession({
+          url: URL.createObjectURL(r.sog),
+          reconUrl: URL.createObjectURL(new Blob([JSON.stringify(r.recon)], { type: 'application/json' })),
+        });
+      } else if (!(S.runId === r.id && S.state === 'train')) {
+        flash('This run stopped before finishing — no result was kept, only this record.', 5000);
+      }
+    });
+    return b;
+  });
+}
+
 /** the first `cnt` photos of a preset, honouring its skip list */
 function presetPhotoList(preset, cnt) {
   const skip = new Set(preset.skip || []);
@@ -1160,6 +1200,30 @@ function buildSceneFromSession() {
 function startTraining() {
   S.state = 'train';
   S.trainT0 = performance.now();
+  // local library: every run is listed from the moment it starts — a small
+  // record now, the finished result later (see finish())
+  S.runId = `run_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+  (async () => {
+    let thumb = null;
+    try {
+      const p = S.photos && S.photos[0];
+      if (p && p.url) {
+        const bmp = await createImageBitmap(await (await fetch(p.url)).blob(), { resizeWidth: 320 });
+        const cv = document.createElement('canvas');
+        cv.width = bmp.width; cv.height = bmp.height;
+        cv.getContext('2d').drawImage(bmp, 0, 0);
+        bmp.close();
+        thumb = await new Promise((res) => cv.toBlob(res, 'image/webp', 0.8));
+      }
+    } catch { /* the tile just goes textless */ }
+    const { saveRun } = await import('./store.js');
+    await saveRun({
+      id: S.runId, name: (S.preset && S.preset.name) || 'Your photos',
+      status: 'training', createdAt: Date.now(), updatedAt: Date.now(),
+      iter: 0, maxIters: S.maxIters, splats: S.splats || 0, psnr: null,
+      frames: (S.photos || []).length, thumb,
+    });
+  })().catch(() => {});
   const first = S.scene.cams.find((c) => c.R && c.state !== 'holdout') || S.scene.cams[0];
   if (first && first.R) {
     S.sel = first.i;
@@ -1192,6 +1256,13 @@ function onMetrics(m) {
   S.iter = m.iter;
   S.splats = m.splats;
   S.itersPerSec = m.itersPerSec;
+  // local library: keep the run record roughly current (survives a closed tab)
+  if (S.runId && (!S._runSaveT || performance.now() - S._runSaveT > 20000)) {
+    S._runSaveT = performance.now();
+    import('./store.js').then(({ patchRun }) => patchRun(S.runId, {
+      iter: m.iter, splats: m.splats, psnr: m.psnrTrain ?? null,
+    })).catch(() => {});
+  }
   // LOD training: hold the model at each detail level for a polish window,
   // snapshot it, then raise the growth limit and move on
   const LP = S.lodPlan;
@@ -1330,7 +1401,29 @@ async function finish() {
   // cache the export now, while the device is certainly alive — iOS can
   // reclaim it from a backgrounded tab, and the readback path dies with it
   S.plyBlob = null; S.sogBlob = null;
-  S.session.exportPlyBlob().then((b) => { S.plyBlob = b; }).catch(() => {});
+  S.session.exportPlyBlob().then(async (b) => {
+    S.plyBlob = b;
+    // local library: a finished run's result is kept on this device — the
+    // sog + camera path + a render thumb, restorable from the Yours tab
+    if (!S.runId) return;
+    const runId = S.runId, gen = S.gen;
+    try {
+      const { plyToSog } = await import('./sog.js');
+      const sog = await plyToSog(new Uint8Array(await b.arrayBuffer()), {});
+      if (S.gen !== gen) return; // a new run started while compressing
+      S.sogBlob = sog;
+      const { buildReconJson } = await import('./session_io.js');
+      const recon = buildReconJson(S);
+      const thumb = await renderShareThumb();
+      const { patchRun } = await import('./store.js');
+      await patchRun(runId, {
+        status: 'finished', iter: S.iter, splats: S.splats,
+        psnr: S.psnrHold ?? null, minutes: S.minutes,
+        sog, recon, ...(thumb ? { thumb } : {}),
+      });
+      flash('Result saved on this device — it stays under Yours', 5000);
+    } catch (e) { console.warn('local save failed', e); }
+  }).catch(() => {});
   if (PERF.on) perfCard();
   scoreFrames();
 }
@@ -2282,12 +2375,13 @@ function creationTile(it, mine) {
 async function mountWall() {
   try {
     const { fetchGallery } = await import('./share.js');
-    const [{ items }, capTile, capTileWall] = await Promise.all([
+    const [{ items }, capTile, capTileWall, runTiles] = await Promise.all([
       fetchGallery({ count: 12 }),
       lastCaptureTile().catch(() => null),
       lastCaptureTile().catch(() => null),   // second instance for Scenes
+      localRunTiles().catch(() => []),
     ]);
-    const localTab = hasToken() || !!capTile;
+    const localTab = hasToken() || !!capTile || runTiles.length > 0;
     if ((!items || !items.length) && !localTab) return;
     const host = $('gallery');
     host.innerHTML = `
@@ -2308,7 +2402,10 @@ async function mountWall() {
     dragScroll(row);
     host.hidden = false;
     const mp = host.querySelector('[data-pane="mine"]');
-    if (mp && capTile) mp.appendChild(capTile);
+    if (mp) {
+      for (const t of runTiles) mp.appendChild(t); // newest runs lead
+      if (capTile) mp.appendChild(capTile);
+    }
     let sharesLoaded = !hasToken();
     host.querySelectorAll('[data-tab]').forEach((t) => t.addEventListener('click', async () => {
       host.querySelectorAll('[data-tab]').forEach((x) => x.classList.toggle('on', x === t));
@@ -2319,10 +2416,10 @@ async function mountWall() {
         sharesLoaded = true;
         const { fetchMine } = await import('./share.js');
         const my = await fetchMine();
-        if ((!my || !my.length) && !capTile) { mp.innerHTML = '<span class="galmeta" style="padding:12px 4px">Nothing of yours yet — capture a place or finish a run and press Share.</span>'; return; }
+        if ((!my || !my.length) && !capTile && !runTiles.length) { mp.innerHTML = '<span class="galmeta" style="padding:12px 4px">Nothing of yours yet — capture a place or finish a run and press Share.</span>'; return; }
         // same look as the Scenes tiles — no management strip here
         for (const it of (my || [])) mp.appendChild(creationTile(it, false));
-        if (!capTile) dragScroll(mp);
+        if (!capTile && !runTiles.length) dragScroll(mp);
       }
     }));
   } catch (e) { /* the wall is decoration — never block the app on it */ }
