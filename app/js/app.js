@@ -396,16 +396,24 @@ function boot() {
   $('about-gh').href = REPO;
   // the brand: on the home tile view (nothing open) it tells the story —
   // the About sheet; from inside a scene it stays the way back home
+  const openAbout = () => {
+    $('about').hidden = false;
+    // a pushed UI state: the phone's Back closes the sheet, not the app
+    if (!(history.state && history.state.sj)) history.pushState({ sj: 'about' }, '');
+  };
   $('brand').addEventListener('click', () => {
     const atHome = !$('start').hidden && $('detail').hidden;
-    if (atHome) $('about').hidden = false;
+    if (atHome) openAbout();
     else location.href = 'index.html';
   });
   $('read-more').addEventListener('click', (e) => {
     e.preventDefault(); e.stopPropagation();
-    $('about').hidden = false;
+    openAbout();
   });
-  $('about-x').addEventListener('click', () => { $('about').hidden = true; });
+  $('about-x').addEventListener('click', () => {
+    if (history.state && history.state.sj === 'about') { history.back(); return; }
+    $('about').hidden = true;
+  });
   $('about').addEventListener('click', (e) => {
     if (!e.target.closest('.about-card')) $('about').hidden = true;
   });
@@ -447,6 +455,8 @@ function boot() {
     $('start').appendChild($('gallery'));
     $('detail-body').append($('set-desc'), document.querySelector('.startrow'), $('settings'));
     $('detail-back').addEventListener('click', () => {
+      // route through history so the phone's Back gesture stays in sync
+      if (history.state && history.state.sj === 'detail') { history.back(); return; }
       S.pendingShare = null;
       $('detail').hidden = true;
       $('start').hidden = false;
@@ -973,6 +983,9 @@ const beatIndex = (stage) =>
 
 async function startPrep() {
   document.getElementById('failcard')?.remove();
+  // consume the detail-card history entry — Back during a run must not
+  // resurrect a card that no longer applies
+  if (history.state && history.state.sj) history.replaceState(null, '');
   const gen = S.gen;
   $('start').hidden = true;
   $('detail').hidden = true;
@@ -2622,7 +2635,22 @@ function showDetail(setOrPreset) {
   $('btn-go').disabled = !!S.noGpu;
   $('start').hidden = true;
   $('detail').hidden = false;
+  // the card is a navigable UI state: Back must close IT, not leave the app
+  if (!(history.state && history.state.sj === 'detail')) {
+    history.pushState({ sj: 'detail' }, '');
+  }
 }
+
+// Back closes pushed UI layers (detail card, About) instead of navigating
+// away — the browser's history walks the same steps the visitor sees
+addEventListener('popstate', () => {
+  if (!$('about').hidden) { $('about').hidden = true; return; }
+  if (!$('detail').hidden) {
+    S.pendingShare = null;
+    $('detail').hidden = true;
+    $('start').hidden = false;
+  }
+});
 
 /** The creation's recon json (plain or store-zipped) — the photographs and
  *  cameras a "train this yourself" run needs. */
