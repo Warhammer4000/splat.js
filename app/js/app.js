@@ -526,8 +526,11 @@ async function lastCaptureTile() {
   b.title = `${rec.files.length} frames, saved on this device`;
   // the badge keeps it apart from the shares — a capture OF a known scene
   // makes the thumbnails near-identical
+  const capName = rec.created
+    ? `Captured ${new Date(rec.created).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`
+    : 'Last capture';
   b.innerHTML = `<i class="yours">this device</i>
-    <span class="galname">Last capture</span>
+    <span class="galname">${capName}</span>
     <span class="galmeta">${rec.files.length} frames · never uploaded</span>`;
   const img = Object.assign(new Image(), { src: URL.createObjectURL(rec.files[0].blob), alt: '' });
   b.prepend(img);
@@ -2409,54 +2412,46 @@ function creationTile(it, mine) {
  *  (management: privacy, link, delete). An empty wall stays invisible. */
 async function mountWall() {
   try {
-    const { fetchGallery } = await import('./share.js');
-    const [{ items }, capTile, capTileWall, runTiles] = await Promise.all([
+    const { fetchGallery, fetchMine } = await import('./share.js');
+    const [{ items }, capTile, runTiles, myShares] = await Promise.all([
       fetchGallery({ count: 12 }),
       lastCaptureTile().catch(() => null),
-      lastCaptureTile().catch(() => null),   // second instance for Scenes
       localRunTiles().catch(() => []),
+      hasToken() ? fetchMine().catch(() => []) : Promise.resolve([]),
     ]);
-    const localTab = hasToken() || !!capTile || runTiles.length > 0;
-    if ((!items || !items.length) && !localTab) return;
+    // ONE list, the visitor first: their capture, their runs, their shares
+    // always lead; the presets follow behind a slim divider. (The old
+    // Presets/Yours tabs became redundant the moment own content led.)
+    const own = [];
+    if (capTile) own.push(capTile);
+    for (const t of runTiles) own.push(t);
+    for (const it of (myShares || [])) own.push(creationTile(it, false));
+    if ((!items || !items.length) && !own.length) return;
     const host = $('gallery');
     host.innerHTML = `
-      <div class="orline galtabs"><span><b data-tab="community" class="on">Presets</b>${localTab ? `<b data-tab="mine">Yours</b>` : ''}</span></div>
-      <div class="galrow" data-pane="community"></div>
-      ${localTab ? '<div class="galrow" data-pane="mine" hidden></div>' : ''}`;
-    const row = host.querySelector('[data-pane="community"]');
-    // the visitor's own capture leads the wall; then the official presets
-    // (pinned first via splatjs.pin, otherwise newest-first), and OTHER
-    // users' shared scenes close the feed — the space id carries its owner
-    if (capTileWall) row.appendChild(capTileWall);
+      <div class="orline"><span>Scenes</span></div>
+      <div class="galrow" data-pane="all"></div>`;
+    const row = host.querySelector('[data-pane="all"]');
+    for (const t of own) row.appendChild(t);
+    // official presets (pinned first via splatjs.pin, otherwise newest),
+    // then OTHER users' shared scenes — the space id carries its owner
     const OFFICIAL = '42485456_';
     const keyOf = (x) => (String(x.id).startsWith(OFFICIAL)
       ? ((x.splatjs && x.splatjs.pin) || 9e9)
       : 1e12);
-    const ordered = (items || []).slice().sort((a, b) => keyOf(a) - keyOf(b));
+    const mineIds = new Set((myShares || []).map((x) => String(x.id)));
+    const ordered = (items || []).slice()
+      .filter((x) => !mineIds.has(String(x.id)))   // no duplicate of an own share
+      .sort((a, b) => keyOf(a) - keyOf(b));
+    if (own.length && ordered.length) {
+      const sep = document.createElement('div');
+      sep.className = 'galsep';
+      sep.innerHTML = '<span>Presets</span>';
+      row.appendChild(sep);
+    }
     for (const it of ordered) row.appendChild(creationTile(it, false));
     dragScroll(row);
     host.hidden = false;
-    const mp = host.querySelector('[data-pane="mine"]');
-    if (mp) {
-      for (const t of runTiles) mp.appendChild(t); // newest runs lead
-      if (capTile) mp.appendChild(capTile);
-    }
-    let sharesLoaded = !hasToken();
-    host.querySelectorAll('[data-tab]').forEach((t) => t.addEventListener('click', async () => {
-      host.querySelectorAll('[data-tab]').forEach((x) => x.classList.toggle('on', x === t));
-      const mine = t.dataset.tab === 'mine';
-      host.querySelector('[data-pane="community"]').hidden = mine;
-      if (mp) mp.hidden = !mine;
-      if (mine && !sharesLoaded) {
-        sharesLoaded = true;
-        const { fetchMine } = await import('./share.js');
-        const my = await fetchMine();
-        if ((!my || !my.length) && !capTile && !runTiles.length) { mp.innerHTML = '<span class="galmeta" style="padding:12px 4px">Nothing of yours yet — capture a place or finish a run and press Share.</span>'; return; }
-        // same look as the Scenes tiles — no management strip here
-        for (const it of (my || [])) mp.appendChild(creationTile(it, false));
-        if (!capTile && !runTiles.length) dragScroll(mp);
-      }
-    }));
   } catch (e) { /* the wall is decoration — never block the app on it */ }
 }
 

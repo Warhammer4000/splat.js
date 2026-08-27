@@ -766,6 +766,15 @@ a.cbtn { text-decoration: none; }
 .galmeta { font: 400 12px var(--mono); color: var(--dim); letter-spacing: .02em; }
 
 /* wall tabs + the Mine management strip */
+/* the divider where the visitor's own tiles end and the presets begin —
+   shown only when both sides exist (the wall is ONE list, own-first) */
+.galsep {
+  width: min(640px, 100%);
+  display: flex; align-items: center; gap: 12px;
+  color: var(--dim); font: 400 11px var(--mono);
+  letter-spacing: .1em; text-transform: uppercase;
+}
+.galsep::before, .galsep::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 .galtabs { width: min(640px, 100%); margin-left: auto; margin-right: auto; }
 .galtabs span { display: inline-flex; gap: 14px; }
 /* the wall header speaks exactly like the Benchmarks label; with two tabs
