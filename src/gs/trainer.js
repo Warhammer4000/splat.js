@@ -1074,6 +1074,32 @@ export class GSTrainer {
     return { moved: dead.length, grown, n: this.n, maxTile, overflow: this.entryOverflowTiles || 0 };
   }
 
+  /** Cheap health probe: sample the head of the params buffer. iOS Safari
+   *  can purge WebGPU buffer contents from a backgrounded tab WITHOUT firing
+   *  device-loss — the model keeps "training" on zeroed or garbage state.
+   *  Returns false when the sample is all-zero / non-finite / unreadable. */
+  async sanityProbe() {
+    try {
+      const d = this.device;
+      const bytes = Math.min(this.n, 64) * STRIDE * 4;
+      const rb = d.createBuffer({ size: bytes, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+      const enc = d.createCommandEncoder();
+      enc.copyBufferToBuffer(this.bufParams, 0, rb, 0, bytes);
+      d.queue.submit([enc.finish()]);
+      await rb.mapAsync(GPUMapMode.READ);
+      const v = new Float32Array(rb.getMappedRange());
+      let nonzero = false;
+      for (let i = 0; i < v.length; i++) {
+        if (!Number.isFinite(v[i])) { rb.unmap(); rb.destroy(); return false; }
+        if (v[i] !== 0) nonzero = true;
+      }
+      rb.unmap(); rb.destroy();
+      return nonzero;
+    } catch {
+      return false; // unreadable = the device is gone in all but name
+    }
+  }
+
   /** Read back current Gaussian parameters (+ SH coeffs when enabled). */
   async readGaussians() {
     const d = this.device;

@@ -1369,6 +1369,41 @@ async function deviceLostRecovery() {
   }
 }
 
+// ── iOS background guard ────────────────────────────────────────────────────
+// iOS purges WebGPU buffer contents from hidden tabs WITHOUT firing
+// device-loss: the worker-tick loop then keeps training a zeroed/garbage
+// model (seen in the wild: PSNR cliff mid-run, smeared splats, iter count
+// intact). On iOS training PAUSES while hidden; on return a params probe
+// decides between resuming and an honest restart. Desktop keeps its
+// background-training behavior — the corruption is iOS-specific.
+const IOS = /iP(hone|ad|od)/.test(navigator.userAgent) ||
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+if (IOS) document.addEventListener('visibilitychange', () => {
+  if (!S.session || S.state !== 'train') return;
+  if (document.visibilityState === 'hidden') {
+    if (S.session.training) {
+      S._bgPaused = true;
+      S.session.pause();
+    }
+  } else if (S._bgPaused) {
+    S._bgPaused = false;
+    const gen = S.gen;
+    (async () => {
+      const tr = S.session && S.session.trainer;
+      const ok = tr && tr.sanityProbe ? await tr.sanityProbe() : true;
+      if (S.gen !== gen || S.state !== 'train') return;
+      if (ok) {
+        S.session.start();
+        flash('Welcome back — training resumes.', 3500);
+      } else {
+        // the buffers didn't survive the background trip
+        flash('iOS cleared the model while the tab was hidden — restarting the training run.', 9000);
+        deviceLostRecovery();
+      }
+    })().catch(() => {});
+  }
+});
+
 async function finish() {
   S.state = 'done';
   S.iter = S.session.trainer.iter;   // honest count — the run may end early
