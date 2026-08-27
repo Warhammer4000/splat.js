@@ -13,6 +13,14 @@ body {
   height: 100dvh;
   overflow: hidden;
 }
+/* iOS: fill the LARGE viewport so the page renders beneath the floating
+   Safari bar (viewport-fit=cover is set); interactive bottom content keeps
+   itself reachable via safe-area padding instead of stopping short */
+@supports (height: 100lvh) {
+  body { height: 100lvh; }
+  .card-start { height: calc(100lvh - 52px); }
+}
+.strip { padding-bottom: env(safe-area-inset-bottom, 0px); }
 
 /* ── bar ─────────────────────────────────────────────────────────────────── */
 
@@ -103,7 +111,9 @@ body { overflow: hidden; }
   position: fixed; z-index: 40; inset: 0; top: 52px; margin: 0;
   width: 100%; height: calc(100% - 52px); max-height: none; overflow-y: auto;
   touch-action: pan-y;   /* its own scroll works despite the stage's none */
-  padding: 58px 30px 26px; text-align: center;   /* the top gap is the × its own row */
+  /* bottom padding clears the iOS floating bar: the card renders under it,
+     the last tile still scrolls fully into view */
+  padding: 58px 30px calc(26px + env(safe-area-inset-bottom, 0px)); text-align: center;   /* the top gap is the × its own row */
   background: rgba(14, 17, 18, .9); backdrop-filter: blur(12px);
   /* minmax(0,1fr): the column is the CONTAINER's width — a wide child (the
      wall's tile row) must scroll inside it, not inflate the track and shove
