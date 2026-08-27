@@ -1355,8 +1355,17 @@ function startTraining() {
     } catch { /* the tile just goes textless */ }
     const { saveRun } = await import('./store.js');
     const pid = String((S.preset && S.preset.id) || '');
+    // own scenes are named as SCENES, dated like their capture — "Your
+    // photos" described the input, not the result. A continued run keeps
+    // the name it already carries.
+    let runName = (S.preset && S.preset.name) || 'Your photos';
+    if ((pid === '__own' || pid === '__last') && (runName === 'Your photos' || pid === '__last')) {
+      const cap = S.capDates && S.photos && S.photos[0] ? S.capDates.get(S.photos[0].name) : null;
+      const d = cap ? new Date(cap) : new Date();
+      runName = `Scene from ${d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
+    }
     await saveRun({
-      id: S.runId, name: (S.preset && S.preset.name) || 'Your photos',
+      id: S.runId, name: runName,
       status: 'training', createdAt: Date.now(), updatedAt: Date.now(),
       iter: 0, maxIters: S.maxIters, splats: S.splats || 0, psnr: null,
       frames: (S.photos || []).length, thumb,
