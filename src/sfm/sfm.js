@@ -313,6 +313,17 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
   // 27.2, synthetic 43.0/40.8) with worker extraction + GPU matching keeping
   // it fast. features:'brief' restores the old binary pipeline.
   const useSift = opts.features !== 'brief';
+  // the landmark budget scales with feature AREA — a fixed 3900 spread over
+  // 1600px images is 2.8x sparser than at 960 and the weakened match chains
+  // DOUBLED camping's trajectory error. 3900 at 960px is COLMAP-parity
+  // density; the 8192 ceiling is COLMAP's own default cap (and our MAXF).
+  // An explicit opts.siftFeats always wins.
+  if (!opts.siftFeats) {
+    const featDim = Math.max(1, ...images.map((im) => Math.max(im.fw || 0, im.fh || 0)));
+    const scaled = Math.round(3900 * Math.pow(featDim / 960, 2));
+    opts = { ...opts, siftFeats: Math.max(3900, Math.min(8192, scaled)) };
+    if (opts.siftFeats > 3900) log(`feature budget ${opts.siftFeats} (density-scaled for ${featDim}px)`);
+  }
   log(`detecting features in ${n} images ...`);
   const feats = [];
   if (useSift && typeof Worker !== 'undefined' && opts.workers !== false) {
