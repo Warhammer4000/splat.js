@@ -560,13 +560,13 @@ async function lastCaptureTile() {
   b.title = `${rec.files.length} frames, saved on this device`;
   // the badge keeps it apart from the shares — a capture OF a known scene
   // makes the thumbnails near-identical
-  const capName = rec.created
-    ? `Captured ${new Date(rec.created).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`
-    : 'Last capture';
+  const capWhen = rec.created
+    ? new Date(rec.created).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : null;
   b.innerHTML = `
     <button class="run-x" title="Remove from this device">${TRASH_ICON}</button>
-    <span class="galname">${capName}</span>
-    <span class="galmeta">${rec.files.length} frames · local</span>`;
+    <span class="galname">${rec.files.length} photos</span>
+    <span class="galmeta">${capWhen ? `${capWhen} · ` : ''}local</span>`;
   const img = Object.assign(new Image(), { src: URL.createObjectURL(rec.files[0].blob), alt: '' });
   b.prepend(img);
   armTrash(b.querySelector('.run-x'), async () => {
