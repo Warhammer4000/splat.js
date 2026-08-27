@@ -394,9 +394,13 @@ function boot() {
 
   $('gh').href = REPO;
   $('about-gh').href = REPO;
-  // the brand is simply the way home; the About sheet lives behind the
-  // hero's Read-more link instead
-  $('brand').addEventListener('click', () => { location.href = 'index.html'; });
+  // the brand: on the home tile view (nothing open) it tells the story —
+  // the About sheet; from inside a scene it stays the way back home
+  $('brand').addEventListener('click', () => {
+    const atHome = !$('start').hidden && $('detail').hidden;
+    if (atHome) $('about').hidden = false;
+    else location.href = 'index.html';
+  });
   $('read-more').addEventListener('click', (e) => {
     e.preventDefault(); e.stopPropagation();
     $('about').hidden = false;
