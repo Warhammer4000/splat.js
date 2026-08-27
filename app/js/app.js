@@ -762,6 +762,7 @@ function showPicker() {
   paintCard(S.preset);
   $('card-x').hidden = false;
   $('start').hidden = false;
+  mountWall(); // rebuilt: a just-finished run's tile must already be there
 }
 
 function closePicker() {
@@ -2710,6 +2711,7 @@ function closeViewerToHome() {
   $('detail').hidden = true;
   dock('');
   $('start').hidden = false;
+  mountWall(); // fresh tiles — runs may have finished or been added since
 }
 
 /** The creation's recon json (plain or store-zipped) — the photographs and
