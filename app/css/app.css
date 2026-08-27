@@ -187,6 +187,11 @@ body { overflow: hidden; }
 }
 .galtile:hover .run-x { display: block; }
 .galtile .run-x:hover { color: #fff; background: rgba(10, 14, 14, .9); }
+.galtile .run-x.armed {
+  width: auto; padding: 0 12px; border-radius: var(--pill);
+  color: #fff; background: rgba(178, 58, 58, .92);
+  font: 500 11px var(--ui);
+}
 .galtile .yours {
   position: absolute; top: 6px; right: 6px; z-index: 1;
   padding: 1px 6px 2px; border-radius: 5px;

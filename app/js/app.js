@@ -580,6 +580,19 @@ async function localRunTiles() {
     if (r.thumb) b.prepend(Object.assign(new Image(), { src: URL.createObjectURL(r.thumb), alt: '' }));
     b.querySelector('.run-x').addEventListener('click', async (e) => {
       e.stopPropagation();
+      const btn = e.currentTarget;
+      // two-step: arm first, delete on the second tap within 3s
+      if (btn.dataset.armed !== '1') {
+        btn.dataset.armed = '1';
+        btn.textContent = 'Delete?';
+        btn.classList.add('armed');
+        setTimeout(() => {
+          btn.dataset.armed = '';
+          btn.innerHTML = '&times;';
+          btn.classList.remove('armed');
+        }, 3000);
+        return;
+      }
       await deleteRun(r.id);
       b.remove();
     });
