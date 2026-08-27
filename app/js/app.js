@@ -1607,7 +1607,8 @@ async function finish() {
       const { patchRun } = await import('./store.js');
       await patchRun(runId, {
         status: 'finished', iter: S.iter, splats: S.splats,
-        psnr: S.psnrHold ?? null, minutes: S.minutes,
+        // app runs train every photo (holdout -1): train PSNR is the number
+        psnr: S.psnrHold ?? S.psnrTrain ?? null, minutes: S.minutes,
         sog, recon, ...(thumb ? { thumb } : {}),
       });
       flash('Result saved on this device — it stays under Yours', 5000);
