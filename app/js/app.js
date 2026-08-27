@@ -529,9 +529,9 @@ async function lastCaptureTile() {
   const capName = rec.created
     ? `Captured ${new Date(rec.created).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`
     : 'Last capture';
-  b.innerHTML = `<i class="yours">this device</i>
+  b.innerHTML = `
     <span class="galname">${capName}</span>
-    <span class="galmeta">${rec.files.length} frames · never uploaded</span>`;
+    <span class="galmeta">${rec.files.length} frames · local</span>`;
   const img = Object.assign(new Image(), { src: URL.createObjectURL(rec.files[0].blob), alt: '' });
   b.prepend(img);
   const makeSet = () => {
@@ -570,7 +570,7 @@ async function localRunTiles() {
       : (S.runId === r.id && S.state === 'train')
         ? `training now · ${fmt(r.iter || 0)} cycles`
         : `interrupted · ${fmt(r.iter || 0)} cycles`;
-    b.innerHTML = `<i class="yours">this device</i>
+    b.innerHTML = `
       <button class="run-x" title="Remove from this device">&times;</button>
       <span class="galname">${esc(r.name || 'Training run')}</span>
       <span class="galmeta">${state} · ${when}</span>`;
@@ -713,6 +713,65 @@ function closePicker() {
   $('btn-go').textContent = 'Start training';
 }
 
+/** EXIF DateTimeOriginal (ms since epoch) from a JPEG's APP1 block — null
+ *  when absent. lastModified is NOT a substitute on iOS: the picker often
+ *  transcodes on selection and stamps THAT moment, shuffling the walk. */
+async function exifCaptureTime(file) {
+  try {
+    const b = new Uint8Array(await file.slice(0, 262144).arrayBuffer());
+    if (b[0] !== 0xff || b[1] !== 0xd8) return null;
+    let p = 2;
+    while (p + 4 < b.length) {
+      if (b[p] !== 0xff) return null;
+      const m = b[p + 1];
+      if (m === 0xd8 || m === 0x01 || (m >= 0xd0 && m <= 0xd7)) { p += 2; continue; }
+      if (m === 0xda || m === 0xd9) return null; // image data: no EXIF ahead
+      const len = (b[p + 2] << 8) | b[p + 3];
+      if (m === 0xe1 && len > 10 && b[p + 4] === 0x45 && b[p + 5] === 0x78 &&
+          b[p + 6] === 0x69 && b[p + 7] === 0x66 && b[p + 8] === 0 && b[p + 9] === 0) {
+        return tiffDate(b, p + 10, Math.min(len - 8, b.length - (p + 10)));
+      }
+      p += 2 + len;
+    }
+    return null;
+  } catch { return null; }
+}
+function tiffDate(b, off, size) {
+  if (size < 8) return null;
+  const dv = new DataView(b.buffer, b.byteOffset + off, size);
+  const le = dv.getUint16(0) === 0x4949;
+  const u16 = (o) => dv.getUint16(o, le);
+  const u32 = (o) => dv.getUint32(o, le);
+  if (u16(2) !== 42) return null;
+  const scan = (ifdOff, tags) => {
+    const out = {};
+    if (ifdOff + 2 > size) return out;
+    const n = u16(ifdOff);
+    for (let i = 0; i < n; i++) {
+      const e = ifdOff + 2 + i * 12;
+      if (e + 12 > size) break;
+      const tag = u16(e);
+      if (tags.includes(tag)) out[tag] = { type: u16(e + 2), count: u32(e + 4), value: u32(e + 8) };
+    }
+    return out;
+  };
+  const ifd0 = scan(u32(4), [0x8769, 0x0132]);
+  let at = null;
+  if (ifd0[0x8769]) {
+    const exif = scan(ifd0[0x8769].value, [0x9003, 0x9004]); // DateTimeOriginal, Digitized
+    const d = exif[0x9003] || exif[0x9004];
+    if (d && d.type === 2 && d.count >= 19) at = d.value;
+  }
+  if (at == null && ifd0[0x0132] && ifd0[0x0132].type === 2 && ifd0[0x0132].count >= 19) at = ifd0[0x0132].value;
+  if (at == null || at + 19 > size) return null;
+  let s = '';
+  for (let i = 0; i < 19; i++) s += String.fromCharCode(dv.getUint8(at + i));
+  const mm = s.match(/^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})$/);
+  if (!mm) return null;
+  const t = new Date(+mm[1], +mm[2] - 1, +mm[3], +mm[4], +mm[5], +mm[6]).getTime();
+  return Number.isFinite(t) && t > 0 ? t : null;
+}
+
 async function useOwnPhotos(list) {
   const all = [...list];
   // video intake is OFF for now — the sharp-frame extraction is not good
@@ -728,6 +787,12 @@ async function useOwnPhotos(list) {
     flash('Pick at least a couple of overlapping photos of the same place.', 4500);
     return;
   }
+  // the phone picker hands files over in SELECTION order — restore the
+  // capture sequence (EXIF time, else file mtime, else numeric name order)
+  const stamps = new Map(await Promise.all(files.map(
+    async (f) => [f, (await exifCaptureTime(f)) ?? f.lastModified ?? 0])));
+  files.sort((a, b) => (stamps.get(a) - stamps.get(b)) ||
+    a.name.localeCompare(b.name, undefined, { numeric: true }));
   if (S.ownUrls) S.ownUrls.forEach(URL.revokeObjectURL);
   S.ownUrls = files.map((f) => URL.createObjectURL(f));
   // survive a refresh: the capture is kept on-device and offered back
@@ -2429,7 +2494,7 @@ async function mountWall() {
     if ((!items || !items.length) && !own.length) return;
     const host = $('gallery');
     host.innerHTML = `
-      <div class="orline"><span>Scenes</span></div>
+      <div class="orline"><span>${own.length ? 'This device' : 'Presets'}</span></div>
       <div class="galrow" data-pane="all"></div>`;
     const row = host.querySelector('[data-pane="all"]');
     for (const t of own) row.appendChild(t);
