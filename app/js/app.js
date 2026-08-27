@@ -2538,7 +2538,12 @@ async function renderShareThumb() {
     // creator opened the capture with
     const c = S.scene.cams.find((k) => k.R) || null;
     if (!c) return null;
-    const W = 640, H = 400;
+    // the thumb wears the hero camera's own aspect — a portrait scene
+    // rendered into a landscape frame pads itself with unreconstructed
+    // darkness that no display-side crop can remove
+    const ar = (c.w && c.h) ? c.w / c.h : 1.6;
+    const W = ar >= 1 ? 640 : Math.max(240, Math.round(400 * ar));
+    const H = Math.round(W / ar);
     const cv = document.createElement('canvas');
     cv.width = W; cv.height = H;
     ses.view.attach(cv);
