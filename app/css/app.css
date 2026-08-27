@@ -16,11 +16,33 @@ body {
 /* iOS: fill the LARGE viewport so the page renders beneath the floating
    Safari bar (viewport-fit=cover is set); interactive bottom content keeps
    itself reachable via safe-area padding instead of stopping short */
-@supports (height: 100lvh) {
-  body { height: 100lvh; }
-  .card-start { height: calc(100lvh - 52px); }
-}
 .strip { padding-bottom: env(safe-area-inset-bottom, 0px); }
+/* Phones, home view: the DOCUMENT scrolls. A fixed overlay with inner
+   scrolling never scrolls the page, so iOS keeps the URL pill expanded and
+   clamps the layer above it — the only way content renders beneath the bar
+   is real document flow: stage/strip hide behind the card anyway, the bar
+   goes sticky, and Safari collapses the pill as the visitor scrolls. */
+@media (max-width: 640px) {
+  body:has(#start:not([hidden])) {
+    display: block; height: auto; min-height: 100dvh; overflow-y: auto;
+  }
+  /* the card lives INSIDE the stage: the stage becomes plain flow, its
+     canvases and overlays sleep, the card is the page content */
+  body:has(#start:not([hidden])) .stage {
+    position: static; overflow: visible; height: auto; min-height: 0;
+  }
+  body:has(#start:not([hidden])) .stage > canvas,
+  body:has(#start:not([hidden])) .hud,
+  body:has(#start:not([hidden])) .strip,
+  body:has(#start:not([hidden])) .dock { display: none; }
+  body:has(#start:not([hidden])) .bar {
+    position: sticky; top: 0; z-index: 50; height: 52px;
+  }
+  body:has(#start:not([hidden])) #start {
+    position: static; height: auto; min-height: calc(100dvh - 52px);
+    width: auto; box-sizing: border-box; /* 100% + side padding overflowed */
+  }
+}
 
 /* ── bar ─────────────────────────────────────────────────────────────────── */
 
