@@ -1141,7 +1141,10 @@ async function startPrep() {
         // throughput for nothing.
         sfm: { workers: 3, uiYield: true },
       } : {}),
-      frames: phoneClass ? { ...(frames || {}), featMaxDim: 720 } : frames,
+      // phones solve at the desktop feature resolution again: 720 was part
+      // of the OOM firefight, but the real culprit was the UI bitmap cache —
+      // and feature res is the measured pose-precision ceiling
+      frames: phoneClass ? { ...(frames || {}), featMaxDim: 960 } : frames,
       trainer: Object.keys(trainerOpts).length ? trainerOpts : undefined,
     });
     S.session = session;
