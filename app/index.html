@@ -95,6 +95,12 @@
           <option value="960">960 px</option>
           <option value="1280">1280 px</option>
         </select></div>
+      <div class="setrow" title="Image dimension the camera solver finds its landmarks at. Higher = more precise camera poses (sharper splats), slower solve, more memory."><label for="set-feat">Solve resolution</label>
+        <select id="set-feat">
+          <option value="">Auto (960 px)</option>
+          <option value="1280">1280 px</option>
+          <option value="1600">1600 px</option>
+        </select></div>
       <div class="setrow" title="Render grid relative to the training resolution. 2× removes edge ringing at sharp viewing sizes (~1.7× slower); 0.5× quarters the raster work."><label for="set-buf">Working buffer</label>
         <select id="set-buf">
           <option value="0.5">0.5×</option>

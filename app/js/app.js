@@ -81,8 +81,8 @@ function deviceDefaults() {
   return phone
     // iters 10000 = the Draft macro exactly: a phone's first run should hit
     // the magic moment in ~5 minutes; the done screen offers +10k cycles
-    ? { v: 2, res: 480, buf: 1, sh: 0, iters: 10000, splats: 0, lod: false, mcmc: false }
-    : { v: 2, res: 0, buf: 1, sh: 3, iters: 0, splats: 0, lod: false, mcmc: false };
+    ? { v: 2, res: 480, feat: 0, buf: 1, sh: 0, iters: 10000, splats: 0, lod: false, mcmc: false }
+    : { v: 2, res: 0, feat: 0, buf: 1, sh: 3, iters: 0, splats: 0, lod: false, mcmc: false };
 }
 function loadSettings() {
   const d = deviceDefaults();
@@ -277,6 +277,7 @@ function boot() {
   const st = S.settings;
   const showSettings = () => {
     $('set-res').value = st.res ? String(st.res) : '';
+    $('set-feat').value = st.feat ? String(st.feat) : '';
     $('set-buf').value = String(st.buf);
     $('set-sh').value = String(st.sh);
     $('set-iters').value = st.iters ? String(st.iters) : '';
@@ -317,6 +318,7 @@ function boot() {
   });
   const readSettings = () => {
     st.res = parseInt($('set-res').value, 10) || 0;
+    st.feat = parseInt($('set-feat').value, 10) || 0;
     st.buf = parseFloat($('set-buf').value) || 1;
     st.sh = parseInt($('set-sh').value, 10);
     st.iters = parseInt($('set-iters').value, 10) || 0;
@@ -326,7 +328,7 @@ function boot() {
     showSettings();
     saveSettings();
   };
-  for (const id of ['set-res', 'set-buf', 'set-sh', 'set-iters', 'set-splats', 'set-lod', 'set-mcmc']) {
+  for (const id of ['set-res', 'set-feat', 'set-buf', 'set-sh', 'set-iters', 'set-splats', 'set-lod', 'set-mcmc']) {
     $(id).addEventListener('change', readSettings);
   }
   // count slider: live label while dragging, the (cheaper) photo-list rebuild
@@ -1066,12 +1068,13 @@ async function startPrep() {
     // settings -> session options: res caps the input scale, the working
     // buffer scales the supervision grid on top of whatever that yields
     const st = S.settings;
-    const frames = (st.res || st.buf !== 1 || EVAL.on) ? {
+    const frames = (st.res || st.feat || st.buf !== 1 || EVAL.on) ? {
       // benchmark mode pins NATIVE resolution: the adaptive memory budget
       // otherwise downscales big sets silently (truck-251 lands at 645px)
       // and PSNR at reduced resolution reads ~1 dB better than the papers'
       trainMaxDim: st.res || (EVAL.on ? 1600 : undefined),
       trainScale: st.buf !== 1 ? st.buf : undefined,
+      ...(st.feat ? { featMaxDim: st.feat } : {}),
     } : undefined;
     // every photo trains by default — held-out scoring is the ?eval
     // benchmark protocol (every Nth photo scored, never learned from)
@@ -1144,7 +1147,8 @@ async function startPrep() {
       // phones solve at the desktop feature resolution again: 720 was part
       // of the OOM firefight, but the real culprit was the UI bitmap cache —
       // and feature res is the measured pose-precision ceiling
-      frames: phoneClass ? { ...(frames || {}), featMaxDim: 960 } : frames,
+      // phone default 960 — an explicit Solve-resolution choice still wins
+      frames: phoneClass ? { featMaxDim: 960, ...(frames || {}) } : frames,
       trainer: Object.keys(trainerOpts).length ? trainerOpts : undefined,
     });
     S.session = session;
