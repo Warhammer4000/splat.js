@@ -1599,6 +1599,10 @@ async function finish() {
 async function restoreSession(src) {
   try {
     S._localRun = src.localRun || null; // set only by the local runs library
+    S._viewerOpen = true;
+    // the viewer is a navigable state: Back returns to the wall, never to
+    // whatever page happened to precede the app
+    if (!(history.state && history.state.sj)) history.pushState({ sj: 'viewer' }, '');
     $('start').hidden = true;
     flash('Loading the model …', 120000);
     // SOG + recon: the lite viewer — the engine renders the compressed splat
@@ -2126,6 +2130,8 @@ async function continueLocalRun() {
   S.gen++;
   const gen = S.gen;
   S.session = null; S.share = null; S.restored = null;
+  S._viewerOpen = false;
+  if (history.state && history.state.sj) history.replaceState(null, '');
   S.plyBlob = null; S.sogBlob = null;
   S.preset = { id: '__own', name: `${lr.name || 'Your photos'}` };
   S.photos = files.map((f, i) => ({ url: URL.createObjectURL(f), name: f.name, i }));
@@ -2641,16 +2647,39 @@ function showDetail(setOrPreset) {
   }
 }
 
-// Back closes pushed UI layers (detail card, About) instead of navigating
-// away — the browser's history walks the same steps the visitor sees
+// Back closes pushed UI layers (About sheet, the viewer, the detail card)
+// instead of navigating away — history walks the same steps the visitor sees
 addEventListener('popstate', () => {
   if (!$('about').hidden) { $('about').hidden = true; return; }
+  if (S._viewerOpen) { closeViewerToHome(); return; }
   if (!$('detail').hidden) {
     S.pendingShare = null;
     $('detail').hidden = true;
     $('start').hidden = false;
   }
 });
+
+/** Tear the restored viewer down and land on the wall — the SPA counterpart
+ *  of the old full-page navigation home. */
+function closeViewerToHome() {
+  stopTour();
+  try { S.session && S.session.dispose(); } catch (e) { /* view-only facade */ }
+  document.getElementById('cv-model')?.remove();
+  document.getElementById('share-hero')?.remove();
+  document.getElementById('ltchoice')?.remove();
+  gpuCanvas = null;
+  S.gen++;
+  S.session = null; S.share = null; S.restored = null; S._localRun = null;
+  S._viewerOpen = false;
+  S.plyBlob = null; S.sogBlob = null;
+  S.state = 'ready'; S.preset = null; S.photos = [];
+  S.scene = null; S.tour = null;
+  $('strip').innerHTML = '';
+  $('controls').hidden = true;
+  $('detail').hidden = true;
+  dock('');
+  $('start').hidden = false;
+}
 
 /** The creation's recon json (plain or store-zipped) — the photographs and
  *  cameras a "train this yourself" run needs. */
@@ -2747,6 +2776,7 @@ function trainFromShare() {
   gpuCanvas = null;
   S.gen++;
   S.session = null; S.share = null; S.restored = null;
+  S._viewerOpen = false;
   S.plyBlob = null; S.sogBlob = null;
   S.state = 'ready';
   S.preset = { id: '__sample', name: rj.name || 'Shared sample' };
