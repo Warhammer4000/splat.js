@@ -614,16 +614,17 @@ async function localRunTiles() {
     const b = document.createElement('div');
     b.className = 'galtile';
     b.style.cursor = r.sog ? 'pointer' : 'default';
-    const when = new Date(r.createdAt).toLocaleDateString();
+    // finished scenes wear the same sub-header as the preset tiles:
+    // splats · dB · MB — a scene is a scene, wherever it was trained
     const state = r.status === 'finished'
-      ? `${fmt(r.iter || 0)} cycles${r.psnr != null ? ` · ${(+r.psnr).toFixed(1)} dB` : ''}`
+      ? `${fmt(r.splats || 0)} splats${r.psnr != null ? ` · ${(+r.psnr).toFixed(1)} dB` : ''}${r.sog ? ` · ${Math.max(1, Math.round(r.sog.size / 1e6))} MB` : ''}`
       : (S.runId === r.id && S.state === 'train')
         ? `training now · ${fmt(r.iter || 0)} cycles`
         : `interrupted · ${fmt(r.iter || 0)} cycles`;
     b.innerHTML = `
       <button class="run-x" title="Remove from this device">${TRASH_ICON}</button>
       <span class="galname">${esc(r.name || 'Training run')}</span>
-      <span class="galmeta">${state} · ${when}</span>`;
+      <span class="galmeta">${state}</span>`;
     if (r.thumb) b.prepend(Object.assign(new Image(), { src: URL.createObjectURL(r.thumb), alt: '' }));
     armTrash(b.querySelector('.run-x'), async () => {
       await deleteRun(r.id);
