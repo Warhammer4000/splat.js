@@ -2107,13 +2107,13 @@ function trainLocalChoice() {
   card.className = 'upcard';
   card.id = 'ltchoice';
   card.innerHTML = `
+    <button class="card-x lt-x" id="lt-x" aria-label="Close">&times;</button>
     <b>Train these photos</b>
-    <span class="sog-status">Keep training refines the saved model further; Train new solves and
+    <span class="lt-desc">Keep training refines the saved model further; Train new solves and
     trains from scratch with the photos kept on this device.</span>
     <div class="upcard-row">
       <button class="btn btn-accent" id="lt-cont">Keep training</button>
       <button class="btn btn-outline" id="lt-new">Train new</button>
-      <button class="btn" id="lt-x">Cancel</button>
     </div>`;
   $('stage').appendChild(card);
   $('lt-x').addEventListener('click', () => card.remove());

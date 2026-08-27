@@ -730,6 +730,12 @@ body { overflow: hidden; }
 label.btn { cursor: pointer; }
 
 /* the SOG compression card: stage name + determinate bar */
+/* the train chooser: wrapped description, x in the corner */
+.lt-desc {
+  display: block; font: 400 13px var(--ui); color: var(--muted);
+  line-height: 1.5; padding-right: 20px;
+}
+.upcard .lt-x { top: 10px; right: 10px; }
 .sog-status {
   display: block; font: 400 12px var(--mono); color: var(--muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
