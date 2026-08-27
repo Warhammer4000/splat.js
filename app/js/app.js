@@ -788,11 +788,21 @@ async function useOwnPhotos(list) {
     return;
   }
   // the phone picker hands files over in SELECTION order — restore the
-  // capture sequence (EXIF time, else file mtime, else numeric name order)
-  const stamps = new Map(await Promise.all(files.map(
-    async (f) => [f, (await exifCaptureTime(f)) ?? f.lastModified ?? 0])));
-  files.sort((a, b) => (stamps.get(a) - stamps.get(b)) ||
-    a.name.localeCompare(b.name, undefined, { numeric: true }));
+  // capture sequence. EXIF time rules when present; when the WHOLE set has
+  // none (iOS transcodes on pick and strips EXIF, stamping mtime with the
+  // SELECTION moment — sorting by it preserves the shuffle), the numeric
+  // name order (IMG_0421…) is the trustworthy key.
+  const exifs = new Map(await Promise.all(files.map(async (f) => [f, await exifCaptureTime(f)])));
+  const anyExif = [...exifs.values()].some((v) => v != null);
+  const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
+  if (anyExif) {
+    const stamps = new Map(files.map((f) => [f, exifs.get(f) ?? f.lastModified ?? 0]));
+    files.sort((a, b) => (stamps.get(a) - stamps.get(b)) || byName(a, b));
+  } else {
+    files.sort(byName);
+  }
+  // the landmarks beat overlays these bottom-right (n/a = no EXIF)
+  S.capDates = new Map(files.map((f) => [f.name, exifs.get(f) ?? null]));
   if (S.ownUrls) S.ownUrls.forEach(URL.revokeObjectURL);
   S.ownUrls = files.map((f) => URL.createObjectURL(f));
   // survive a refresh: the capture is kept on-device and offered back
@@ -3322,6 +3332,16 @@ function drawRealMarks(ctx, r, imgIdx) {
   ctx.fillStyle = '#93a1a0';
   ctx.font = '500 10px "Spline Sans Mono", monospace';
   ctx.fillText(`${fmt(f.n)} LANDMARKS`, r.x + 4, r.y + r.h + 14);
+  // capture-order debugging: the photo's EXIF time, bottom-right — a walk
+  // must read as a monotonic clock here; n/a = no EXIF (name order decides)
+  const cap = S.capDates && S.capDates.get((S.photos[imgIdx] || {}).name);
+  const pad2 = (v) => String(v).padStart(2, '0');
+  const label = cap
+    ? `${pad2(new Date(cap).getHours())}:${pad2(new Date(cap).getMinutes())}:${pad2(new Date(cap).getSeconds())}`
+    : 'n/a';
+  ctx.textAlign = 'right';
+  ctx.fillText(label, r.x + r.w - 4, r.y + r.h + 14);
+  ctx.textAlign = 'left';
 }
 
 /** two photographs, and the matches that survived between them */
