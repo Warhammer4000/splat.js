@@ -564,10 +564,16 @@ async function lastCaptureTile() {
     ? `Captured ${new Date(rec.created).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`
     : 'Last capture';
   b.innerHTML = `
+    <button class="run-x" title="Remove from this device">${TRASH_ICON}</button>
     <span class="galname">${capName}</span>
     <span class="galmeta">${rec.files.length} frames · local</span>`;
   const img = Object.assign(new Image(), { src: URL.createObjectURL(rec.files[0].blob), alt: '' });
   b.prepend(img);
+  armTrash(b.querySelector('.run-x'), async () => {
+    const { deleteLastCapture } = await import('./store.js');
+    await deleteLastCapture();
+    b.remove();
+  });
   b.addEventListener('click', async () => {
     if (S.picking) { S.pending = await openCaptureSet(rec); paintCard(S.pending); return; }
     const set = await openCaptureSet(rec);
@@ -581,6 +587,26 @@ async function lastCaptureTile() {
 /** tiles for the local runs library — every training run this device has
  *  started. Finished runs reopen in the viewer straight from their stored
  *  result; interrupted ones stay listed (and deletable) as a record. */
+const TRASH_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v5.5M14 11v5.5"/></svg>';
+/** two-step delete: first tap arms into "Delete?", second within 3s fires */
+function armTrash(btn, onDelete) {
+  btn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (btn.dataset.armed !== '1') {
+      btn.dataset.armed = '1';
+      btn.textContent = 'Delete?';
+      btn.classList.add('armed');
+      setTimeout(() => {
+        btn.dataset.armed = '';
+        btn.innerHTML = TRASH_ICON;
+        btn.classList.remove('armed');
+      }, 3000);
+      return;
+    }
+    await onDelete();
+  });
+}
+
 async function localRunTiles() {
   const { listRuns, deleteRun } = await import('./store.js');
   const runs = await listRuns();
@@ -594,27 +620,12 @@ async function localRunTiles() {
       : (S.runId === r.id && S.state === 'train')
         ? `training now · ${fmt(r.iter || 0)} cycles`
         : `interrupted · ${fmt(r.iter || 0)} cycles`;
-    const TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v5.5M14 11v5.5"/></svg>';
     b.innerHTML = `
-      <button class="run-x" title="Remove from this device">${TRASH}</button>
+      <button class="run-x" title="Remove from this device">${TRASH_ICON}</button>
       <span class="galname">${esc(r.name || 'Training run')}</span>
       <span class="galmeta">${state} · ${when}</span>`;
     if (r.thumb) b.prepend(Object.assign(new Image(), { src: URL.createObjectURL(r.thumb), alt: '' }));
-    b.querySelector('.run-x').addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const btn = e.currentTarget;
-      // two-step: arm first, delete on the second tap within 3s
-      if (btn.dataset.armed !== '1') {
-        btn.dataset.armed = '1';
-        btn.textContent = 'Delete?';
-        btn.classList.add('armed');
-        setTimeout(() => {
-          btn.dataset.armed = '';
-          btn.innerHTML = TRASH;
-          btn.classList.remove('armed');
-        }, 3000);
-        return;
-      }
+    armTrash(b.querySelector('.run-x'), async () => {
       await deleteRun(r.id);
       b.remove();
     });

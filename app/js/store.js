@@ -106,3 +106,15 @@ async function pruneRuns() {
   const all = await listRuns();
   for (const r of all.slice(KEEP)) await deleteRun(r.id);
 }
+
+export async function deleteLastCapture() {
+  try {
+    const d = await openDb2();
+    await new Promise((res, rej) => {
+      const tx = d.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).delete(KEY);
+      tx.oncomplete = () => { d.close(); res(); };
+      tx.onerror = () => { d.close(); rej(tx.error); };
+    });
+  } catch { /* gone is gone */ }
+}
