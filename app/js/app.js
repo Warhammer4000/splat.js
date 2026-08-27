@@ -447,7 +447,9 @@ function boot() {
       $('detail').hidden = true;
       $('start').hidden = false;
     });
-    if (!viewing) open(PRESETS.find((p) => p.id === 'truck'));
+    // no implicit boot set: nothing loads until the visitor picks — the old
+    // truck default sat invisibly behind the start card and leaked into
+    // Back navigation ("why is the truck loaded?")
   }
   requestAnimationFrame(loop);
 
@@ -2385,9 +2387,8 @@ async function restoreShared(spaceId) {
     S.share = null;
     document.getElementById('share-hero')?.remove();
     $('start').hidden = false;
-    // back on the classic front page nothing is selected yet — do it now,
-    // and the feed too (boot skips mountWall when a share link is loading)
-    if (!WALL_FIRST && !S.preset) open(PRESETS.find((p) => p.id === 'truck'));
+    // the feed (boot skips mountWall when a share link is loading);
+    // no default set — the visitor picks from the wall
     mountWall();
     flash(`Could not load the shared creation: ${e.message}`, 9000);
   }
