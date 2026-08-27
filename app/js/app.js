@@ -3334,11 +3334,12 @@ function drawRealMarks(ctx, r, imgIdx) {
   ctx.fillText(`${fmt(f.n)} LANDMARKS`, r.x + 4, r.y + r.h + 14);
   // capture-order debugging: the photo's EXIF time, bottom-right — a walk
   // must read as a monotonic clock here; n/a = no EXIF (name order decides)
-  const cap = S.capDates && S.capDates.get((S.photos[imgIdx] || {}).name);
+  const name = (S.photos[imgIdx] || {}).name || '';
+  const cap = S.capDates && S.capDates.get(name);
   const pad2 = (v) => String(v).padStart(2, '0');
   const label = cap
     ? `${pad2(new Date(cap).getHours())}:${pad2(new Date(cap).getMinutes())}:${pad2(new Date(cap).getSeconds())}`
-    : 'n/a';
+    : name; // no EXIF: the file name IS the ordering key — show it instead
   ctx.textAlign = 'right';
   ctx.fillText(label, r.x + r.w - 4, r.y + r.h + 14);
   ctx.textAlign = 'left';
