@@ -8,7 +8,7 @@
 // PSNR, and Export writes a real .ply. The UI talks to ONE object — the
 // splat.js Session — plus the trainer's rendered canvas.
 
-import { createSession, gaussiansToPly } from '../../src/index.js';
+import { createSession, gaussiansToPly, undistortFrames } from '../../src/index.js';
 import { extractSharpFrames, isVideoFile } from '../../src/io/video.js';
 import { recordCaptureVideo, cameraSupported } from './camera.js';
 import { saveLastCapture, loadLastCapture } from './store.js';
@@ -519,6 +519,24 @@ function showIntro() {
   $('start').hidden = false;
 }
 
+/** Build an own-photos set from a stored capture record (fetches the record
+ *  when none is passed). Records saved before capture-sorting existed replay
+ *  in stored order — sorted on the way out, same rules as a fresh pick. */
+async function openCaptureSet(rec = null) {
+  rec = rec || await loadLastCapture();
+  if (!rec || !rec.files || rec.files.length < 2) return null;
+  const files = rec.files.map((e) => new File([e.blob], e.name, { type: e.blob.type || 'image/jpeg' }));
+  await sortByCapture(files);
+  if (S.ownUrls) S.ownUrls.forEach(URL.revokeObjectURL);
+  S.ownUrls = files.map((f) => URL.createObjectURL(f));
+  const set = ownSet(files, S.ownUrls);
+  set.id = '__last';
+  set.kind = 'Saved on this device';
+  set.origin = `${files.length} frames from your last capture, restored from this browser's ` +
+    'own storage. They never left this device.';
+  return set;
+}
+
 /** the previous own capture, restored from this device's storage — a tile
  *  for the wall's Local tab (null when nothing is stored). Every set lives
  *  on the Scenes wall; PRESETS stay as data: gates, data deploys and the
@@ -540,23 +558,10 @@ async function lastCaptureTile() {
     <span class="galmeta">${rec.files.length} frames · local</span>`;
   const img = Object.assign(new Image(), { src: URL.createObjectURL(rec.files[0].blob), alt: '' });
   b.prepend(img);
-  const makeSet = async () => {
-    const files = rec.files.map((e) => new File([e.blob], e.name, { type: e.blob.type || 'image/jpeg' }));
-    // records saved before capture-sorting existed replay in stored order —
-    // sort on the way out, same rules as a fresh pick
-    await sortByCapture(files);
-    if (S.ownUrls) S.ownUrls.forEach(URL.revokeObjectURL);
-    S.ownUrls = files.map((f) => URL.createObjectURL(f));
-    const set = ownSet(files, S.ownUrls);
-    set.id = '__last';
-    set.kind = 'Saved on this device';
-    set.origin = `${files.length} frames from your last capture, restored from this browser's ` +
-      'own storage. They never left this device.';
-    return set;
-  };
   b.addEventListener('click', async () => {
-    if (S.picking) { S.pending = await makeSet(); paintCard(S.pending); return; }
-    const set = await makeSet();
+    if (S.picking) { S.pending = await openCaptureSet(rec); paintCard(S.pending); return; }
+    const set = await openCaptureSet(rec);
+    if (!set) return;
     open(set);
     if (!WALL_FIRST) showDetail(set);
   });
@@ -579,8 +584,9 @@ async function localRunTiles() {
       : (S.runId === r.id && S.state === 'train')
         ? `training now · ${fmt(r.iter || 0)} cycles`
         : `interrupted · ${fmt(r.iter || 0)} cycles`;
+    const TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v5.5M14 11v5.5"/></svg>';
     b.innerHTML = `
-      <button class="run-x" title="Remove from this device">&times;</button>
+      <button class="run-x" title="Remove from this device">${TRASH}</button>
       <span class="galname">${esc(r.name || 'Training run')}</span>
       <span class="galmeta">${state} · ${when}</span>`;
     if (r.thumb) b.prepend(Object.assign(new Image(), { src: URL.createObjectURL(r.thumb), alt: '' }));
@@ -594,7 +600,7 @@ async function localRunTiles() {
         btn.classList.add('armed');
         setTimeout(() => {
           btn.dataset.armed = '';
-          btn.innerHTML = '&times;';
+          btn.innerHTML = TRASH;
           btn.classList.remove('armed');
         }, 3000);
         return;
@@ -607,6 +613,7 @@ async function localRunTiles() {
         restoreSession({
           url: URL.createObjectURL(r.sog),
           reconUrl: URL.createObjectURL(new Blob([JSON.stringify(r.recon)], { type: 'application/json' })),
+          localRun: r, // the viewer's Train button reads this
         });
       } else if (!(S.runId === r.id && S.state === 'train')) {
         flash('This run stopped before finishing — no result was kept, only this record.', 5000);
@@ -1323,11 +1330,14 @@ function startTraining() {
       }
     } catch { /* the tile just goes textless */ }
     const { saveRun } = await import('./store.js');
+    const pid = String((S.preset && S.preset.id) || '');
     await saveRun({
       id: S.runId, name: (S.preset && S.preset.name) || 'Your photos',
       status: 'training', createdAt: Date.now(), updatedAt: Date.now(),
       iter: 0, maxIters: S.maxIters, splats: S.splats || 0, psnr: null,
       frames: (S.photos || []).length, thumb,
+      // own-photo runs can train again from the device's capture store
+      ownSrc: pid === '__own' || pid === '__last',
     });
   })().catch(() => {});
   const first = S.scene.cams.find((c) => c.R && c.state !== 'holdout') || S.scene.cams[0];
@@ -1575,6 +1585,7 @@ async function finish() {
 // lands in the exact done-state viewer: tour, orbit, exports — no training.
 async function restoreSession(src) {
   try {
+    S._localRun = src.localRun || null; // set only by the local runs library
     $('start').hidden = true;
     flash('Loading the model …', 120000);
     // SOG + recon: the lite viewer — the engine renders the compressed splat
@@ -1993,8 +2004,148 @@ function renderControls() {
     train.title = `Solve and train the same ${rj.source.urls.length} photographs right here`;
     train.addEventListener('click', trainFromShare);
     c.appendChild(train);
+  } else if (S._localRun && S._localRun.ownSrc) {
+    // a local run of the visitor's own photos: continue on the model, or
+    // start fresh from the capture kept on this device
+    const train = document.createElement('button');
+    train.className = 'cbtn accent';
+    train.textContent = 'Train';
+    train.title = 'Keep training this model, or train new from the saved photos';
+    train.addEventListener('click', trainLocalChoice);
+    c.appendChild(train);
   }
   c.appendChild(buildExport());
+}
+
+/** The local-run viewer's Train: continue refining the saved model, or a
+ *  fresh solve from the photos in the capture store. */
+function trainLocalChoice() {
+  document.getElementById('ltchoice')?.remove();
+  const card = document.createElement('div');
+  card.className = 'upcard';
+  card.id = 'ltchoice';
+  card.innerHTML = `
+    <b>Train these photos</b>
+    <span class="sog-status">Keep training refines the saved model further; Train new solves and
+    trains from scratch with the photos kept on this device.</span>
+    <div class="upcard-row">
+      <button class="btn btn-accent" id="lt-cont">Keep training</button>
+      <button class="btn btn-outline" id="lt-new">Train new</button>
+      <button class="btn" id="lt-x">Cancel</button>
+    </div>`;
+  $('stage').appendChild(card);
+  $('lt-x').addEventListener('click', () => card.remove());
+  $('lt-new').addEventListener('click', async () => {
+    card.remove();
+    const set = await openCaptureSet();
+    if (!set) { flash('The photos are no longer stored on this device.', 6000); return; }
+    stopTour();
+    S.restored = null;
+    open(set);
+    if (!WALL_FIRST) showDetail(set);
+  });
+  $('lt-cont').addEventListener('click', () => { card.remove(); continueLocalRun().catch((e) => {
+    console.error(e);
+    flash(`Could not continue this run: ${e.message}`, 8000);
+  }); });
+}
+
+/** Continue training a stored local run: decode its sog back into raw
+ *  Gaussians (un-baking the Mip opacity compensation — the export bakes it
+ *  for standard viewers, the trainer applies it itself), rebuild the session
+ *  from the stored camera solve + the capture's photos, and run on. */
+async function continueLocalRun() {
+  const lr = S._localRun;
+  if (!lr || !lr.sog || !lr.recon) return;
+  const rec = await loadLastCapture();
+  if (!rec || !rec.files) { flash('The photos are no longer stored on this device.', 6000); return; }
+  const recon = lr.recon;
+  // photos matched BY NAME to the run's own frame order — re-sorting could
+  // reorder against recon.cams imgIdx, and a newer capture must not sneak in
+  const byName = new Map(rec.files.map((e) => [e.name, e]));
+  const files = (recon.frames || []).map((fr) => {
+    const e = byName.get(fr.name);
+    return e ? new File([e.blob], e.name, { type: e.blob.type || 'image/jpeg' }) : null;
+  });
+  if (!files.length || files.some((f) => !f)) {
+    flash('The stored photos no longer match this run — Train new instead.', 7000);
+    return;
+  }
+  flash('Preparing to continue training …', 60000);
+  const { decodeModel } = await import('./session_io.js');
+  const { gaussians: g } = await decodeModel(new Uint8Array(await lr.sog.arrayBuffer()), null);
+  // un-bake opacity compensation (pure fn of position, mean scale, focal,
+  // camera centres — recompute and divide out in logit space)
+  {
+    const pos = [];
+    for (const c of recon.cams) {
+      const R = c.R, t = c.t;
+      pos.push(
+        -(R[0] * t[0] + R[3] * t[1] + R[6] * t[2]),
+        -(R[1] * t[0] + R[4] * t[1] + R[7] * t[2]),
+        -(R[2] * t[0] + R[5] * t[1] + R[8] * t[2]));
+    }
+    const fr0 = recon.frames[recon.cams[0].imgIdx];
+    const f = recon.cams[0].f * ((fr0.tw || fr0.fw) / fr0.fw);
+    const d = g.data;
+    for (let i = 0; i < g.n; i++) {
+      const b = i * 16;
+      let z2 = Infinity;
+      for (let c = 0; c < pos.length; c += 3) {
+        const dx = d[b] - pos[c], dy = d[b + 1] - pos[c + 1], dz = d[b + 2] - pos[c + 2];
+        const q = dx * dx + dy * dy + dz * dz;
+        if (q < z2) z2 = q;
+      }
+      const z = Math.max(1e-3, Math.sqrt(z2));
+      const sMean = Math.exp((d[b + 3] + d[b + 4] + d[b + 5]) / 3);
+      const s2d = f * sMean / z;
+      const comp = (s2d * s2d) / (s2d * s2d + 0.3);
+      const opa = 1 / (1 + Math.exp(-d[b + 13]));
+      const raw = Math.min(1 - 1e-6, Math.max(1e-6, opa / Math.max(comp, 1e-6)));
+      d[b + 13] = Math.log(raw / (1 - raw));
+    }
+  }
+  // tear down the viewer, build the training session (trainFromShare's reset)
+  stopTour();
+  try { S.session.dispose(); } catch (e) { /* view-only facade */ }
+  document.getElementById('cv-model')?.remove();
+  gpuCanvas = null;
+  S.gen++;
+  const gen = S.gen;
+  S.session = null; S.share = null; S.restored = null;
+  S.plyBlob = null; S.sogBlob = null;
+  S.preset = { id: '__own', name: `${lr.name || 'Your photos'}` };
+  S.photos = files.map((f, i) => ({ url: URL.createObjectURL(f), name: f.name, i }));
+  const baseIter = lr.iter || 0;
+  const extra = Math.max(10000, Math.round((lr.maxIters || 20000) / 2));
+  S.maxIters = baseIter + extra;
+  const fr0 = recon.frames[0] || {};
+  const ses = createSession({
+    maxIters: S.maxIters, holdout: -1,
+    frames: { trainMaxDim: Math.max(fr0.tw || 0, fr0.th || 0) || undefined },
+    trainer: { maxSplats: Math.max(g.n, lr.splats || 0), capMult: 2, shDeg: 3 },
+  });
+  S.session = ses;
+  ses.on('stage', (e) => { if (S.gen === gen) onStage(e); });
+  ses.on('metrics', (e) => { if (S.gen === gen) onMetrics(e); });
+  ses.on('event', (e) => { if (S.gen === gen) onTrainEvent(e); });
+  await ses.load(files);
+  if (S.gen !== gen) return;
+  ses.useReconstruction({
+    cams: recon.cams.map((c) => ({ imgIdx: c.imgIdx, R: c.R, t: c.t, f: c.f, cx: c.cx, cy: c.cy })),
+    points: [],
+    k1: recon.k1 || 0, k2: recon.k2 || 0,
+  });
+  if (undistortFrames(ses.frames, ses.recon)) { /* targets match the original run */ }
+  await ses.seedFrom(g, { iter: baseIter });
+  if (S.gen !== gen) return;
+  S.iter = baseIter;
+  S.psnrTrain = null; S.psnrHold = null;
+  S.holdHist = []; S.chartEvents = []; S.growthStopped = false;
+  buildSceneFromSession();
+  mountModelCanvas();
+  startTraining();
+  flash(`Continuing from ${fmt(baseIter)} cycles — +${fmt(extra)} more.`, 6000);
 }
 
 /** Resume from done: raise the horizon, restore the curve, back to train. */

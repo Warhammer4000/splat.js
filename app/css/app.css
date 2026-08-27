@@ -180,11 +180,13 @@ body { overflow: hidden; }
    scene (the badge needs the tile as its positioning box) */
 .galtile { position: relative; }
 .galtile .run-x {
-  position: absolute; top: 6px; right: 6px; z-index: 2;
-  width: 22px; height: 22px; border-radius: 50%; border: 0; cursor: pointer;
+  position: absolute; top: 8px; right: 8px; z-index: 2;
+  width: 34px; height: 34px; border-radius: 50%; border: 0; cursor: pointer;
   background: rgba(10, 14, 14, .65); color: var(--muted);
-  font: 500 14px/1 var(--ui); display: none;
+  font: 500 12px/1 var(--ui); display: none;
+  align-items: center; justify-content: center;
 }
+.galtile .run-x svg { width: 17px; height: 17px; display: block; margin: auto; }
 .galtile:hover .run-x { display: block; }
 .galtile .run-x:hover { color: #fff; background: rgba(10, 14, 14, .9); }
 .galtile .run-x.armed {
