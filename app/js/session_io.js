@@ -165,8 +165,6 @@ export function parseState(bytes) {
   return { gaussians: { data: params, n: head.n, sh, shK: head.shK }, iter: head.iter };
 }
 
-
-
 function readPlyHeader(bytes) {
   // PLY headers can exceed a few KiB when tools add comments or many
   // properties. Scan a bounded prefix instead of assuming the terminator is in
@@ -174,11 +172,12 @@ function readPlyHeader(bytes) {
   // missing header before allocating typed-array views for the body.
   const limit = Math.min(bytes.length, 1024 * 1024);
   const headText = new TextDecoder().decode(bytes.subarray(0, limit));
-  const end = headText.indexOf('end_header\n');
-  if (end < 0) throw new Error('not a PLY file');
+  // LF or CRLF terminator — some Windows tools write CRLF headers
+  const m = headText.match(/end_header\r?\n/);
+  if (!m) throw new Error('not a PLY file');
   return {
-    header: headText.slice(0, end).replace(/\r\n?/g, '\n'),
-    bodyAt: end + 'end_header\n'.length,
+    header: headText.slice(0, m.index).replace(/\r\n/g, '\n'),
+    bodyAt: m.index + m[0].length,
   };
 }
 
