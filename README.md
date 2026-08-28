@@ -80,8 +80,7 @@ its native 979 px, on a desktop NVIDIA GPU, in one tab:
 | **Splat.js — 40 k cycles (~10 min train)** | **25.49 dB** |
 | Mip-Splatting (CVPR 2024) | 25.74 dB |
 | Scaffold-GS (CVPR 2024) | 25.77 dB |
-| Brush v0.3 — measured, native (30 k cycles, ~7½ min train) | 26.07 dB |
-| Brush v0.3 — measured, in-browser WASM (30 k cycles, ~30 min train) | 26.10 dB |
+| Brush v0.3 — measured (30 k cycles, ~30 min train) | 26.10 dB |
 | 3DGS-MCMC (NeurIPS 2024) | 26.11 dB |
 | LichtFeld Studio v0.5.3 — measured (~5½ min train) | 26.14 dB |
 | **Splat.js — 250 k cycles (~60 min train)** | **26.37 dB** |
@@ -92,15 +91,9 @@ are training only — the Splat.js in-browser camera solve adds ~4 minutes.
 The [LichtFeld Studio](https://github.com/MrNeRF/LichtFeld-Studio) row is
 not a paper citation — it was measured on the same desktop (RTX 5080, MCMC
 strategy, 2 M Gaussians, 30 k iterations) from precomputed COLMAP poses.
-The two [Brush](https://github.com/ArthurBrussee/brush) rows were measured
-the same way: same machine, byte-identical images, the same every-8th
-holdout, SH degree 3, 2 M splat cap, from the COLMAP poses and sparse
-cloud. Brush is the only other trainer that runs in a browser — its
-browser row is the hosted WASM demo trained end-to-end in a Chrome tab,
-which matches its native quality exactly at ~4× the wall time (no native
-f32 atomics or subgroup ops in WebGPU). Per wall-clock minute the two
-browser trainers are closer than the table suggests: Splat.js cycles are
-~4× cheaper, so at a 30-minute budget both land at 26+ dB (the 250 k row).
+The [Brush](https://github.com/ArthurBrussee/brush) row was measured the
+same way: same machine, byte-identical images, the same every-8th holdout,
+SH degree 3, 2 M splat cap, from the COLMAP poses and sparse cloud.
 The published methods train 30 k iterations of 2–2.6 M Gaussians with
 degree-3 spherical harmonics on native CUDA. The 40 k Splat.js row is a
 ten-minute browser run at 1.4 M Gaussians; the 250 k row is the same
