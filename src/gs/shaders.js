@@ -552,7 +552,10 @@ fn camAdd(idx: u32, v: f32) {
 var<workgroup> wgEnd: atomic<u32>;
 var<workgroup> wgEndU: u32;
 var<workgroup> sg: array<atomic<i32>, 12>; // 0-9 grads, 10-11 error mass
-` + (subgroups ? /* wgsl */ `
+` + (mode === 0 ? /* wgsl */ `
+var<workgroup> wgErr: atomic<u32>;   // robust-loss tile vote: residual sum (x4096)
+var<workgroup> wgValid: atomic<u32>; // and its valid-pixel count
+` : '') + (subgroups ? /* wgsl */ `
 // LichtFeld-style warp aggregation (their #1675: 13.6 -> 1.1 ms on the
 // analogous kernel): every thread in the lockstep walk adds to the SAME
 // sg[slot], a 256-way serialized atomic. Sum across the subgroup first —
@@ -704,7 +707,26 @@ ${mode === 2 ? '' : /* wgsl */ `      atomicAdd(&stats[2], 1u); // valid-pixel c
       camAdd(ci8 + 7u, eg.x + eg.y + eg.z); // d/d(bias)`}
     }
   }
-` + (mode === 1 ? /* wgsl */ `
+` + (tileGrad && mode === 0 ? /* wgsl */ `
+  // RobustNeRF-style tile vote (misc3.y = threshold, 0 = off): a 16x16 tile
+  // whose MEAN residual exceeds kappa x the running mean per-pixel loss
+  // (CPU-fed each step) is treated as a transient — a mover, its shadow, a
+  // lighting change — and its gradients AND refine error-mass are dropped
+  // this step. Tile granularity is RobustNeRF's patch vote: small speculars
+  // rarely dominate a whole tile, coherent movers do.
+  if (lossOk) {
+    atomicAdd(&wgErr, u32(perr * 4096.0));
+    atomicAdd(&wgValid, 1u);
+  }
+  workgroupBarrier();
+  if (cam.misc3.y > 0.0) {
+    let nv = f32(atomicLoad(&wgValid));
+    if (nv > 0.0 && f32(atomicLoad(&wgErr)) / 4096.0 > cam.misc3.y * nv) {
+      gC = vec3f(0.0);
+      perr = 0.0;
+    }
+  }
+` : '') + (mode === 1 ? /* wgsl */ `
 }
 ` /* forward-only: backward OMITTED (dead code still counts toward the
      per-stage storage-buffer limit); the SSIM passes + bwd kernel follow */

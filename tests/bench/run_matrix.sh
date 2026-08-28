@@ -12,9 +12,9 @@ SETS="synthetic camping truck garden bicycle playroom train bar360"
 
 run_cell () {
   local set="$1"; local iters="$2"
-  local status="tests/bench/results/bench_${set}_${iters}_status.json"
-  local result="tests/bench/results/bench_${set}_${iters}_result.json"
-  powershell -Command "Get-Process chrome -ErrorAction SilentlyContinue | Stop-Process -Force" >/dev/null 2>&1
+  local status="scratch/bench_${set}_${iters}_status.json"
+  local result="scratch/bench_${set}_${iters}_result.json"
+  powershell -Command "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | Where-Object { \$_.CommandLine -match 'hlchrome' } | ForEach-Object { try { Stop-Process -Id \$_.ProcessId -Force -ErrorAction Stop } catch {} }" >/dev/null 2>&1
   sleep 3
   rm -f "$status" "$result"
   ("$CHROME" --headless=new --enable-unsafe-webgpu --use-angle=d3d11 \

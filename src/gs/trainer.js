@@ -480,7 +480,14 @@ export class GSTrainer {
       // sub-pixel. Dropping it: truck +2.9dB train / +1.6dB holdout. Needle
       // risk is handled by anisoReg (ratio bound), not this absolute floor.
       // zero-width needle axes the optimizer happily saturated)
-      Math.log(r * (this.opts.minScale ?? 1e-4)), Math.log(r * 0.05), 8.0, this.n * STRIDE,
+      // maxScale default 0.5*r (was 0.05*r until 2026-08-28): the tight cap
+      // forced sky/far content into mosaics of small per-view cards — the
+      // shiny-bench tile artifacts (train 41 / holdout 18.5 dB). Swept
+      // {0.05, 0.5, 2}: 0.5 dominates — shiny 18.5->36.5, playroom +0.65,
+      // truck +0.2, synthetic +0.15 (cap 2 regressed synthetic -1.6, its
+      // room-scale giants overfit). Runaway sanity beyond that is anisoReg
+      // + scaleReg's job, not an absolute ceiling's.
+      Math.log(r * (this.opts.minScale ?? 1e-4)), Math.log(r * (this.opts.maxScale ?? 0.5)), 8.0, this.n * STRIDE,
       // 0.01 (was 0.05): matches standard 3DGS-MCMC; the strong early-era pull
       // kept splats semi-transparent and layered ("milky")
       this.opts.opacityReg ?? 0.01,
@@ -574,6 +581,12 @@ export class GSTrainer {
       // (opts.shRamp = false trains full degree from step 0, Brush-style)
       this.camUniforms[ci][32] = Math.min(this.shDeg, Math.floor(this.iter / 1000));
     }
+    // robust-loss threshold (misc3.y): kappa x running mean per-pixel loss,
+    // active after warmup so the static scene converges before tiles are
+    // voted out as transients (0 = off; the shader ignores it)
+    this.camUniforms[ci][33] =
+      (this.opts.robustLoss && this.meanPerr && this.iter > (this.opts.robustWarmup ?? 2000))
+        ? this.opts.robustLoss * this.meanPerr : 0;
     d.queue.writeBuffer(this.uniTrain, 0, this.camUniforms[ci]);
     d.queue.writeBuffer(this.bufTileCnt, 0, this.tileZero);
     this.iter++;
@@ -792,10 +805,14 @@ export class GSTrainer {
     await this.bufStatsRead.mapAsync(GPUMapMode.READ);
     const s = new Uint32Array(this.bufStatsRead.getMappedRange());
     const v = s[0];
+    const lossSum = s[1];
     const validPx = s[2]; // valid-pixel count (undistortion borders excluded)
     this.entryOverflowTiles = (this.entryOverflowTiles || 0) + s[3];
     this.bufStatsRead.unmap();
     if (px === 0 || validPx === 0) return null;
+    // running mean per-pixel charbonnier — the robust-loss tile vote's
+    // reference level (stats[1] = sum of per-pixel loss x 32768)
+    this.meanPerr = lossSum / 32768 / validPx;
     return v / 16 / (validPx * 3);
   }
 

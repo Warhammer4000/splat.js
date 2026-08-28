@@ -67,6 +67,7 @@ try {
       : {
         maxSplats: Math.min(2000000, Math.round(ITERS * 35)), capMult: 8, shDeg: 3,
         growRate: 0.05, mcmcNoise: true, scaleReg: 0.01, moveCap: 0.25, shLr: 3e-4,
+        ...(Q.get('maxscale') ? { maxScale: +Q.get('maxscale') } : {}),
       },
   });
   ses.on('log', (m) => console.log('[SES]', m));
