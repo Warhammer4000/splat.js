@@ -33,6 +33,16 @@ export async function createSogView(sogUrl, { radius = 10 } = {}) {
     });
     app.setCanvasFillMode(pc.FILLMODE_NONE);
     app.setCanvasResolution(pc.RESOLUTION_FIXED, canvas.width, canvas.height);
+    // SH colors refresh only after the camera translates by tan(angle) x
+    // splat distance — at the 10-degree engine default the view-dependent
+    // color visibly SNAPS mid-move. 0 = refresh on any camera movement
+    // (a static camera still costs nothing: the engine gates on
+    // translationDelta > 0, and pure rotation cannot change SH).
+    // ?colang=N overrides for perf testing on weak devices.
+    if (app.scene.gsplat) {
+      const q = new URLSearchParams(location.search).get('colang');
+      app.scene.gsplat.colorUpdateAngle = q === null ? 0 : +q;
+    }
     v.app = app;
 
     const cam = new pc.Entity('cam');
