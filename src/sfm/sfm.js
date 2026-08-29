@@ -1575,6 +1575,41 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
       }
       points.push({ X: tr.X, rgb: [r / c, g / c, b / c], nObs: okObs.length });
     }
+    if (opts.denseSeed) {
+      // Seed-only densification: tracks the strict pass rejected (low
+      // parallax, pruned observations) get one relaxed retry — 3x the
+      // reprojection budget, parallax floor 0.0015 rad, 2 obs suffice.
+      // Poses are FROZEN here, so a loose point can only mis-seed a splat
+      // the optimizer will move, never bend geometry. COLMAP triangulates
+      // ~5x more points than our strict pass on the same scene; the seed
+      // cloud (not the poses) was measured worth ~+0.15 dB on truck.
+      let added = 0;
+      for (const tr of tracks) {
+        if (tr.X) continue;
+        const cams2 = [], obsPts = [], used = [];
+        for (const o of tr.obs) {
+          if (!poses[o.img]) continue; // o.ok ignored: strict-pruned obs may pass looser bounds
+          cams2.push(poses[o.img]); obsPts.push(obsNorm(o)); used.push(o);
+        }
+        if (cams2.length < 2) continue;
+        const X = triangulateN(cams2, obsPts);
+        if (!X) continue;
+        let ok = 0;
+        for (let k = 0; k < cams2.length; k++) {
+          if (reprojError(cams2[k].R, cams2[k].t, X, obsPts[k]) < 3 * thN(used[k].img)) ok++;
+        }
+        if (ok < 2) continue;
+        let maxAng = 0;
+        for (let a = 0; a < cams2.length - 1 && maxAng < 0.0015; a++)
+          for (let b2 = a + 1; b2 < cams2.length && maxAng < 0.0015; b2++)
+            maxAng = Math.max(maxAng, parallaxAngle(cams2[a], cams2[b2], X));
+        if (maxAng < 0.0015) continue;
+        const o0 = used[0];
+        points.push({ X, rgb: sampleColor(o0.img, feats[o0.img].x[o0.feat], feats[o0.img].y[o0.feat]), nObs: ok });
+        added++;
+      }
+      log(`  seed densification: +${added} relaxed points (${points.length} total)`);
+    }
     errs.sort((a, b) => a - b);
     const medErr = errs.length ? errs[errs.length >> 1] : Infinity;
 

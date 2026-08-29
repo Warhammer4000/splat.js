@@ -528,9 +528,11 @@ fn main(@builtin(workgroup_id) wg: vec3u,
 //                   this is the difference between ~12 it/s and usable on an
 //                   M1. Integer sums commute, so results are bit-identical.
 // mode: 0 = fused fwd+bwd (default); 1 = forward only (stores the per-pixel
-// walk end for a later backward — the D-SSIM image passes run in between);
-// 2 = backward only (restores C/T/end, mixes the SSIM gradient into gC).
-export const makeRenderSrc = (E = DEFAULT_E_CUT, A = DEFAULT_A_MIN, tileGrad = false, subgroups = false, mode = 0, ssimW = 0.2) =>
+// walk end for a later backward — the D-SSIM/SSAA passes run in between);
+// 2 = backward only (restores C/T/end, mixes the SSIM gradient into gC);
+// 3 = backward only for SSAA (this kernel runs at ssaa x the loss res; gC
+//     comes from the downsample-loss pass's per-1x-pixel gradient buffer).
+export const makeRenderSrc = (E = DEFAULT_E_CUT, A = DEFAULT_A_MIN, tileGrad = false, subgroups = false, mode = 0, ssimW = 0.2, ssaa = 2) =>
   (subgroups ? 'enable subgroups;\n' : '') + CAM_STRUCT + cutConsts(E, A) + /* wgsl */ `
 @group(0) @binding(1) var<storage, read> proj: array<f32>;
 @group(0) @binding(2) var<storage, read> tileStart: array<u32>;
@@ -544,6 +546,9 @@ ${mode === 1 ? '@group(0) @binding(9) var<storage, read_write> endBuf: array<u32
 ${mode === 2 ? `@group(0) @binding(9) var<storage, read> endBuf: array<u32>;
 @group(0) @binding(10) var<storage, read> gssim: array<f32>;
 const SSIMW = ${ssimW};` : ''}
+${mode === 3 ? `@group(0) @binding(9) var<storage, read> endBuf: array<u32>;
+@group(0) @binding(10) var<storage, read> gloss: array<f32>;
+const SSAA = ${ssaa}u;` : ''}
 
 fn camAdd(idx: u32, v: f32) {
   atomicAdd(&gradCam[idx], i32(round(clamp(v * FIXCAM, -1.0e9, 1.0e9))));
@@ -618,7 +623,7 @@ ${tileGrad ? '  let pxOk = g.x < W && g.y < H;' : '  if (g.x >= W || g.y >= H) {
   let segS = tileStart[tile];
   let segE = tileStart[tile + 1u];
 
-${mode === 2 ? /* wgsl */ `
+${mode >= 2 ? /* wgsl */ `
   // ---- backward-only: forward state restored from outImg / endBuf ----
   let pi = g.y * W + g.x;
   var T = 1.0;
@@ -677,6 +682,17 @@ ${mode === 1 ? '  endBuf[pi] = end;' : ''}
 ${tileGrad ? '  var lossOk = pxOk;' : '  var lossOk = true;'}
   var gC = vec3f(0.0);
   var perr = 0.0; // this pixel's Charbonnier loss, for the error-mass accumulators
+` + (mode === 3 ? /* wgsl */ `
+  if (lossOk) {
+    // SSAA: per-1x-pixel gradient from the downsample-loss pass, spread
+    // evenly over the ssaa^2 render pixels it box-averaged (invalid target
+    // pixels already carry zeros in the buffer)
+    let W1 = W / SSAA;
+    let qi = (g.y / SSAA) * W1 + g.x / SSAA;
+    gC = vec3f(gloss[qi * 4u], gloss[qi * 4u + 1u], gloss[qi * 4u + 2u]) * (1.0 / f32(SSAA * SSAA));
+    perr = gloss[qi * 4u + 3u];
+  }
+` : /* wgsl */ `
   if (lossOk) {
     let packed = tgtImg[off + pi];
     if ((packed >> 24u) == 0u) {
@@ -707,7 +723,7 @@ ${mode === 2 ? '' : /* wgsl */ `      atomicAdd(&stats[2], 1u); // valid-pixel c
       camAdd(ci8 + 7u, eg.x + eg.y + eg.z); // d/d(bias)`}
     }
   }
-` + (tileGrad && mode === 0 ? /* wgsl */ `
+`) + (tileGrad && mode === 0 ? /* wgsl */ `
   // RobustNeRF-style tile vote (misc3.y = threshold, 0 = off): a 16x16 tile
   // whose MEAN residual exceeds kappa x the running mean per-pixel loss
   // (CPU-fed each step) is treated as a transient — a mover, its shadow, a
@@ -1508,5 +1524,64 @@ fn finalv(@builtin(global_invocation_id) g: vec3u) {
     }
     gssim[pi * 4u + ch] = c1 + 2.0 * x[ch] * c2 + y[ch] * c3;
   }
+}
+`;
+
+// ---------------- SSAA downsample-loss pass (opts.ssaa >= 2) ----------------
+// Runs at the LOSS (1x) resolution: box-averages the ssaa x ssaa render
+// pixels, computes the standard charbonnier loss + PSNR stats + exposure
+// gradients against the native target, and writes the per-1x-pixel color
+// gradient (+ charbonnier for the refine error mass) for the mode-3
+// backward raster. PSNR/loss numbers stay directly comparable to non-SSAA
+// runs — same targets, same resolution.
+export const makeSsaaLossSrc = (S = 2) => CAM_STRUCT + /* wgsl */ `
+@group(0) @binding(1) var<storage, read> outImg: array<f32>;
+@group(0) @binding(2) var<storage, read> tgtImg: array<u32>;
+@group(0) @binding(3) var<storage, read_write> gloss: array<f32>;
+@group(0) @binding(4) var<storage, read_write> stats: array<atomic<u32>>;
+@group(0) @binding(5) var<storage, read_write> gradCam: array<atomic<i32>>;
+const SS = ${S}u;
+
+fn camAdd(idx: u32, v: f32) {
+  atomicAdd(&gradCam[idx], i32(round(clamp(v * FIXCAM, -1.0e9, 1.0e9))));
+}
+
+@compute @workgroup_size(16, 16)
+fn main(@builtin(global_invocation_id) g: vec3u) {
+  let W = u32(cam.size.x); let H = u32(cam.size.y); // 1x dims (this pass binds the 1x uniform)
+  if (g.x >= W || g.y >= H) { return; }
+  let pi = g.y * W + g.x;
+  let gb = pi * 4u;
+  let off = bitcast<u32>(cam.misc.w);
+  let packed = tgtImg[off + pi];
+  if ((packed >> 24u) == 0u) { // undistortion sentinel: no loss, no gradient
+    gloss[gb] = 0.0; gloss[gb + 1u] = 0.0; gloss[gb + 2u] = 0.0; gloss[gb + 3u] = 0.0;
+    return;
+  }
+  let W2 = W * SS;
+  var C = vec3f(0.0);
+  for (var sy = 0u; sy < SS; sy++) {
+    for (var sx = 0u; sx < SS; sx++) {
+      let p2 = ((g.y * SS + sy) * W2 + g.x * SS + sx) * 4u;
+      C += vec3f(outImg[p2], outImg[p2 + 1u], outImg[p2 + 2u]);
+    }
+  }
+  C /= f32(SS * SS);
+  let tcol = unpack4x8unorm(packed).rgb;
+  atomicAdd(&stats[2], 1u);
+  let gain = cam.proj.w;
+  let err = (gain * C + vec3f(cam.misc2.w)) - tcol;
+  let dith = fract(sin(f32(pi) * 12.9898) * 43758.5453);
+  atomicAdd(&stats[0], u32(dot(err, err) * 16.0 + dith));
+  const DELTA = 0.03;
+  let root = sqrt(err * err + vec3f(DELTA * DELTA));
+  let eg = err / root;
+  let gC = gain * eg;
+  let lossv = (root.x + root.y + root.z) - 3.0 * DELTA;
+  atomicAdd(&stats[1], u32(lossv * 32768.0));
+  let ci8 = u32(cam.misc2.y) * 8u;
+  camAdd(ci8 + 6u, dot(eg, C) * gain);
+  camAdd(ci8 + 7u, eg.x + eg.y + eg.z);
+  gloss[gb] = gC.r; gloss[gb + 1u] = gC.g; gloss[gb + 2u] = gC.b; gloss[gb + 3u] = lossv;
 }
 `;

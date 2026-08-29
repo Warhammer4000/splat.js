@@ -3,7 +3,7 @@
 import {
   STRIDE, TILE, ENTRIES_CAP, makeProjectSrc, makeRenderSrc, makeChainSrc,
   SCAN_SRC, SCATTER_SRC, SORT_SRC, ADAM_SRC, SH_ADAM_SRC, BLIT_SRC, shRestCoefs,
-  GATHER_SRC, REFINE_APPLY_SRC, SSIM_SRC,
+  GATHER_SRC, REFINE_APPLY_SRC, SSIM_SRC, makeSsaaLossSrc,
 } from './shaders.js';
 import { rodrigues, m3mul } from '../sfm/geometry.js';
 import { createGpu } from '../gpu/context.js';
@@ -48,6 +48,9 @@ export class GSTrainer {
     // collapsing PSNR); default unchanged unless maxSplats is raised
     this.entriesCap = this.opts.entriesCap ??
       (this.opts.maxSplats ? Math.max(ENTRIES_CAP, this.opts.maxSplats * 24) : ENTRIES_CAP);
+    // SSAA renders ssaa^2 x the pixels; entries scale with covered pixels
+    this.ssaa = this.opts.ssaa ?? 0;
+    if (this.ssaa >= 2 && !this.opts.entriesCap) this.entriesCap *= 2;
     this.pipeScan = d.createComputePipeline({
       label: 'tile-scan', layout: 'auto',
       compute: {
@@ -78,11 +81,25 @@ export class GSTrainer {
     // D-SSIM loss (opts.ssimWeight > 0): split renderer + image passes.
     // The fused kernel stays untouched for the default path.
     this.ssimW = this.opts.ssimWeight ?? 0;
-    if (this.ssimW > 0) {
+    if (this.ssimW > 0 && this.ssaa >= 2) throw new Error('ssimWeight and ssaa are mutually exclusive');
+    if (this.ssimW > 0 || this.ssaa >= 2) {
       this.pipeRenderFwd = d.createComputePipeline({
         label: 'render-fwd', layout: 'auto',
         compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg, 1), 'render-fwd'), entryPoint: 'main' },
       });
+    }
+    if (this.ssaa >= 2) {
+      // supersampled training: raster at ssaa x, box-downsample + loss at 1x
+      this.pipeRenderBwd3 = d.createComputePipeline({
+        label: 'render-bwd-ssaa', layout: 'auto',
+        compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg, 3, 0, this.ssaa), 'render-bwd-ssaa'), entryPoint: 'main' },
+      });
+      this.pipeSsaaLoss = d.createComputePipeline({
+        label: 'ssaa-loss', layout: 'auto',
+        compute: { module: mk(makeSsaaLossSrc(this.ssaa), 'ssaa-loss'), entryPoint: 'main' },
+      });
+    }
+    if (this.ssimW > 0) {
       this.pipeRenderBwd = d.createComputePipeline({
         label: 'render-bwd', layout: 'auto',
         compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg, 2, this.ssimW), 'render-bwd'), entryPoint: 'main' },
@@ -192,8 +209,10 @@ export class GSTrainer {
     const maxTiles = Math.max(
       Math.ceil(maxViewW / TILE) * Math.ceil(maxViewH / TILE),
       ...this.camMeta.map((m) => Math.ceil(m.w / TILE) * Math.ceil(m.h / TILE)));
-    this.maxTiles = maxTiles;
-    this.tileZero = new Uint32Array(maxTiles);
+    // SSAA raster covers ssaa^2 x the pixels/tiles of the loss resolution
+    const ssq = this.ssaa >= 2 ? this.ssaa * this.ssaa : 1;
+    this.maxTiles = maxTiles * ssq;
+    this.tileZero = new Uint32Array(this.maxTiles);
 
     const B = GPUBufferUsage;
     const buf = (size, usage, label) => d.createBuffer({ size, usage, label });
@@ -208,11 +227,11 @@ export class GSTrainer {
     this.bufV = buf(nb, B.STORAGE | B.COPY_DST | B.COPY_SRC, 'adam-v');
     d.queue.writeBuffer(this.bufM, 0, new Float32Array(this.cap * STRIDE));
     d.queue.writeBuffer(this.bufV, 0, new Float32Array(this.cap * STRIDE));
-    this.bufTileCnt = buf(maxTiles * 4, B.STORAGE | B.COPY_DST | B.COPY_SRC, 'tileCnt');
-    this.bufTileStart = buf((maxTiles + 1) * 4, B.STORAGE | B.COPY_SRC, 'tileStart');
-    this.bufTileCursor = buf(maxTiles * 4, B.STORAGE | B.COPY_SRC, 'tileCursor');
+    this.bufTileCnt = buf(this.maxTiles * 4, B.STORAGE | B.COPY_DST | B.COPY_SRC, 'tileCnt');
+    this.bufTileStart = buf((this.maxTiles + 1) * 4, B.STORAGE | B.COPY_SRC, 'tileStart');
+    this.bufTileCursor = buf(this.maxTiles * 4, B.STORAGE | B.COPY_SRC, 'tileCursor');
     this.bufEntries = buf(this.entriesCap * 2 * 4, B.STORAGE | B.COPY_SRC, 'entries');
-    this.bufOut = buf(maxPix * 4 * 4, B.STORAGE | B.COPY_SRC, 'outImg');
+    this.bufOut = buf(maxPix * ssq * 4 * 4, B.STORAGE | B.COPY_SRC, 'outImg');
     this.bufTarget = buf(Math.max(16, total * 4), B.STORAGE | B.COPY_DST, 'targets');
     d.queue.writeBuffer(this.bufTarget, 0, targetData);
     this.bufStats = buf(16, B.STORAGE | B.COPY_DST | B.COPY_SRC, 'stats');
@@ -365,6 +384,56 @@ export class GSTrainer {
         [0, this.uniTrain], [1, this.bufSsimB], [2, this.bufSsimA]]);
       this.bgSsimFinal = bgSsim(this.pipeSsimFinal, [
         [0, this.uniTrain], [1, this.bufSsimA], [3, this.bufOut], [4, this.bufTarget], [5, this.bufGssim]]);
+    }
+    if (this.ssaa >= 2) {
+      this.bufEnd = buf(maxPix * ssq * 4, B.STORAGE, 'ssaa-end');
+      this.bufGssim = buf(maxPix * 16, B.STORAGE, 'ssaa-grad');
+      // raster passes at ssaa x need their own scaled cam uniforms; the fwd
+      // one carries trainMode 0 (render + walk-end only, loss lives in the
+      // downsample pass), the bwd one trainMode 1
+      this.uniTrain2f = buf(144, B.UNIFORM | B.COPY_DST, 'uniTrain2f');
+      this.uniTrain2b = buf(144, B.UNIFORM | B.COPY_DST, 'uniTrain2b');
+      this.bgProject2 = bgProject(this.uniTrain2f);
+      this.bgScan2 = bgScan(this.uniTrain2f);
+      this.bgScatter2 = bgScatter(this.uniTrain2f);
+      this.bgRenderFwdSsaa = d.createBindGroup({
+        layout: this.pipeRenderFwd.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.uniTrain2f } },
+          { binding: 1, resource: { buffer: this.bufProj } },
+          { binding: 2, resource: { buffer: this.bufTileStart } },
+          { binding: 3, resource: { buffer: this.bufEntries } },
+          { binding: 4, resource: { buffer: this.bufTarget } },
+          { binding: 5, resource: { buffer: this.bufOut } },
+          { binding: 7, resource: { buffer: this.bufStats } },
+          { binding: 8, resource: { buffer: this.bufCamGrad } },
+          { binding: 9, resource: { buffer: this.bufEnd } },
+        ],
+      });
+      this.bgRenderBwd3 = d.createBindGroup({
+        layout: this.pipeRenderBwd3.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.uniTrain2b } },
+          { binding: 1, resource: { buffer: this.bufProj } },
+          { binding: 2, resource: { buffer: this.bufTileStart } },
+          { binding: 3, resource: { buffer: this.bufEntries } },
+          { binding: 5, resource: { buffer: this.bufOut } },
+          { binding: 6, resource: { buffer: this.bufGradP } },
+          { binding: 9, resource: { buffer: this.bufEnd } },
+          { binding: 10, resource: { buffer: this.bufGssim } },
+        ],
+      });
+      this.bgSsaaLoss = d.createBindGroup({
+        layout: this.pipeSsaaLoss.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.uniTrain } },
+          { binding: 1, resource: { buffer: this.bufOut } },
+          { binding: 2, resource: { buffer: this.bufTarget } },
+          { binding: 3, resource: { buffer: this.bufGssim } },
+          { binding: 4, resource: { buffer: this.bufStats } },
+          { binding: 5, resource: { buffer: this.bufCamGrad } },
+        ],
+      });
     }
     this.bgBlitTrain = bgBlit(this.uniTrain);
     this.bgBlitView = bgBlit(this.uniView);
@@ -526,9 +595,56 @@ export class GSTrainer {
     return u;
   }
 
+  /** Write the training cam uniform, plus the ssaa-scaled variants when
+   *  supersampling (f/cx/cy/w/h/tilesX scaled; fwd gets trainMode 0). */
+  _writeTrainUniforms(u) {
+    const d = this.device;
+    d.queue.writeBuffer(this.uniTrain, 0, u);
+    if (this.ssaa >= 2) {
+      const s = this.ssaa;
+      const u2 = new Float32Array(u);
+      u2[16] *= s; u2[17] *= s; u2[18] *= s;              // f, cx, cy
+      u2[20] *= s; u2[21] *= s;                            // w, h
+      u2[22] = Math.ceil(u2[20] / TILE);                   // tilesX
+      u2[28] = 0; // fwd pass: render + walk-end only
+      d.queue.writeBuffer(this.uniTrain2f, 0, u2);
+      u2[28] = 1;
+      d.queue.writeBuffer(this.uniTrain2b, 0, u2);
+    }
+  }
+
   /** Encode the full raster sequence (project -> scan -> scatter -> sort ->
    *  render) into an open compute pass for the given camera dims. */
   encodeRaster(p, meta, train) {
+    if (train && this.ssaa >= 2) {
+      // supersampled training: raster at ssaa x, then box-downsample + loss
+      // at the native target resolution, then the backward at ssaa x with
+      // the per-1x-pixel gradients. PSNR/loss stats stay 1x-comparable.
+      const s = this.ssaa;
+      const gx2 = Math.ceil((meta.w * s) / TILE), gy2 = Math.ceil((meta.h * s) / TILE);
+      p.setPipeline(this.pipeProject);
+      p.setBindGroup(0, this.bgProject2);
+      p.dispatchWorkgroups(Math.ceil(this.n / 256));
+      p.setPipeline(this.pipeScan);
+      p.setBindGroup(0, this.bgScan2);
+      p.dispatchWorkgroups(1);
+      p.setPipeline(this.pipeScatter);
+      p.setBindGroup(0, this.bgScatter2);
+      p.dispatchWorkgroups(Math.ceil(this.n / 256));
+      p.setPipeline(this.pipeSort);
+      p.setBindGroup(0, this.bgSort);
+      p.dispatchWorkgroups(gx2 * gy2);
+      p.setPipeline(this.pipeRenderFwd);
+      p.setBindGroup(0, this.bgRenderFwdSsaa);
+      p.dispatchWorkgroups(gx2, gy2);
+      p.setPipeline(this.pipeSsaaLoss);
+      p.setBindGroup(0, this.bgSsaaLoss);
+      p.dispatchWorkgroups(Math.ceil(meta.w / TILE), Math.ceil(meta.h / TILE));
+      p.setPipeline(this.pipeRenderBwd3);
+      p.setBindGroup(0, this.bgRenderBwd3);
+      p.dispatchWorkgroups(gx2, gy2);
+      return;
+    }
     const numTiles = Math.ceil(meta.w / TILE) * Math.ceil(meta.h / TILE);
     p.setPipeline(this.pipeProject);
     p.setBindGroup(0, train ? this.bgProjectTrain : this.bgProjectView);
@@ -587,7 +703,7 @@ export class GSTrainer {
     this.camUniforms[ci][33] =
       (this.opts.robustLoss && this.meanPerr && this.iter > (this.opts.robustWarmup ?? 2000))
         ? this.opts.robustLoss * this.meanPerr : 0;
-    d.queue.writeBuffer(this.uniTrain, 0, this.camUniforms[ci]);
+    this._writeTrainUniforms(this.camUniforms[ci]);
     d.queue.writeBuffer(this.bufTileCnt, 0, this.tileZero);
     this.iter++;
     this.pixelsSeen += meta.w * meta.h;
@@ -729,7 +845,7 @@ export class GSTrainer {
       : this.camUniforms[ci];
     const rows = this.camMeta.length + 1;
     d.queue.writeBuffer(this.bufStats, 0, new Uint32Array(4));
-    d.queue.writeBuffer(this.uniTrain, 0, uni);
+    this._writeTrainUniforms(uni);
     d.queue.writeBuffer(this.bufTileCnt, 0, this.tileZero);
     const enc = d.createCommandEncoder();
     const p = enc.beginComputePass();
@@ -805,15 +921,21 @@ export class GSTrainer {
     await this.bufStatsRead.mapAsync(GPUMapMode.READ);
     const s = new Uint32Array(this.bufStatsRead.getMappedRange());
     const v = s[0];
-    const lossSum = s[1];
     const validPx = s[2]; // valid-pixel count (undistortion borders excluded)
     this.entryOverflowTiles = (this.entryOverflowTiles || 0) + s[3];
     this.bufStatsRead.unmap();
     if (px === 0 || validPx === 0) return null;
+    const mse = v / 16 / (validPx * 3);
     // running mean per-pixel charbonnier — the robust-loss tile vote's
-    // reference level (stats[1] = sum of per-pixel loss x 32768)
-    this.meanPerr = lossSum / 32768 / validPx;
-    return v / 16 / (validPx * 3);
+    // reference level. NOT from stats[1]: the x32768 fixed-point loss sum
+    // wraps u32 within a single truck-sized step (534k px), which fed the
+    // vote a near-zero threshold and trimmed EVERY tile (the 4.7 dB
+    // collapse: photometric gradients gone, opacityReg starved the model).
+    // Approximate from the overflow-safe MSE instead — E|err| =~ 0.8*sigma
+    // per channel, 3 channels — with a floor so a bad estimate can only
+    // make the vote MORE conservative, never trigger-happy.
+    this.meanPerr = Math.max(2.4 * Math.sqrt(mse), 0.01);
+    return mse;
   }
 
   /** Render an arbitrary camera into a WebGPU canvas context. */
