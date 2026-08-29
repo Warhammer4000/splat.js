@@ -254,7 +254,9 @@ export class Session {
     this._stage({ stage: 'seed', done: 0, total: 1 });
     const target = extra.initTarget || this.opts.initTarget || 60000;
     const clones = Math.min(24, Math.max(2, Math.round(target / this.recon.points.length) - 1));
-    this.model = initGaussians(this.recon.points, clones);
+    const v2 = this.opts.trainer && this.opts.trainer.engine === 'v2';
+    this.model = initGaussians(this.recon.points, clones, undefined,
+      v2 ? { dc: 'sh', randRot: true } : {});
     this._log(`initialized ${this.model.n} Gaussians (scene radius ${this.model.radius.toFixed(2)})`);
 
     if (!this.gpu) this.gpu = await createGpu({ device: this.opts.device });
@@ -722,7 +724,7 @@ export class Session {
         ? bakeOpacityCompensation(data, n, meta.f,
             Float32Array.from(this.trainer.camMeta.flatMap(camPosition)))
         : data;
-      return gaussiansToPly(baked, n, sh, shK);
+      return gaussiansToPly(baked, n, sh, shK, this.trainer.dcMode);
     });
   }
 

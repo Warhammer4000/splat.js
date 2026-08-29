@@ -41,7 +41,7 @@ export class GSTrainer {
     const mk = (code, label) => d.createShaderModule({ code, label });
     this.pipeProject = d.createComputePipeline({
       label: 'project', layout: 'auto',
-      compute: { module: mk(makeProjectSrc(this.opts.eCut, this.opts.aMin, this.opts.radClamp, this.shDeg), 'project'), entryPoint: 'main' },
+      compute: { module: mk(makeProjectSrc(this.opts.eCut, this.opts.aMin, this.opts.radClamp, this.shDeg, this.dcMode), 'project'), entryPoint: 'main' },
     });
     // the (key,id) entry budget scales with an explicit splat ceiling — the
     // fixed 12M cap silently dropped tiles at 800k splats (fast iterations,
@@ -50,6 +50,9 @@ export class GSTrainer {
       (this.opts.maxSplats ? Math.max(ENTRIES_CAP, this.opts.maxSplats * 24) : ENTRIES_CAP);
     // SSAA renders ssaa^2 x the pixels; entries scale with covered pixels
     this.ssaa = this.opts.ssaa ?? 0;
+    // engine v2: clean Brush-style optimization system on the same renderer
+    this.v2 = this.opts.engine === 'v2';
+    this.dcMode = this.v2 ? 'sh' : 'sigmoid';
     if (this.ssaa >= 2 && !this.opts.entriesCap) this.entriesCap *= 2;
     this.pipeScan = d.createComputePipeline({
       label: 'tile-scan', layout: 'auto',
@@ -80,7 +83,7 @@ export class GSTrainer {
     });
     // D-SSIM loss (opts.ssimWeight > 0): split renderer + image passes.
     // The fused kernel stays untouched for the default path.
-    this.ssimW = this.opts.ssimWeight ?? 0;
+    this.ssimW = this.opts.ssimWeight ?? (this.v2 ? 0.2 : 0);
     if (this.ssimW > 0 && this.ssaa >= 2) throw new Error('ssimWeight and ssaa are mutually exclusive');
     if (this.ssimW > 0 || this.ssaa >= 2) {
       this.pipeRenderFwd = d.createComputePipeline({
@@ -121,7 +124,7 @@ export class GSTrainer {
       // anisoReg default 0.005 (was 0.02): with SIFT-grade poses the needle
       // pathology is gone (camping p99 ratio 42:1) and the stronger pull
       // toward isotropy measurably blurs edges (-0.8dB holdout on train-84)
-      compute: { module: mk(makeChainSrc(this.opts.anisoReg ?? 0.005, this.shDeg), 'chain'), entryPoint: 'main' },
+      compute: { module: mk(makeChainSrc(this.opts.anisoReg ?? (this.v2 ? 0 : 0.005), this.shDeg, this.dcMode), 'chain'), entryPoint: 'main' },
     });
     this.pipeAdam = d.createComputePipeline({
       label: 'adam', layout: 'auto',
@@ -533,13 +536,13 @@ export class GSTrainer {
     // posLrScale: experiment knob — the reference implementations run their
     // position lr 20-60x LOWER relative to scene extent (median vs our P90,
     // 1.6e-5 vs 3e-4 coefficient); sweepable before touching the default
-    this.basePosLr = 3e-4 * r * (this.opts.posLrScale ?? 1);
+    this.basePosLr = (this.v2 ? 2e-5 : 3e-4) * r * (this.opts.posLrScale ?? 1);
     const lrs = new Float32Array(16);
     lrs[0] = lrs[1] = lrs[2] = this.basePosLr;      // position
-    lrs[3] = lrs[4] = lrs[5] = 5e-3;                // log scales
+    lrs[3] = lrs[4] = lrs[5] = this.v2 ? 1e-2 : 5e-3;  // log scales
     lrs[6] = lrs[7] = lrs[8] = lrs[9] = 1e-3;       // quaternion
-    lrs[10] = lrs[11] = lrs[12] = 1.5e-2;           // color logits
-    lrs[13] = 2.5e-2;                               // opacity logit
+    lrs[10] = lrs[11] = lrs[12] = this.v2 ? 2e-3 : 1.5e-2; // DC color
+    lrs[13] = this.v2 ? 1e-2 : 2.5e-2;              // opacity logit
     this.adamData.set(lrs, 0);
     this.adamData.set([
       0.9, 0.999, 1e-15, 1,                          // beta1, beta2, eps, t
@@ -559,10 +562,11 @@ export class GSTrainer {
       Math.log(r * (this.opts.minScale ?? 1e-4)), Math.log(r * (this.opts.maxScale ?? 0.5)), 8.0, this.n * STRIDE,
       // 0.01 (was 0.05): matches standard 3DGS-MCMC; the strong early-era pull
       // kept splats semi-transparent and layered ("milky")
-      this.opts.opacityReg ?? 0.01,
-      this.opts.scaleReg ?? 0,                          // 3DGS-MCMC scale pressure
-      this.opts.mcmcNoise === true ? 5e5 : (this.opts.mcmcNoise ?? 0),  // Langevin prefactor
-      0,
+      this.v2 ? 0 : (this.opts.opacityReg ?? 0.01),
+      this.v2 ? 0 : (this.opts.scaleReg ?? 0),          // 3DGS-MCMC scale pressure
+      // v2: no Langevin — apply-kernel split offsets do the dispersing
+      this.v2 ? 0 : (this.opts.mcmcNoise === true ? 5e5 : (this.opts.mcmcNoise ?? 0)),
+      this.v2 ? 1 : 0,                                  // reg.w: unbounded DC color
     ], 16);
     this.lastRefine = 0;
     this.rand = () => Math.random();
@@ -715,10 +719,17 @@ export class GSTrainer {
     // opts.lrExp = <end fraction>: Brush-style smooth exponential over the
     // FULL horizon (e.g. 0.05 = decay to 5%), replacing the 100x-by-75% +
     // floor-polish default. Sweepable together with posLrScale.
-    const posLr = this.opts.lrExp
-      ? this.basePosLr * Math.pow(this.opts.lrExp, Math.min(1, this.iter / this.horizon))
-      : this.basePosLr * Math.pow(0.01, Math.min(1, this.iter / (0.75 * this.horizon)));
+    const posLr = this.v2
+      // v2: Brush schedules — smooth 20x position decay over the horizon
+      ? this.basePosLr * Math.pow(0.05, Math.min(1, this.iter / this.horizon))
+      : this.opts.lrExp
+        ? this.basePosLr * Math.pow(this.opts.lrExp, Math.min(1, this.iter / this.horizon))
+        : this.basePosLr * Math.pow(0.01, Math.min(1, this.iter / (0.75 * this.horizon)));
     this.adamData[0] = this.adamData[1] = this.adamData[2] = posLr;
+    if (this.v2) { // log-scale 1e-2 -> 6e-3 exponential
+      const sLr = 1e-2 * Math.pow(0.6, Math.min(1, this.iter / this.horizon));
+      this.adamData[3] = this.adamData[4] = this.adamData[5] = sLr;
+    }
     d.queue.writeBuffer(this.uniAdam, 0, this.adamData);
     if (this.shK) {
       this.shAdamData[3] = this.iter;
@@ -976,7 +987,157 @@ export class GSTrainer {
    *  error mass + mean log-scale); relocation executes GPU-side from a plan
    *  buffer, so refineEvery 100 is affordable. opts.refineV2 = false restores
    *  the legacy jitter-clone path. Returns { moved, grown, n }. */
+  /** Engine-v2 refine: one coherent Brush-style system. Dead splats
+   *  (opacity < 2/255 or degenerate scale) RELOCATE onto donors sampled by
+   *  opacity (prune+recycle without compaction); growth is triggered by the
+   *  per-splat screen-gradient stat (gradP slot 12, window-accumulated —
+   *  the channel that lets the D-SSIM loss steer capacity) and spends new
+   *  rows where the image is structurally wrong. Every op is an
+   *  alpha-conserving split (o -> 1-sqrt(1-o), scales /sqrt2, +/- ellipsoid
+   *  offset pair via the apply kernel) — image-neutral at birth, no
+   *  Langevin needed. Readback stays 16 bytes/splat. */
+  async _refineV3(rng = Math.random) {
+    const d = this.device;
+    const canReloc = this.iter < (this.opts.relocUntil ?? Infinity);
+    const limit = Math.min(this.cap, this.growLimit || this.cap);
+    const canGrow = this.iter < (this.opts.growUntil ?? 0.5 * this.horizon) && this.n < limit;
+    if (!canReloc && !canGrow) return { moved: 0, grown: 0, n: this.n };
+
+    d.queue.writeBuffer(this.uniGather, 0, new Uint32Array([this.n, 0, 0, 0]));
+    {
+      const enc = d.createCommandEncoder();
+      const p = enc.beginComputePass();
+      p.setPipeline(this.pipeGather);
+      p.setBindGroup(0, this.bgGather);
+      const groups = Math.ceil(this.n / 256);
+      if (groups <= 65535) p.dispatchWorkgroups(groups);
+      else p.dispatchWorkgroups(65535, Math.ceil(groups / 65535));
+      p.end();
+      enc.copyBufferToBuffer(this.bufGather, 0, this.bufGatherRead, 0, this.n * 16);
+      d.queue.submit([enc.finish()]);
+    }
+    await this.bufGatherRead.mapAsync(GPUMapMode.READ, 0, this.n * 16);
+    const g = new Float32Array(this.bufGatherRead.getMappedRange(0, this.n * 16)).slice();
+    this.bufGatherRead.unmap();
+
+    const sig = (x) => 1 / (1 + Math.exp(-x));
+    const minLog = Math.log(this.sceneRadius * (this.opts.minScale ?? 1e-4)) + 0.05;
+    let dead = [];
+    const pool = [];
+    for (let i = 0; i < this.n; i++) {
+      const o = sig(g[i * 4]);
+      if (o < 2 / 255 || g[i * 4 + 3] < minLog) { if (canReloc) dead.push(i); }
+      else if (o >= 0.05) pool.push(i);
+    }
+    if (pool.length < 16) return { moved: 0, grown: 0, n: this.n };
+
+    // relocation donors ~ opacity; growth donors ~ grad-stat above threshold
+    const opCdf = new Float64Array(pool.length);
+    let opAcc = 0;
+    for (let k = 0; k < pool.length; k++) { opAcc += sig(g[pool[k] * 4]); opCdf[k] = opAcc; }
+    const drawOp = () => {
+      const r = rng() * opAcc;
+      let lo = 0, hi = pool.length - 1;
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (opCdf[mid] < r) lo = mid + 1; else hi = mid; }
+      return pool[lo];
+    };
+
+    let grown = 0;
+    let gCands = [], gsAcc = 0, gsCdf = null;
+    if (canGrow) {
+      // threshold at a MEDIAN multiple — the stat is heavy-tailed, so a
+      // mean multiple marks almost nothing and growth starves (first v2
+      // gate: 568k of a 2M cap). Median from a subsample for speed.
+      const sample = [];
+      const step = Math.max(1, pool.length >> 13);
+      for (let k = 0; k < pool.length; k += step) sample.push(g[pool[k] * 4 + 1]);
+      sample.sort((a, b) => a - b);
+      const med = sample[sample.length >> 1] || 0;
+      const tau = (this.opts.growTau ?? 1) * med;
+      if (med > 0) {
+        for (const i of pool) if (g[i * 4 + 1] > tau) gCands.push(i);
+        grown = Math.min(Math.ceil(gCands.length * (this.opts.growFrac ?? 0.1)), limit - this.n);
+        if (grown > 0) {
+          gsCdf = new Float64Array(gCands.length);
+          for (let k = 0; k < gCands.length; k++) { gsAcc += g[gCands[k] * 4 + 1]; gsCdf[k] = gsAcc; }
+        }
+      }
+    }
+    const drawGs = () => {
+      const r = rng() * gsAcc;
+      let lo = 0, hi = gCands.length - 1;
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (gsCdf[mid] < r) lo = mid + 1; else hi = mid; }
+      return gCands[lo];
+    };
+    if (dead.length + grown === 0) return { moved: 0, grown: 0, n: this.n };
+    const budget = Math.floor(this.planCap / 2) - 1;
+    if (dead.length > budget) dead = dead.slice(0, budget);
+    grown = Math.min(grown, budget - dead.length);
+
+    // plan: clone-copy ops first, donor adjustments second (ordered
+    // dispatches). Op = copy + set-opacity + dls + ellipsoid offset (+side),
+    // donor op = same adjustments with the opposite offset sign.
+    const SHRINK = Math.log(1 / Math.SQRT2);
+    const SIGMA = this.opts.splitSigma ?? 0.5;
+    const u32 = new Uint32Array(this.planCap * 8);
+    const f32 = new Float32Array(u32.buffer);
+    const pushOp = (at, dst, src, flags, newO, dls, seed, sign, sigma) => {
+      const o = at * 8;
+      u32[o] = dst; u32[o + 1] = src; u32[o + 2] = flags; u32[o + 3] = seed;
+      f32[o + 4] = newO; f32[o + 5] = dls; f32[o + 6] = sign; f32[o + 7] = sigma;
+    };
+    const used = new Set();
+    const donorOps = [];
+    let nClone = 0;
+    const splitOnto = (dst, drawFn) => {
+      let don = drawFn();
+      for (let tries = 0; used.has(don) && tries < 8; tries++) don = drawFn();
+      used.add(don);
+      const o = sig(g[don * 4]);
+      const oNew = Math.min(0.9999, Math.max(1e-4, 1 - Math.sqrt(1 - o)));
+      const lgt = Math.log(oNew / (1 - oNew));
+      const seed = (rng() * 4294967295) >>> 0;
+      // dst: copy row, set opacity, shrink, offset +
+      pushOp(nClone++, dst, don, 1 | 2 | 4 | 32, lgt, SHRINK, seed, 1, SIGMA);
+      // donor keeps its moments (no bit 8): shape change is the conserving
+      // half of a split, not a reset-worthy rebirth
+      donorOps.push([don, lgt, seed]);
+    };
+    for (const i of dead) splitOnto(i, drawOp);
+    for (let k = 0; k < grown; k++) splitOnto(this.n + k, drawGs);
+    let dk = nClone;
+    for (const [don, lgt, seed] of donorOps) pushOp(dk++, don, don, 2 | 4 | 32, lgt, SHRINK, seed, -1, SIGMA);
+    const nOps = nClone + donorOps.length;
+
+    d.queue.writeBuffer(this.bufPlan, 0, u32, 0, nOps * 8);
+    d.queue.writeBuffer(this.uniRefine, 0, new Uint32Array([nClone, this.shK * 3, 0, 0]));
+    d.queue.writeBuffer(this.uniRefineB, 0, new Uint32Array([donorOps.length, this.shK * 3, nClone, 0]));
+    {
+      const enc = d.createCommandEncoder();
+      const p = enc.beginComputePass();
+      p.setPipeline(this.pipeRefineApply);
+      const disp = (bg, count) => {
+        if (!count) return;
+        p.setBindGroup(0, bg);
+        const groups = Math.ceil(count / 256);
+        if (groups <= 65535) p.dispatchWorkgroups(groups);
+        else p.dispatchWorkgroups(65535, Math.ceil(groups / 65535));
+      };
+      disp(this.bgRefineApply, nClone);
+      disp(this.bgRefineApplyB, donorOps.length);
+      p.end();
+      d.queue.submit([enc.finish()]);
+    }
+    if (grown > 0) {
+      this.n += grown;
+      this.adamData[23] = this.n * STRIDE;
+      this.camUniforms = this.camMeta.map((mm, i) => this._camUniform(mm, 1, mm.offset, i));
+    }
+    return { moved: dead.length, grown, n: this.n };
+  }
+
   async refine(rng = Math.random) {
+    if (this.v2 && (this.opts.v2Refine ?? true)) return this._refineV3(rng);
     // OPT-IN while unproven: at truck 40k the v2 mechanics plateau 0.1-0.2 dB
     // BELOW the legacy path (best 25.38 vs 25.49) and one knob combination
     // (v1 opacity semantics + error-guided donors, eq9=0) death-spiraled to

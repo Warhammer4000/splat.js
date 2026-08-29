@@ -10,7 +10,10 @@ const logit = (p) => Math.log(p / (1 - p));
  * clones: extra jittered copies per point (increases capacity without densification)
  * Returns { data, n, center, radius }
  */
-export function initGaussians(points, clones = 2, maxGaussians = 600000) {
+export function initGaussians(points, clones = 2, maxGaussians = 600000, conv = {}) {
+  // conv.dc = 'sh' stores SH-DC color (standard convention, engine v2);
+  // conv.randRot seeds random unit quaternions instead of identity
+  const SH_C0 = 0.28209479177387814;
   const rng = makeRng(777);
   const np = points.length;
 
@@ -76,12 +79,27 @@ export function initGaussians(points, clones = 2, maxGaussians = 600000) {
       data[b + 3] = ls;
       data[b + 4] = ls;
       data[b + 5] = ls;
-      data[b + 6] = 1; // identity quaternion (w,x,y,z)
+      if (conv.randRot) {
+        let qw = rng() - 0.5, qx = rng() - 0.5, qy = rng() - 0.5, qz = rng() - 0.5;
+        const qn = Math.hypot(qw, qx, qy, qz) || 1;
+        data[b + 6] = qw / qn; data[b + 7] = qx / qn; data[b + 8] = qy / qn; data[b + 9] = qz / qn;
+      } else {
+        data[b + 6] = 1; // identity quaternion (w,x,y,z)
+      }
       // colors are stored as logits (sigmoid-activated in the shaders)
-      data[b + 10] = logit(Math.min(0.98, Math.max(0.02, p.rgb[0])));
-      data[b + 11] = logit(Math.min(0.98, Math.max(0.02, p.rgb[1])));
-      data[b + 12] = logit(Math.min(0.98, Math.max(0.02, p.rgb[2])));
-      data[b + 13] = lop;
+      if (conv.dc === 'sh') {
+        data[b + 10] = (p.rgb[0] - 0.5) / SH_C0;
+        data[b + 11] = (p.rgb[1] - 0.5) / SH_C0;
+        data[b + 12] = (p.rgb[2] - 0.5) / SH_C0;
+        // Brush-style opacity spread: uniform in [0.1, 0.25]
+        const op = 0.1 + rng() * 0.15;
+        data[b + 13] = Math.log(op / (1 - op));
+      } else {
+        data[b + 10] = logit(Math.min(0.98, Math.max(0.02, p.rgb[0])));
+        data[b + 11] = logit(Math.min(0.98, Math.max(0.02, p.rgb[1])));
+        data[b + 12] = logit(Math.min(0.98, Math.max(0.02, p.rgb[2])));
+        data[b + 13] = lop;
+      }
     }
   }
   return { data, n: g, center, radius };

@@ -54,6 +54,7 @@ try {
   }
 
   const ses = window.__ses = createSession({
+    ...(Q.get('init') ? { initTarget: +Q.get('init') } : {}),
     maxIters: ITERS,
     evalSplit: cfg.holdout1 ? 0 : 8,
     ...(cfg.holdout1 ? { holdout: 'auto' } : {}),
@@ -61,13 +62,18 @@ try {
     // shrinks big sets and PSNR at reduced res is not comparable run-to-run)
     frames: { trainMaxDim: cfg.res || 1600 },
     // ?classic=1: pre-MCMC defaults (A/B for small-set anomalies)
-    ...(Q.has('classic') ? {} : { refineEvery: 500 }),
+    ...(Q.has('classic') ? {} : { refineEvery: +(Q.get('refevery') || 500) }),
     trainer: Q.has('classic')
       ? { maxSplats: Math.min(600000, Math.round(ITERS * 15)), capMult: 8, shDeg: 3 }
       : {
-        maxSplats: Math.min(2000000, Math.round(ITERS * 35)), capMult: 8, shDeg: 3,
+        maxSplats: +(Q.get('maxsplats') || Math.min(2000000, Math.round(ITERS * 35))), capMult: 8, shDeg: 3,
         growRate: 0.05, mcmcNoise: true, scaleReg: 0.01, moveCap: 0.25, shLr: 3e-4,
         ...(Q.get('maxscale') ? { maxScale: +Q.get('maxscale') } : {}),
+        ...(Q.get('ssim') ? { ssimWeight: +Q.get('ssim') } : {}),
+        ...(Q.get('v2') ? { engine: 'v2' } : {}),
+        ...(Q.get('growfrac') ? { growFrac: +Q.get('growfrac') } : {}),
+        ...(Q.get('growtau') ? { growTau: +Q.get('growtau') } : {}),
+        ...(Q.get('growuntil') ? { growUntil: +Q.get('growuntil') } : {}),
       },
   });
   ses.on('log', (m) => console.log('[SES]', m));
@@ -77,9 +83,27 @@ try {
   await say('decoded', { frames: ses.frames.length });
 
   const solveT = Date.now();
-  const recon = await ses.solve();
+  let recon;
+  if (Q.get('gtrecon')) {
+    // externally supplied reconstruction (e.g. COLMAP GT parsed to our
+    // format) — poses + cloud swap in, everything else identical
+    recon = ses.useReconstruction(await (await fetch(Q.get('gtrecon'))).json());
+    await say('gt-recon', { cams: recon.cams.length, points: recon.points.length });
+  } else {
+    recon = await ses.solve();
+  }
   const solveMin = +((Date.now() - solveT) / 60000).toFixed(1);
   await say('solved', { cams: recon.cams.length, of: ses.frames.length, rms: recon.rmsBA && +recon.rmsBA.toFixed(2), solveMin });
+  if (Q.get('postrecon')) {
+    await post(Q.get('postrecon'), JSON.stringify({
+      cams: recon.cams.map((c) => ({
+        imgIdx: c.imgIdx, name: ses.frames[c.imgIdx].name,
+        R: c.R, t: c.t, f: c.f, cx: c.cx, cy: c.cy,
+      })),
+      points: recon.points.map((p) => ({ X: p.X, rgb: p.rgb })),
+      k1: recon.k1, k2: recon.k2,
+    }));
+  }
 
   await ses.seed();
   if (cfg.pano) {

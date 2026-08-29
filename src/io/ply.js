@@ -42,7 +42,7 @@ export function bakeOpacityCompensation(data, n, f, camPositions) {
  *  K green, K blue per splat) — the trainer's color model is EXACTLY the
  *  standard one (f_dc = (sigmoid(logit)-0.5)/C0, f_rest = raw coeffs), so
  *  standard viewers reproduce the trained view dependence bit-for-bit. */
-export function gaussiansToPly(data, n, sh = null, shK = 0) {
+export function gaussiansToPly(data, n, sh = null, shK = 0, dc = 'sigmoid') {
   const K = sh ? shK : 0;
   const props = [
     'x', 'y', 'z', 'nx', 'ny', 'nz',
@@ -74,9 +74,15 @@ export function gaussiansToPly(data, n, sh = null, shK = 0) {
     dv.setFloat32(o + 4, data[b + 1], true);
     dv.setFloat32(o + 8, data[b + 2], true);
     // normals = 0; colors stored as logits -> activate exactly like the trainer
-    dv.setFloat32(o + 24, (sig(data[b + 10]) - 0.5) / SH_C0, true);
-    dv.setFloat32(o + 28, (sig(data[b + 11]) - 0.5) / SH_C0, true);
-    dv.setFloat32(o + 32, (sig(data[b + 12]) - 0.5) / SH_C0, true);
+    if (dc === 'sh') { // v2 stores SH-DC natively: pass through
+      dv.setFloat32(o + 24, data[b + 10], true);
+      dv.setFloat32(o + 28, data[b + 11], true);
+      dv.setFloat32(o + 32, data[b + 12], true);
+    } else {
+      dv.setFloat32(o + 24, (sig(data[b + 10]) - 0.5) / SH_C0, true);
+      dv.setFloat32(o + 28, (sig(data[b + 11]) - 0.5) / SH_C0, true);
+      dv.setFloat32(o + 32, (sig(data[b + 12]) - 0.5) / SH_C0, true);
+    }
     for (let k = 0; k < 3 * K; k++) {
       dv.setFloat32(o + 36 + k * 4, sh[i * 3 * K + k], true);
     }

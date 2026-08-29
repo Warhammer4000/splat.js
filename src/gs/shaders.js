@@ -244,7 +244,9 @@ fn computeGeom(pbase: u32) -> Geom {
 `;
 
 // Pass 1: project each splat and COUNT the tiles it touches.
-export const makeProjectSrc = (E = DEFAULT_E_CUT, A = DEFAULT_A_MIN, RC = 1.0, shDeg = 0) =>
+// dc: 'sigmoid' (legacy bounded DC) | 'sh' (v2: standard unbounded SH-DC,
+// col = C0*dc + 0.5 — matches the PLY convention directly)
+export const makeProjectSrc = (E = DEFAULT_E_CUT, A = DEFAULT_A_MIN, RC = 1.0, shDeg = 0, dc = 'sigmoid') =>
   CAM_STRUCT + cutConsts(E, A, RC) + /* wgsl */ `
 @group(0) @binding(1) var<storage, read> params: array<f32>;
 @group(0) @binding(2) var<storage, read_write> proj: array<f32>;
@@ -293,10 +295,14 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   proj[b + 5u]  = ad * inv;        // conic C
   proj[b + 6u]  = comp;
   proj[b + 7u]  = opa;
+${dc === 'sh' ? /* wgsl */ `
+  var col = 0.28209479 * vec3f(params[b + 10u], params[b + 11u], params[b + 12u]) + vec3f(0.5);
+` : /* wgsl */ `
   var col = vec3f(
     1.0 / (1.0 + exp(-clamp(params[b + 10u], -9.0, 9.0))),
     1.0 / (1.0 + exp(-clamp(params[b + 11u], -9.0, 9.0))),
     1.0 / (1.0 + exp(-clamp(params[b + 12u], -9.0, 9.0))));
+`}
 ${shDeg > 0 ? /* wgsl */ `
   // view-dependent color: SH rest bands added to the sigmoid DC, clamp at 0
   {
@@ -556,7 +562,7 @@ fn camAdd(idx: u32, v: f32) {
 ` + (tileGrad ? /* wgsl */ `
 var<workgroup> wgEnd: atomic<u32>;
 var<workgroup> wgEndU: u32;
-var<workgroup> sg: array<atomic<i32>, 12>; // 0-9 grads, 10-11 error mass
+var<workgroup> sg: array<atomic<i32>, 13>; // 0-9 grads, 10-11 error mass, 12 grad-stat
 ` + (mode === 0 ? /* wgsl */ `
 var<workgroup> wgErr: atomic<u32>;   // robust-loss tile vote: residual sum (x4096)
 var<workgroup> wgValid: atomic<u32>; // and its valid-pixel count
@@ -707,9 +713,12 @@ ${tileGrad ? '  var lossOk = pxOk;' : '  var lossOk = true;'}
       let root = sqrt(err * err + vec3f(DELTA * DELTA));
       let eg = err / root;         // dL / d(exposure-adjusted color)
 ${mode === 2 ? /* wgsl */ `      // mix in the D-SSIM gradient (computed by the image passes into
-      // gssim, in exposure-adjusted color space): L = (1-w)*charb + w*(1-S)
+      // gssim, in exposure-adjusted color space): L = (1-w)*L1 + w*(1-S).
+      // PLAIN L1 (sign) for the photometric half, matching the reference
+      // recipes — charbonnier's gradient decays near convergence, which
+      // let the SSIM term dominate late and measured -0.4 dB on garden
       let gs = vec3f(gssim[pi * 4u], gssim[pi * 4u + 1u], gssim[pi * 4u + 2u]);
-      gC = gain * ((1.0 - SSIMW) * eg - SSIMW * gs);` : /* wgsl */ `      gC = gain * eg;              // dL / d(rendered color)`}
+      gC = gain * ((1.0 - SSIMW) * sign(err) - SSIMW * gs);` : /* wgsl */ `      gC = gain * eg;              // dL / d(rendered color)`}
       let lossv = (root.x + root.y + root.z) - 3.0 * DELTA;
       perr = lossv;
 ${mode === 2 ? '' : /* wgsl */ `      atomicAdd(&stats[2], 1u); // valid-pixel count (PSNR denominator)
@@ -764,7 +773,7 @@ ${tileGrad ? /* wgsl */ `
   var Ta = T;
   for (var kk = endMax; kk > segS; kk--) {
 ${tileGrad ? /* wgsl */ `
-    if (li < 12u) { atomicStore(&sg[li], 0); }
+    if (li < 13u) { atomicStore(&sg[li], 0); }
     workgroupBarrier();
 ` : ''}${tileGrad && subgroups ? /* wgsl */ `
     // subgroup variant only: contributions land in locals so the aggregated
@@ -772,7 +781,7 @@ ${tileGrad ? /* wgsl */ `
     // builtins in divergent flow — a lesson bought with a dead pipeline)
     var q0 = 0.0; var q1 = 0.0; var q2 = 0.0; var q3 = 0.0; var q4 = 0.0;
     var q5 = 0.0; var q6 = 0.0; var q7 = 0.0; var q8 = 0.0; var q9 = 0.0;
-    var q10 = 0.0; var q11 = 0.0;
+    var q10 = 0.0; var q11 = 0.0; var q12 = 0.0;
 ` : ''}
     let i = entries[2u * (kk - 1u) + 1u];
     let b = i * 16u;
@@ -827,7 +836,8 @@ ${tileGrad ? (subgroups ? /* wgsl */ `    q2 = -ga * 0.5 * d.x * d.x * cnorm;
     q8 = gcv.g;
     q9 = gcv.b;
     q10 = alpha * Tb;
-    q11 = alpha * Tb * perr;` : /* wgsl */ `    atomAddC(2u, -ga * 0.5 * d.x * d.x * cnorm);
+    q11 = alpha * Tb * perr;
+    q12 = abs(gmean.x) + abs(gmean.y);` : /* wgsl */ `    atomAddC(2u, -ga * 0.5 * d.x * d.x * cnorm);
     atomAddC(3u, -ga * d.x * d.y * cnorm);
     atomAddC(4u, -ga * 0.5 * d.y * d.y * cnorm);
     atomAdd(5u, galpha * opa * G);          // d/dcomp
@@ -836,7 +846,8 @@ ${tileGrad ? (subgroups ? /* wgsl */ `    q2 = -ga * 0.5 * d.x * d.x * cnorm;
     atomAdd(8u, gcv.g);
     atomAdd(9u, gcv.b);
     atomAddW(10u, alpha * Tb);              // rendered mass (refine sampling)
-    atomAddW(11u, alpha * Tb * perr);       // error mass (refine sampling)`) : /* wgsl */ `    atomAddC(b + 2u, -ga * 0.5 * d.x * d.x * cnorm);
+    atomAddW(11u, alpha * Tb * perr);       // error mass (refine sampling)
+    atomAddW(12u, abs(gmean.x) + abs(gmean.y)); // grad-stat (v2 growth)`) : /* wgsl */ `    atomAddC(b + 2u, -ga * 0.5 * d.x * d.x * cnorm);
     atomAddC(b + 3u, -ga * d.x * d.y * cnorm);
     atomAddC(b + 4u, -ga * 0.5 * d.y * d.y * cnorm);
     atomAdd(b + 5u, galpha * opa * G);          // d/dcomp
@@ -845,7 +856,8 @@ ${tileGrad ? (subgroups ? /* wgsl */ `    q2 = -ga * 0.5 * d.x * d.x * cnorm;
     atomAdd(b + 8u, gcv.g);
     atomAdd(b + 9u, gcv.b);
     atomAddW(b + 10u, alpha * Tb);              // rendered mass (refine sampling)
-    atomAddW(b + 11u, alpha * Tb * perr);       // error mass (refine sampling)`}
+    atomAddW(b + 11u, alpha * Tb * perr);       // error mass (refine sampling)
+    atomAddW(b + 12u, abs(gmean.x) + abs(gmean.y)); // grad-stat (v2 growth)`}
 
     S += c * alpha * Tb;
     Ta = Tb;
@@ -866,11 +878,11 @@ ${tileGrad ? (subgroups ? /* wgsl */ `
       atomAddC(2u, q2); atomAddC(3u, q3); atomAddC(4u, q4);
       atomAdd(5u, q5); atomAdd(6u, q6);
       atomAdd(7u, q7); atomAdd(8u, q8); atomAdd(9u, q9);
-      atomAddW(10u, q10); atomAddW(11u, q11);
+      atomAddW(10u, q10); atomAddW(11u, q11); atomAddW(12u, q12);
     }
 ` : '') + /* wgsl */ `
     workgroupBarrier();
-    if (li < 12u) {
+    if (li < 13u) {
       let v = atomicLoad(&sg[li]);
       if (v != 0) { atomicAdd(&gradP[b + li], v); }
     }
@@ -879,7 +891,7 @@ ${tileGrad ? (subgroups ? /* wgsl */ `
 }
 `);
 
-export const makeChainSrc = (AREG = 0.02, shDeg = 0) => CAM_STRUCT + /* wgsl */ `
+export const makeChainSrc = (AREG = 0.02, shDeg = 0, dc = 'sigmoid') => CAM_STRUCT + /* wgsl */ `
 const AREG = ${AREG.toExponential()};
 ` + /* wgsl */ `
 @group(0) @binding(1) var<storage, read> params: array<f32>;
@@ -1123,9 +1135,15 @@ ${shDeg > 0 ? /* wgsl */ `
     gradF[b + 1u] += shPos.y;
     gradF[b + 2u] += shPos.z;
   }` : ''}
+${dc === 'sh' ? /* wgsl */ `
+  gradF[b + 10u] = dRGB.x * 0.28209479;
+  gradF[b + 11u] = dRGB.y * 0.28209479;
+  gradF[b + 12u] = dRGB.z * 0.28209479;
+` : /* wgsl */ `
   gradF[b + 10u] = dRGB.x * sCol.x * (1.0 - sCol.x);
   gradF[b + 11u] = dRGB.y * sCol.y * (1.0 - sCol.y);
   gradF[b + 12u] = dRGB.z * sCol.z * (1.0 - sCol.z);
+`}
   gradF[b + 13u] = gp[6];
 }
 `;
@@ -1250,7 +1268,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u,
   }
 
   if (slot >= 3u && slot <= 5u) { p = clamp(p, au.cl.x, au.cl.y); }
-  if (slot >= 10u && slot <= 13u) { p = clamp(p, -au.cl.z, au.cl.z); } // logits
+  // logit clamps; reg.w >= 0.5 = v2 unbounded SH-DC color (opacity stays)
+  if (slot == 13u || (slot >= 10u && slot <= 12u && au.reg.w < 0.5)) {
+    p = clamp(p, -au.cl.z, au.cl.z);
+  }
   params[j] = p;
 }
 `;
@@ -1299,7 +1320,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u,
   if (i >= gu.n) { return; }
   let b = i * 16u;
   outv[i * 4u] = params[b + 13u];
-  outv[i * 4u + 1u] = f32(atomicExchange(&gradP[b + 10u], 0)) / WFIX;
+  atomicExchange(&gradP[b + 10u], 0); // drain w-mass (unused, prevents overflow)
+  outv[i * 4u + 1u] = f32(atomicExchange(&gradP[b + 12u], 0)) / WFIX;
   outv[i * 4u + 2u] = f32(atomicExchange(&gradP[b + 11u], 0)) / WFIX;
   outv[i * 4u + 3u] = (params[b + 3u] + params[b + 4u] + params[b + 5u]) / 3.0;
 }
@@ -1386,6 +1408,28 @@ fn main(@builtin(global_invocation_id) gid: vec3u,
       let sd = op.dst * ru.shr;
       for (var j = 0u; j < ru.shr; j++) { shM[sd + j] = 0.0; shV[sd + j] = 0.0; }
     }
+  }
+  if ((op.flags & 32u) != 0u) {
+    // v2 conserving split: signed ellipsoid offset. The pair shares one
+    // seed -> identical vector; p0 = +/-1 picks the side, p1 = sigma in
+    // units of the (post-shrink) scale. Runs after the dls block so both
+    // rows sample the same ellipsoid.
+    var q = vec4f(params[bd + 6u], params[bd + 7u], params[bd + 8u], params[bd + 9u]);
+    q /= max(length(q), 1e-9);
+    let w = q.x; let x = q.y; let y = q.z; let z = q.w;
+    var e: vec3f;
+    for (var c = 0u; c < 3u; c++) {
+      let u1 = (f32(h32(op.seed ^ (c * 2654435761u))) + 0.5) / 4294967296.0;
+      let u2 = (f32(h32(op.seed ^ (c * 2654435761u) ^ 0x9e3779b9u)) + 0.5) / 4294967296.0;
+      e[c] = sqrt(-2.0 * log(u1)) * cos(6.2831853 * u2) * exp(params[bd + 3u + c]) * op.p1;
+    }
+    let off = vec3f(
+      (1.0 - 2.0 * (y * y + z * z)) * e.x + 2.0 * (x * y - w * z) * e.y + 2.0 * (x * z + w * y) * e.z,
+      2.0 * (x * y + w * z) * e.x + (1.0 - 2.0 * (x * x + z * z)) * e.y + 2.0 * (y * z - w * x) * e.z,
+      2.0 * (x * z - w * y) * e.x + 2.0 * (y * z + w * x) * e.y + (1.0 - 2.0 * (x * x + y * y)) * e.z);
+    params[bd] += op.p0 * off.x;
+    params[bd + 1u] += op.p0 * off.y;
+    params[bd + 2u] += op.p0 * off.z;
   }
 }
 `;
