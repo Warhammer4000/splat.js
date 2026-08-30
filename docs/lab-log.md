@@ -4,7 +4,34 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-08-31 (defaults: measured rollout)
+
+- **DC-convention bridge shipped** (b5b2356): PLY/SOG imports keep the
+  standard SH-DC convention (tagged); trainer.setup converts per engine.
+  v2 continuation round-trip now EXACT (25.914 vs 25.916 trained).
+  Three bugs found by measurement: parse-time logit conversion crushed
+  colors (~1.1 dB), seedFrom dropped the dc tag (double-conversion,
+  −2.7), and v1's near-perfect wrong answer (sigmoid(x)≈0.5+x/4 mimics
+  C0·x+0.5) almost masked it.
+- **Point-scaled initTarget default**: min(250k, max(60k, points×8)),
+  phones pinned at 60k. Bench validation: garden 30k 26.07 → **26.56**
+  (+0.49 free), truck 40k 25.42 → 25.47 (noise). New bench baselines.
+- **v2 desktop auto-select: built, measured, DORMANT.** The decisive
+  number was storage, not training: SOG costs v2 models **−0.95** vs
+  v1's −0.36 (8-bit palette vs unbounded DC) → stored/shared scenes
+  land at parity (24.74 vs 24.75 truck 30k) despite v2's +0.58 live.
+  Cross-engine continuation lossy both ways (2.5–3.2) → stored scenes
+  must record+match engine. Gates for enabling: SOG extended-range DC
+  (encoder) or a DC-range regularizer in v2 training. ?engine=v2
+  override available.
+
 ## 2026-08-30 (overnight: trainer v2)
+
+- **Flagship 250k refresh (v1, current defaults): 26.30 @116min train** —
+  reproduces the published 26.37 within noise, but at ~2x the published
+  ~60min: today's defaults fill the 2M population early, so most
+  iterations carry full-population cost. SPEED DEBT (user: "tackle
+  later"): pace the growth curve on long budgets + v2's 1.8x SSIM tax.
 
 - **Closing-the-last-0.3 attempts, both NEGATIVE**: (A) Brush-style
   visibility-normalized growth stat (grad per rendered contribution) =
