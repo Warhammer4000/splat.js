@@ -1126,12 +1126,22 @@ async function startPrep() {
         Math.round(S.maxIters * (mcmcActive ? 35 : 15))));
       trainerOpts.capMult = 8; // growth must reach the computed cap from a lean seed
     }
+    // engine auto-select (measured 2026-08-30): v2 wins short/medium
+    // budgets (+0.3..0.6 up to ~75k cycles), v1 wins marathons and stays
+    // the phone engine (v2's SSIM passes cost ~1.8x time + GPU memory).
+    // ?engine=v1|v2 overrides for A/B.
+    const engineQ = new URLSearchParams(location.search).get('engine');
+    // AUTO-SELECT DORMANT (2026-08-31): v2 wins live training but the SOG
+    // storage tax (-0.95 vs v1's -0.36) eats the gain on stored/shared
+    // scenes. Re-enable when the encoder handles unbounded DC.
+    const engine = engineQ === 'v2' ? 'v2' : undefined;
+    if (engine) { trainerOpts.engine = engine; }
     const session = createSession({
       maxIters: S.maxIters, evalHoldEvery: 2500,
       holdout: -1,
-      ...(mcmcActive ? { refineEvery: 500 } : {}),
+      ...(engine === 'v2' ? { refineEvery: 200 } : (mcmcActive ? { refineEvery: 500 } : {})),
       evalSplit: EVAL.on ? EVAL.split : 0,
-      initTarget: lodOn ? 250000 : (st.splats ? Math.round(st.splats / 4) : undefined),
+      initTarget: lodOn ? 250000 : (st.splats ? Math.round(st.splats / 4) : (phoneClass ? 60000 : undefined)),
       maxViewW: mvW, maxViewH: mvH,
       // phones: iOS jetsams the tab long before the GPU is the limit —
       // decode-to-target (in the library), 720px features, a smaller SIFT

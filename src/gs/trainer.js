@@ -162,6 +162,28 @@ export class GSTrainer {
   setup(gaussians, cams, images, maxViewW, maxViewH, sceneRadius) {
     const d = this.device;
     this.n = gaussians.n;
+    // DC color convention bridge: seeds/imports tagged 'sh' carry standard
+    // SH-DC (engine v2's native format); untagged/'sigmoid' carry the v1
+    // logit convention. Convert in place to THIS trainer's convention so
+    // v2 exports re-import for continuation under either engine.
+    const srcDc = gaussians.dc || 'sigmoid';
+    if ((this.dcMode === 'sh') !== (srcDc === 'sh')) {
+      const dd = gaussians.data;
+      const C0 = 0.28209479177387814;
+      for (let i = 0; i < gaussians.n; i++) {
+        const b = i * STRIDE;
+        for (let k = 10; k <= 12; k++) {
+          if (this.dcMode === 'sh') {
+            const sgm = 1 / (1 + Math.exp(-dd[b + k]));
+            dd[b + k] = (sgm - 0.5) / C0;
+          } else {
+            const c = Math.min(0.9999, Math.max(1e-4, C0 * dd[b + k] + 0.5));
+            dd[b + k] = Math.log(c / (1 - c));
+          }
+        }
+      }
+      gaussians.dc = this.dcMode;
+    }
     // buffers are allocated for `cap` so refine() can also GROW the splat
     // count (MCMC-style) without reallocating
     this.cap = Math.min(
@@ -1599,6 +1621,6 @@ export class GSTrainer {
       sh = new Float32Array(rb.getMappedRange()).slice();
       rb.unmap(); rb.destroy();
     }
-    return { data, n: this.n, sh, shK: this.shK };
+    return { data, n: this.n, sh, shK: this.shK, dc: this.dcMode };
   }
 }

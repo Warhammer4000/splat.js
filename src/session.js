@@ -252,7 +252,12 @@ export class Session {
   async seed(extra = {}) {
     if (!this.recon) throw new Error('solve() first');
     this._stage({ stage: 'seed', done: 0, total: 1 });
-    const target = extra.initTarget || this.opts.initTarget || 60000;
+    // default seed scales with the solve's point count: the flat 60k
+    // default seed-bound capacity (cap = seed x capMult) on point-rich
+    // scenes — garden measured +0.4 dB from lifting it. Explicit
+    // initTarget (phones pass one) always wins.
+    const target = extra.initTarget || this.opts.initTarget ||
+      Math.min(250000, Math.max(60000, this.recon.points.length * 8));
     const clones = Math.min(24, Math.max(2, Math.round(target / this.recon.points.length) - 1));
     const v2 = this.opts.trainer && this.opts.trainer.engine === 'v2';
     this.model = initGaussians(this.recon.points, clones, undefined,
@@ -355,7 +360,7 @@ export class Session {
     if (!this.recon && !opts.viewOnly) throw new Error('useReconstruction() first');
     this._stage({ stage: 'seed', done: 0, total: 1 });
     const radius = opts.sceneRadius ?? this.recon?.sceneRadius ?? 10;
-    this.model = { data: gaussians.data, n: gaussians.n, radius };
+    this.model = { data: gaussians.data, n: gaussians.n, radius, dc: gaussians.dc };
 
     if (!this.gpu) this.gpu = await createGpu({ device: this.opts.device });
     this.gpu.onLost = (info) => this._deviceLost(info);

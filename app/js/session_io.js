@@ -241,13 +241,17 @@ export function parsePlyGaussians(bytes) {
     data[d + 3] = src[s + idx.scale_0]; data[d + 4] = src[s + idx.scale_1]; data[d + 5] = src[s + idx.scale_2];
     data[d + 6] = src[s + idx.rot_0]; data[d + 7] = src[s + idx.rot_1];
     data[d + 8] = src[s + idx.rot_2]; data[d + 9] = src[s + idx.rot_3];
-    data[d + 10] = logit(src[s + idx.f_dc_0] * SH_C0 + 0.5);
-    data[d + 11] = logit(src[s + idx.f_dc_1] * SH_C0 + 0.5);
-    data[d + 12] = logit(src[s + idx.f_dc_2] * SH_C0 + 0.5);
+    // keep the STANDARD SH-DC convention (tagged below): converting to
+    // sigmoid logits here destroyed out-of-range colors before the trainer
+    // could see them (v2 exports lost ~1.1 dB on re-import). The trainer's
+    // setup() bridges to whichever convention its engine needs.
+    data[d + 10] = src[s + idx.f_dc_0];
+    data[d + 11] = src[s + idx.f_dc_1];
+    data[d + 12] = src[s + idx.f_dc_2];
     data[d + 13] = src[s + idx.opacity];
     for (let k = 0; k < 3 * K; k++) sh[i * 3 * K + k] = src[s + idx[`f_rest_${k}`]];
   }
-  return { data, n, sh, shK: K };
+  return { data, n, sh, shK: K, dc: 'sh' };
 }
 
 /** .sog bytes -> gaussians, via the vendored splat-transform (sog -> ply in

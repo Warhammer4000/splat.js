@@ -102,5 +102,5 @@ export function initGaussians(points, clones = 2, maxGaussians = 600000, conv = 
       }
     }
   }
-  return { data, n: g, center, radius };
+  return { data, n: g, center, radius, dc: conv.dc === 'sh' ? 'sh' : 'sigmoid' };
 }
