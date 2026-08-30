@@ -1003,7 +1003,7 @@ export class GSTrainer {
     const canGrow = this.iter < (this.opts.growUntil ?? 0.5 * this.horizon) && this.n < limit;
     if (!canReloc && !canGrow) return { moved: 0, grown: 0, n: this.n };
 
-    d.queue.writeBuffer(this.uniGather, 0, new Uint32Array([this.n, 0, 0, 0]));
+    d.queue.writeBuffer(this.uniGather, 0, new Uint32Array([this.n, 1, 0, 0]));
     {
       const enc = d.createCommandEncoder();
       const p = enc.beginComputePass();
@@ -1048,18 +1048,24 @@ export class GSTrainer {
       // threshold at a MEDIAN multiple — the stat is heavy-tailed, so a
       // mean multiple marks almost nothing and growth starves (first v2
       // gate: 568k of a 2M cap). Median from a subsample for speed.
+      // growNorm: Brush-style visibility normalization — measured -0.49 on
+      // truck (diverts growth to rarely-seen periphery the ring eval never
+      // rewards); raw window-sum is the default
+      const st = (this.opts.growNorm)
+        ? (i) => g[i * 4 + 1] / (g[i * 4 + 2] + 1e-3)
+        : (i) => g[i * 4 + 1];
       const sample = [];
       const step = Math.max(1, pool.length >> 13);
-      for (let k = 0; k < pool.length; k += step) sample.push(g[pool[k] * 4 + 1]);
+      for (let k = 0; k < pool.length; k += step) sample.push(st(pool[k]));
       sample.sort((a, b) => a - b);
       const med = sample[sample.length >> 1] || 0;
       const tau = (this.opts.growTau ?? 1) * med;
       if (med > 0) {
-        for (const i of pool) if (g[i * 4 + 1] > tau) gCands.push(i);
+        for (const i of pool) if (st(i) > tau) gCands.push(i);
         grown = Math.min(Math.ceil(gCands.length * (this.opts.growFrac ?? 0.1)), limit - this.n);
         if (grown > 0) {
           gsCdf = new Float64Array(gCands.length);
-          for (let k = 0; k < gCands.length; k++) { gsAcc += g[gCands[k] * 4 + 1]; gsCdf[k] = gsAcc; }
+          for (let k = 0; k < gCands.length; k++) { gsAcc += st(gCands[k]); gsCdf[k] = gsAcc; }
         }
       }
     }

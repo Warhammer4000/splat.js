@@ -1307,7 +1307,7 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
 // on the CPU; APPLY executes them GPU-side.
 export const GATHER_SRC = /* wgsl */ `
 const WFIX = 8.0;
-struct GUni { n: u32, shr: u32, pad0: u32, pad1: u32 };
+struct GUni { n: u32, mode: u32, pad0: u32, pad1: u32 };
 @group(0) @binding(0) var<uniform> gu: GUni;
 @group(0) @binding(1) var<storage, read> params: array<f32>;
 @group(0) @binding(2) var<storage, read_write> gradP: array<atomic<i32>>;
@@ -1320,9 +1320,12 @@ fn main(@builtin(global_invocation_id) gid: vec3u,
   if (i >= gu.n) { return; }
   let b = i * 16u;
   outv[i * 4u] = params[b + 13u];
-  atomicExchange(&gradP[b + 10u], 0); // drain w-mass (unused, prevents overflow)
   outv[i * 4u + 1u] = f32(atomicExchange(&gradP[b + 12u], 0)) / WFIX;
-  outv[i * 4u + 2u] = f32(atomicExchange(&gradP[b + 11u], 0)) / WFIX;
+  // slot 2 carries error mass (legacy donors, mode 0) or rendered mass
+  // (v2 growth normalization, mode 1); both windows drain either way
+  let wm = f32(atomicExchange(&gradP[b + 10u], 0)) / WFIX;
+  let em = f32(atomicExchange(&gradP[b + 11u], 0)) / WFIX;
+  outv[i * 4u + 2u] = select(em, wm, gu.mode == 1u);
   outv[i * 4u + 3u] = (params[b + 3u] + params[b + 4u] + params[b + 5u]) / 3.0;
 }
 `;
