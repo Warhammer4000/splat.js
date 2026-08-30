@@ -50,6 +50,7 @@ export class GSTrainer {
       (this.opts.maxSplats ? Math.max(ENTRIES_CAP, this.opts.maxSplats * 24) : ENTRIES_CAP);
     // SSAA renders ssaa^2 x the pixels; entries scale with covered pixels
     this.ssaa = this.opts.ssaa ?? 0;
+    this.gradFixed = this.opts.gradFixed ?? 16384;
     // engine v2: clean Brush-style optimization system on the same renderer
     this.v2 = this.opts.engine === 'v2';
     this.dcMode = this.v2 ? 'sh' : 'sigmoid';
@@ -79,7 +80,7 @@ export class GSTrainer {
       d.features && d.features.has('subgroups');
     this.pipeRender = d.createComputePipeline({
       label: 'render', layout: 'auto',
-      compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg), 'render'), entryPoint: 'main' },
+      compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg), 'render'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
     });
     // D-SSIM loss (opts.ssimWeight > 0): split renderer + image passes.
     // The fused kernel stays untouched for the default path.
@@ -88,14 +89,14 @@ export class GSTrainer {
     if (this.ssimW > 0 || this.ssaa >= 2) {
       this.pipeRenderFwd = d.createComputePipeline({
         label: 'render-fwd', layout: 'auto',
-        compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg, 1), 'render-fwd'), entryPoint: 'main' },
+        compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg, 1), 'render-fwd'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
       });
     }
     if (this.ssaa >= 2) {
       // supersampled training: raster at ssaa x, box-downsample + loss at 1x
       this.pipeRenderBwd3 = d.createComputePipeline({
         label: 'render-bwd-ssaa', layout: 'auto',
-        compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg, 3, 0, this.ssaa), 'render-bwd-ssaa'), entryPoint: 'main' },
+        compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg, 3, 0, this.ssaa), 'render-bwd-ssaa'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
       });
       this.pipeSsaaLoss = d.createComputePipeline({
         label: 'ssaa-loss', layout: 'auto',
@@ -105,7 +106,7 @@ export class GSTrainer {
     if (this.ssimW > 0) {
       this.pipeRenderBwd = d.createComputePipeline({
         label: 'render-bwd', layout: 'auto',
-        compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg, 2, this.ssimW), 'render-bwd'), entryPoint: 'main' },
+        compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg, 2, this.ssimW), 'render-bwd'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
       });
       const ssimMod = mk(SSIM_SRC, 'ssim');
       const sp = (entry, constants) => d.createComputePipeline({
@@ -124,7 +125,7 @@ export class GSTrainer {
       // anisoReg default 0.005 (was 0.02): with SIFT-grade poses the needle
       // pathology is gone (camping p99 ratio 42:1) and the stronger pull
       // toward isotropy measurably blurs edges (-0.8dB holdout on train-84)
-      compute: { module: mk(makeChainSrc(this.opts.anisoReg ?? (this.v2 ? 0 : 0.005), this.shDeg, this.dcMode), 'chain'), entryPoint: 'main' },
+      compute: { module: mk(makeChainSrc(this.opts.anisoReg ?? (this.v2 ? 0 : 0.005), this.shDeg, this.dcMode, this.opts.statMax ?? false), 'chain'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
     });
     this.pipeAdam = d.createComputePipeline({
       label: 'adam', layout: 'auto',
@@ -562,7 +563,7 @@ export class GSTrainer {
       Math.log(r * (this.opts.minScale ?? 1e-4)), Math.log(r * (this.opts.maxScale ?? 0.5)), 8.0, this.n * STRIDE,
       // 0.01 (was 0.05): matches standard 3DGS-MCMC; the strong early-era pull
       // kept splats semi-transparent and layered ("milky")
-      this.v2 ? 0 : (this.opts.opacityReg ?? 0.01),
+      this.v2 ? (this.opts.opacityReg ?? 0) : (this.opts.opacityReg ?? 0.01),
       this.v2 ? 0 : (this.opts.scaleReg ?? 0),          // 3DGS-MCMC scale pressure
       // v2: no Langevin — apply-kernel split offsets do the dispersing
       this.v2 ? 0 : (this.opts.mcmcNoise === true ? 5e5 : (this.opts.mcmcNoise ?? 0)),
@@ -1003,7 +1004,7 @@ export class GSTrainer {
     const canGrow = this.iter < (this.opts.growUntil ?? 0.5 * this.horizon) && this.n < limit;
     if (!canReloc && !canGrow) return { moved: 0, grown: 0, n: this.n };
 
-    d.queue.writeBuffer(this.uniGather, 0, new Uint32Array([this.n, 1, 0, 0]));
+    d.queue.writeBuffer(this.uniGather, 0, new Uint32Array([this.n, 1, this.opts.statMax ? 1 : 0, 0]));
     {
       const enc = d.createCommandEncoder();
       const p = enc.beginComputePass();

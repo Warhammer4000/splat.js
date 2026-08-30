@@ -6,6 +6,19 @@ about ±0.1 dB.
 
 ## 2026-08-30 (overnight: trainer v2)
 
+- **Closing-the-last-0.3 attempts, both NEGATIVE**: (A) Brush-style
+  visibility-normalized growth stat (grad per rendered contribution) =
+  25.20 vs 25.69 raw (−0.49 — diverts growth to rarely-seen periphery the
+  ring eval never rewards; kept behind `growNorm` knob). (B) entry-buffer
+  overflow at 2M: counter reads 0 — no silent tile drops, nothing to fix.
+  Remaining candidates tested and ALL negative: windowed-MAX stat
+  semantics −0.08 (noise), opacity pressure 0.003 flat, gradient
+  precision 2× (gradFixed 32768, WGSL override) flat — the dithered i32
+  quantum was already sub-noise. **The −0.3 hunt is closed**: five
+  best-theory transplants failed to move it; the residual is distributed
+  implementation minutiae, not a lever. Higher-yield backlog: guided
+  matching (+0.28 measured headroom), v2 speed (1.8×), small-cap tuning.
+
 - **Engine v2 built and measured** (`trainer.engine='v2'`, opt-in): clean
   Brush-style optimization system on our unchanged (faster) renderer —
   unbounded SH-DC color (standard PLY convention, export simplifies),

@@ -153,7 +153,7 @@ struct Cam {
 const TILEF = ${TILE}.0;
 const SHSORT = ${SHARED_SORT}u;
 override ENTCAP: u32 = ${ENTRIES_CAP}u;
-const FIXED = ${FIXED.toExponential()};
+override FIXED: f32 = ${FIXED.toExponential()}; // gradient fixed-point scale (opts.gradFixed probes precision)
 const FIXEDC = ${FIXED_CONIC.toExponential()};
 const FIXCAM = 64.0; // camera grads sum over all splats: coarse fixed point
 // error-mass accumulators (gradP slots 10/11) integrate across a whole refine
@@ -891,7 +891,7 @@ ${tileGrad ? (subgroups ? /* wgsl */ `
 }
 `);
 
-export const makeChainSrc = (AREG = 0.02, shDeg = 0, dc = 'sigmoid') => CAM_STRUCT + /* wgsl */ `
+export const makeChainSrc = (AREG = 0.02, shDeg = 0, dc = 'sigmoid', statMax = false) => CAM_STRUCT + /* wgsl */ `
 const AREG = ${AREG.toExponential()};
 ` + /* wgsl */ `
 @group(0) @binding(1) var<storage, read> params: array<f32>;
@@ -1145,6 +1145,13 @@ ${dc === 'sh' ? /* wgsl */ `
   gradF[b + 12u] = dRGB.z * sCol.z * (1.0 - sCol.z);
 `}
   gradF[b + 13u] = gp[6];
+${statMax ? /* wgsl */ `
+  // windowed-MAX growth stat (Brush semantics): keep the max PER-STEP
+  // gradient sum over the refine window in slot 13; slot 12 restarts
+  // each step
+  let stepStat = atomicExchange(&gradP[b + 12u], 0);
+  atomicMax(&gradP[b + 13u], stepStat);
+` : ''}
 }
 `;
 
@@ -1320,7 +1327,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u,
   if (i >= gu.n) { return; }
   let b = i * 16u;
   outv[i * 4u] = params[b + 13u];
-  outv[i * 4u + 1u] = f32(atomicExchange(&gradP[b + 12u], 0)) / WFIX;
+  let statSlot = select(12u, 13u, gu.pad0 == 1u); // pad0=1: windowed-max slot
+  outv[i * 4u + 1u] = f32(atomicExchange(&gradP[b + statSlot], 0)) / WFIX;
   // slot 2 carries error mass (legacy donors, mode 0) or rendered mass
   // (v2 growth normalization, mode 1); both windows drain either way
   let wm = f32(atomicExchange(&gradP[b + 10u], 0)) / WFIX;
