@@ -245,6 +245,14 @@ export class Session {
   /** Load a reconstruction obtained elsewhere ({ cams, points, ... }). */
   useReconstruction(recon) {
     this.recon = { k1: 0, k2: 0, fScale: 1, medErr: 0, rmsBA: null, ...recon };
+    // stored/external recons (a resumed run, a GT solve) usually lack fFeat.
+    // undistortFrames divides by it — undefined turned EVERY target pixel
+    // NaN→invalid, so a continued run trained against emptiness and faded
+    // itself to transparency. All cams share the solve's feature-scale
+    // focal, so the first one serves.
+    if (this.recon.fFeat == null && this.recon.cams && this.recon.cams.length) {
+      this.recon.fFeat = this.recon.cams[0].f;
+    }
     return this.recon;
   }
 
