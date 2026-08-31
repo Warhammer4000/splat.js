@@ -462,6 +462,7 @@ function boot() {
       S.pendingShare = null;
       $('detail').hidden = true;
       $('start').hidden = false;
+      mountWall();
     });
     // no implicit boot set: nothing loads until the visitor picks — the old
     // truck default sat invisibly behind the start card and leaked into
@@ -903,6 +904,17 @@ async function sortByCapture(files) {
   return files;
 }
 
+/** Keep the capture on-device, and KNOW whether it worked. The old fire-and-
+ *  forget swallowed failures (strict storage, quota, a write starved by the
+ *  solve's CPU rush) — the visitor then found no trace of their photos. */
+function persistCapture(rec) {
+  S._capRec = rec;
+  S._capSave = saveLastCapture(rec).then(() => 'ok', (e) => {
+    console.warn('capture save failed', e);
+    return 'failed';
+  });
+}
+
 async function useOwnPhotos(list) {
   const all = [...list];
   // video intake is OFF for now — the sharp-frame extraction is not good
@@ -924,10 +936,10 @@ async function useOwnPhotos(list) {
   if (S.ownUrls) S.ownUrls.forEach(URL.revokeObjectURL);
   S.ownUrls = files.map((f) => URL.createObjectURL(f));
   // survive a refresh: the capture is kept on-device and offered back
-  saveLastCapture({
+  persistCapture({
     kind: 'photos', created: Date.now(),
     files: files.map((f) => ({ name: f.name, blob: f })),
-  }).catch(() => {});
+  });
   const set = ownSet(files, S.ownUrls);
   open(set);
   showDetail(set);   // Start training lives on the detail card
@@ -963,10 +975,10 @@ async function useOwnVideo(file) {
     if (S.ownUrls) S.ownUrls.forEach(URL.revokeObjectURL);
     S.ownUrls = frames.map((f) => URL.createObjectURL(f.source));
     // persist the EXTRACTED frames (small JPEGs), not the raw video
-    saveLastCapture({
+    persistCapture({
       kind: 'video', created: Date.now(),
       files: frames.map((f) => ({ name: f.name, blob: f.source })),
-    }).catch(() => {});
+    });
     const set = ownSet(frames, S.ownUrls);
     set.kind = 'Your video';
     set.origin = `${frames.length} sharp frames picked from your ${Math.round(duration)}s video, ` +
@@ -1063,6 +1075,15 @@ async function startPrep() {
   $('start').hidden = true;
   $('detail').hidden = true;
   $('btn-new').hidden = false;
+  // settle the pick-time capture save: retry once now that the picker rush
+  // is over, and SAY SO if the device will not keep the photos
+  (async () => {
+    if (!S._capSave || (await S._capSave) !== 'failed' || !S._capRec) return;
+    persistCapture(S._capRec);
+    if ((await S._capSave) === 'failed') {
+      flash('The photos could not be kept on this device — export the result before closing this tab.', 9000);
+    }
+  })().catch(() => {});
   S.maxIters = PERF.on ? PERF.iters : (S.settings.iters || INITIAL_ITERS);
   S.state = 'prep';
   S.prep = { stage: 'decode', done: 0, total: S.photos.length };
@@ -2894,6 +2915,14 @@ addEventListener('popstate', () => {
     S.pendingShare = null;
     $('detail').hidden = true;
     $('start').hidden = false;
+    mountWall();   // fresh — a capture picked moments ago must show its tile
+    return;
+  }
+  // back during a running solve/training used to be SWALLOWED (the consumed
+  // detail entry popped with no visible effect; the next back exited the
+  // app). Treat it like the header Back: the front page over the live run.
+  if ((S.state === 'prep' || S.state === 'train') && $('start').hidden) {
+    showPicker();
   }
 });
 

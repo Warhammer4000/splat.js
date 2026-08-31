@@ -4,6 +4,22 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-08-31 (back-gesture repro: "my photos were not saved")
+
+trt repro: pick own photos, press back during SfM → no trace of the
+photos. The capture WAS saved (pick-time IndexedDB write, verified) —
+three UI holes made it invisible: (1) the back gesture mid-run popped
+the consumed detail-card history entry with NO visible effect (next
+back exited the app); (2) the popstate detail-close branch and (3) the
+detail-back fallback both revealed the wall WITHOUT mountWall(), so the
+stale boot-time wall (pre-pick, no capture tile) is what greeted you.
+Fixed: back mid-run now shows the front page over the live run (same as
+header Back), and every wall-reveal path remounts. Also hardened the
+save itself: pick-time write is tracked, retried once at solve start,
+and a real failure (quota/strict storage) now flashes instead of
+vanishing into a catch(()=>{}). CDP-verified: back mid-run → wall with
+the capture tile, run alive behind.
+
 ## 2026-08-31 (field report #2: the 3-hour 3070)
 
 Same reporter, second report: RTX 3070 desktop, runs took 3 h / 2 h+, then
