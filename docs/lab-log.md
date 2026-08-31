@@ -37,6 +37,18 @@ about ±0.1 dB.
   headless without the flag fine — dropped from the recipe). The Dawn
   d3d11 fallback backend is NOT a substitute: pipelines run but stats
   atomics silently zero — models train to garbage.
+- **Client E2E suite shipped** (`tests/e2e/`, Playwright over system
+  Chrome, `npm run test:e2e`): GPU preflight (fails loud on the flag
+  breakage above / software adapters), full own-photos happy path
+  (solve→train→finish→stored→viewer), the pause/resume contract
+  (checkpoint bytes, same-record resume, param stats within bounds,
+  target validity, PSNR recovers), and node-side state-blob round-trip
+  incl. legacy blobs. Judges by NUMBERS (readbacks, IndexedDB, PSNR) —
+  the fFeat bug hid behind a healthy DOM. Whole suite: **25 s** on the
+  5080. Mutation-verified: stripping all three fFeat fix layers makes
+  the resume spec fail at the target-validity guard. Nightly scheduled
+  task `SplatJs-E2E-nightly` 05:00 → tests/e2e/test-results/nightly.log.
+  GPU-less CI can't run it; it lives on the dev box.
 
 ## 2026-08-31 (defaults: measured rollout)
 

@@ -1,0 +1,46 @@
+// Full happy path on the 12-photo synthetic set: capture tile -> solve ->
+// train to the horizon -> finish persists the result -> the finished tile
+// reopens in the viewer. ?iters=2000 keeps the whole spec fast while giving
+// the model enough cycles to clear the broken-pipeline PSNR band.
+import { test, expect } from '@playwright/test';
+import { seedCapture, startCaptureRun, runsStore } from './helpers.mjs';
+
+test('own-photos run: solve, train, finish, stored, viewable', async ({ page }) => {
+  await seedCapture(page, '?iters=2000');
+  await startCaptureRun(page);
+
+  // solve + 2000 cycles; 'done' means finish() ran
+  await page.waitForFunction(() => window.__splat.state === 'done', null, { timeout: 240_000 });
+
+  const done = await page.evaluate(() => ({
+    iter: window.__splat.iter,
+    splats: window.__splat.splats,
+    psnr: window.__splat.psnrTrain,
+  }));
+  expect(done.iter).toBeGreaterThanOrEqual(2000);
+  expect(done.splats).toBeGreaterThan(10_000);
+  // the clean synthetic set reads ~25+ dB by 2k cycles (21.7 measured at 1k);
+  // broken pipelines (empty targets, garbage backend) sit near 10 or at null
+  expect(done.psnr).not.toBeNull();
+  expect(done.psnr).toBeGreaterThan(20);
+
+  // finish() persists sog + recon into the runs library (async — poll)
+  await expect.poll(async () => (await runsStore(page))[0]?.sogBytes, { timeout: 120_000 })
+    .toBeGreaterThan(10_000);
+  const rec = (await runsStore(page))[0];
+  expect(rec.status).toBe('finished');
+  expect(rec.hasRecon).toBe(true);
+  expect(rec.stateBytes).toBe(0); // the pause checkpoint yields to the sog
+
+  // the stored result reopens in the viewer from a fresh page load
+  await page.reload();
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll('.galtile')].some((t) => t.textContent.includes('splats')));
+  await page.evaluate(() =>
+    [...document.querySelectorAll('.galtile')].find((t) => t.textContent.includes('splats')).click());
+  await page.waitForFunction(() =>
+    window.__splat.state === 'done' && window.__splat.preset &&
+    window.__splat.preset.id === '__restored', null, { timeout: 60_000 });
+  const view = await page.evaluate(() => ({ splats: window.__splat.splats }));
+  expect(view.splats).toBe(done.splats);
+});

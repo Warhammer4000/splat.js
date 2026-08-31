@@ -20,7 +20,8 @@
   "scripts": {
     "serve": "node serve.mjs 8734",
     "test": "node tests/unit/run.mjs",
-    "test:quality": "node tests/quality/run.mjs"
+    "test:quality": "node tests/quality/run.mjs",
+    "test:e2e": "playwright test -c tests/e2e"
   },
   "repository": {
     "type": "git",
@@ -34,5 +35,8 @@
     "sfm",
     "photogrammetry",
     "browser"
-  ]
+  ],
+  "devDependencies": {
+    "@playwright/test": "^1.62.1"
+  }
 }

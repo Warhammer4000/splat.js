@@ -11,6 +11,7 @@ data/**/*.jpeg
 # generated / working files
 scratch/
 node_modules/
+tests/e2e/test-results/
 prototype_backup_isotropic/
 tmp/
 dist/

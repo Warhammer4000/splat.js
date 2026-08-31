@@ -180,6 +180,7 @@ src/          the library — no UI, no globals
 app/          the Splat.js app (a Session consumer — the UI never touches internals)
 tests/unit/   node tests for the maths (geometry, BA, rotation averaging, SIFT)
 tests/quality/ end-to-end accuracy gates in headless Chrome
+tests/e2e/    Playwright suite for the app's flows (train, pause/resume, restore)
 data/synthetic/ the bundled test set (known ground-truth cameras)
 ```
 
