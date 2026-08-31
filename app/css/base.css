@@ -505,9 +505,9 @@ select.sel {
   width: 40px; height: 40px; border-radius: 50%; background: var(--accent); color: #04231f;
   display: grid; place-content: center; font-size: 15px;
 }
-/* the ▶ glyph sits small and left-biased in its em box — enlarge and nudge
-   to optical centre; the circle keeps its position and scale */
-.play[data-state="play"] { font-size: 19px; padding-left: 3px; }
+/* drawn icons, not font glyphs: the ▶ character's side bearings drift it off
+   optical centre — the SVG triangle/bars centre exactly in the grid cell */
+.play .pl { width: 18px; height: 18px; fill: currentColor; display: block; }
 .play:hover { background: #5ee7d6; }
 .play[data-state="pause"] { background: var(--panel-2); color: var(--paper); border: 1px solid var(--line-2); }
 .tbtn-sm {

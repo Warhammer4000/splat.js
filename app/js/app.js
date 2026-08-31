@@ -1510,7 +1510,14 @@ function toggleTrain() {
   else S.session.start();
   const b = $('t-play');
   const on = S.session.training;
-  if (b) { b.dataset.state = on ? 'pause' : 'play'; b.textContent = on ? '❚❚' : '▶'; }
+  if (b) {
+    b.dataset.state = on ? 'pause' : 'play';
+    // SVG icons, not font glyphs: the ▶ character carries right-side bearing
+    // that drifts it off optical centre — a drawn triangle cannot
+    b.innerHTML = on
+      ? '<svg viewBox="0 0 24 24" class="pl" aria-hidden="true"><path d="M8 6.5h2.7v11H8zM13.3 6.5H16v11h-2.7z"/></svg>'
+      : '<svg viewBox="0 0 24 24" class="pl" aria-hidden="true"><path d="M9.3 6.2v11.6l10-5.8z"/></svg>';
+  }
   const label = on ? 'Training…' : 'Paused';
   const tt = $('t-title');
   if (tt) tt.textContent = label;
@@ -3296,7 +3303,7 @@ function dock(kind) {
   if (kind === 'train') {
     d.innerHTML = `
       <div class="tcontrols">
-        <span class="playwrap"><button class="play" id="t-play" data-state="pause">❚❚</button><button class="tbtn-sm" id="t-finish" hidden title="End the run here — the model is kept as it is and ready to export">Stop &amp; keep</button></span>
+        <span class="playwrap"><button class="play" id="t-play" data-state="pause"><svg viewBox="0 0 24 24" class="pl" aria-hidden="true"><path d="M8 6.5h2.7v11H8zM13.3 6.5H16v11h-2.7z"/></svg></button><button class="tbtn-sm" id="t-finish" hidden title="End the run here — the model is kept as it is and ready to export">Stop &amp; keep</button></span>
         <div class="tmeta">
           <span class="tmeta-1"><span id="t-iter">${pctOf(S.iter)}</span></span>
           <span class="tmeta-2">ETA <span id="t-eta">${etaText()}</span></span>
