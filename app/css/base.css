@@ -507,7 +507,7 @@ select.sel {
 }
 /* drawn icons, not font glyphs: the ▶ character's side bearings drift it off
    optical centre — the SVG triangle/bars centre exactly in the grid cell */
-.play .pl { width: 18px; height: 18px; fill: currentColor; display: block; }
+.play .pl { width: 24px; height: 24px; fill: currentColor; display: block; }
 .play:hover { background: #5ee7d6; }
 .play[data-state="pause"] { background: var(--panel-2); color: var(--paper); border: 1px solid var(--line-2); }
 .tbtn-sm {
@@ -519,7 +519,7 @@ select.sel {
 
 /* progress % + ETA centre as a pair on the play button */
 .tmeta { display: flex; flex-direction: column; gap: 1px; padding-left: 4px; }
-.tmeta-1 { font: 500 15px var(--mono); font-variant-numeric: tabular-nums; color: var(--accent); line-height: 20px; white-space: nowrap; }
+.tmeta-1 { font: 500 18px var(--mono); font-variant-numeric: tabular-nums; color: var(--accent); line-height: 24px; white-space: nowrap; }
 .tmeta-2 { font: 400 11px var(--mono); color: var(--dim); line-height: 15px; white-space: nowrap; }
 /* the growth note lives under the splat count now (right column) — a
    fixed-height slot holding an nbsp when quiet, so nothing ever shifts */
@@ -540,9 +540,9 @@ select.sel {
 .tscores { display: flex; gap: 20px; }
 .score { text-align: right; }
 /* state + value share one line, one quiet size — the % carries the weight */
-.score-1 { display: flex; align-items: baseline; justify-content: flex-end; gap: 10px; line-height: 20px; white-space: nowrap; }
-.t-state { font: 500 15px var(--ui); color: var(--accent); }
-.score-v { font: 500 15px var(--mono); font-variant-numeric: tabular-nums; }
+.score-1 { display: flex; align-items: baseline; justify-content: flex-end; gap: 10px; line-height: 24px; white-space: nowrap; }
+.t-state { font: 500 18px var(--ui); color: var(--accent); }
+.score-v { font: 500 18px var(--mono); font-variant-numeric: tabular-nums; }
 .score-v .unit { font: 400 11px var(--mono); color: var(--dim); }
 .score-k { font: 400 10.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
 .score-sub { font: 400 11px var(--mono); color: var(--dim); line-height: 15px; margin-top: 1px; white-space: nowrap; }
