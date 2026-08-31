@@ -38,7 +38,7 @@ export class Chart {
 
   // top just fits the event dots; there are no x labels, so the bottom is
   // nearly flush — the plot gets the height
-  _box() { return { l: 8 * this.dpr, r: 42 * this.dpr, t: 8 * this.dpr, b: 4 * this.dpr }; }
+  _box() { return { l: 8 * this.dpr, r: 48 * this.dpr, t: 8 * this.dpr, b: 4 * this.dpr }; }
 
   resize() {
     const rect = this.cv.getBoundingClientRect();
@@ -83,7 +83,7 @@ export class Chart {
     }
 
     // grid
-    ctx.font = `400 ${9 * dpr}px "Spline Sans Mono", monospace`;
+    ctx.font = `400 ${11 * dpr}px "Spline Sans Mono", monospace`;
     ctx.textBaseline = 'middle';
     const stepdB = (hi - lo) > 24 ? 10 : (hi - lo) > 12 ? 5 : 2;
     for (let v = Math.ceil(lo / stepdB) * stepdB; v <= hi; v += stepdB) {

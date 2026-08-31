@@ -502,12 +502,12 @@ select.sel {
 .tcontrols { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .play {
   flex: none;   /* a squeezed circle is an egg */
-  width: 40px; height: 40px; border-radius: 50%; background: var(--accent); color: #04231f;
+  width: 46px; height: 46px; border-radius: 50%; background: var(--accent); color: #04231f;
   display: grid; place-content: center; font-size: 15px;
 }
 /* drawn icons, not font glyphs: the ▶ character's side bearings drift it off
    optical centre — the SVG triangle/bars centre exactly in the grid cell */
-.play .pl { width: 24px; height: 24px; fill: currentColor; display: block; }
+.play .pl { width: 28px; height: 28px; fill: currentColor; display: block; }
 .play:hover { background: #5ee7d6; }
 .play[data-state="pause"] { background: var(--panel-2); color: var(--paper); border: 1px solid var(--line-2); }
 .tbtn-sm {
@@ -520,10 +520,10 @@ select.sel {
 /* progress % + ETA centre as a pair on the play button */
 .tmeta { display: flex; flex-direction: column; gap: 1px; padding-left: 4px; }
 .tmeta-1 { font: 500 18px var(--mono); font-variant-numeric: tabular-nums; color: var(--accent); line-height: 24px; white-space: nowrap; }
-.tmeta-2 { font: 400 11px var(--mono); color: var(--dim); line-height: 15px; white-space: nowrap; }
+.tmeta-2 { font: 400 12.5px var(--mono); color: var(--dim); line-height: 17px; white-space: nowrap; }
 /* the growth note lives under the splat count now (right column) — a
    fixed-height slot holding an nbsp when quiet, so nothing ever shifts */
-.tmeta-grow { display: block; height: 13px; line-height: 13px; margin-top: -1px; font: 500 11px var(--mono); color: var(--accent); white-space: nowrap; text-align: right; }
+.tmeta-grow { display: block; height: 14px; line-height: 14px; margin-top: -1px; font: 500 12px var(--mono); color: var(--accent); white-space: nowrap; text-align: right; }
 
 .chartwrap { position: relative; min-width: 0; height: 92px; }
 .chartwrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -545,7 +545,7 @@ select.sel {
 .score-v { font: 500 18px var(--mono); font-variant-numeric: tabular-nums; }
 .score-v .unit { font: 400 11px var(--mono); color: var(--dim); }
 .score-k { font: 400 10.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
-.score-sub { font: 400 11px var(--mono); color: var(--dim); line-height: 15px; margin-top: 1px; white-space: nowrap; }
+.score-sub { font: 400 12.5px var(--mono); color: var(--dim); line-height: 17px; margin-top: 1px; white-space: nowrap; }
 .score[data-tone="alt"] .score-v { color: var(--alt); }
 .score[data-tone="accent"] .score-v { color: var(--accent); }
 
