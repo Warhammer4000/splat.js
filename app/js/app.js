@@ -79,9 +79,9 @@ function deviceDefaults() {
   const phone = matchMedia('(any-pointer: coarse)').matches &&
     Math.min(screen.width, screen.height) <= 820;
   return phone
-    // iters 10000 = the Draft macro exactly: a phone's first run should hit
-    // the magic moment in ~5 minutes; the done screen offers +10k cycles
-    ? { v: 2, res: 480, feat: 0, buf: 1, sh: 0, iters: 10000, splats: 0, lod: false, mcmc: false }
+    // 8k cycles: a phone's first run should hit the magic moment in a few
+    // minutes — the done screen offers more cycles for anyone who wants them
+    ? { v: 2, res: 480, feat: 0, buf: 1, sh: 0, iters: 8000, splats: 0, lod: false, mcmc: false }
     : { v: 2, res: 0, feat: 0, buf: 1, sh: 3, iters: 0, splats: 0, lod: false, mcmc: false };
 }
 function loadSettings() {
@@ -1414,6 +1414,18 @@ function buildSceneFromSession() {
 function startTraining() {
   S.state = 'train';
   S.trainT0 = performance.now();
+  // dual-GPU desktops: WebGPU can land on the integrated GPU even when a
+  // dedicated card sits idle (seen in the wild: 3 h for a run a 3070 does in
+  // minutes — the NVIDIA control panel does NOT govern this). Say so once.
+  {
+    const gi = (S.session && S.session.gpu && S.session.gpu.info) || {};
+    if (/intel/i.test(gi.vendor || '') && !matchMedia('(any-pointer: coarse)').matches &&
+        !localStorage.getItem('splatjs_gpu_note')) {
+      localStorage.setItem('splatjs_gpu_note', '1');   // once — Intel-only laptops are fine
+      flash('Training runs on Intel graphics. If this PC has a dedicated GPU, tell Windows to ' +
+        'use it for your browser: Settings → System → Display → Graphics — then reload.', 15000);
+    }
+  }
   // local library: every run is listed from the moment it starts — a small
   // record now, the finished result later (see finish())
   // a checkpoint resume keeps its run identity — same tile, same slot; only
@@ -1495,7 +1507,10 @@ function toggleTrain() {
 // run bit-exactly from where it stopped. The blob is dropped again the moment
 // the run finishes properly — the sog takes over.
 async function checkpointRun(reason) {
-  if (!S.runId || !S.session || !S.session.trainer || S.state !== 'train') return;
+  if (!S.runId || !S.session || !S.session.trainer) return;
+  // 'finish' runs in the done state, BEFORE the export chain: the result is
+  // secured even if sog compression or the device dies right after training
+  if (reason === 'finish' ? S.state !== 'done' : S.state !== 'train') return;
   const it = S.session.trainer.iter | 0;
   if (it < 200 || S._ckptBusy) return;   // nothing worth keeping yet
   // hidden fires on every tab switch — only rewrite after real progress
@@ -1565,14 +1580,29 @@ function onMetrics(m) {
   if (S.state === 'train') {
     const el = $('t-iter');
     if (el) {
-      el.textContent = fmt(S.iter);
+      el.textContent = pctOf(S.iter);
       $('t-splats').textContent = fmt(S.splats);
-      $('t-ips').textContent = fmt(S.itersPerSec);
+      $('t-eta').textContent = etaOf(S.iter, S.itersPerSec);
       $('t-ptrain').textContent = S.psnrTrain != null ? S.psnrTrain.toFixed(2) : '—';
       const ph = $('t-phold');   // only rendered in ?eval benchmark mode
       if (ph) ph.textContent = S.psnrHold != null ? S.psnrHold.toFixed(2) : '—';
     }
   }
+}
+
+/** Training progress as the visitor reads it: a percentage of the horizon. */
+function pctOf(iter) {
+  if (!S.maxIters) return '0%';
+  return `${Math.min(100, Math.floor((iter || 0) / S.maxIters * 100))}%`;
+}
+
+/** Time remaining at the current pace — people plan in minutes, not cycles/s. */
+function etaOf(iter, ips) {
+  if (!ips || !S.maxIters) return '…';
+  const s = Math.max(0, S.maxIters - (iter || 0)) / ips;
+  if (s < 50) return '< 1 min left';
+  if (s < 3540) return `~${Math.round(s / 60)} min left`;
+  return `~${(s / 3600).toFixed(1)} h left`;
 }
 
 function onTrainEvent(e) {
@@ -1717,6 +1747,11 @@ async function finish() {
   // cache the export now, while the device is certainly alive — iOS can
   // reclaim it from a backgrounded tab, and the readback path dies with it
   S.plyBlob = null; S.sogBlob = null;
+  // secure the raw state FIRST (a plain readback, seconds): a 3-hour result
+  // must survive even when the export chain below hangs or the device dies
+  // (seen in the wild: sog compression frozen 30 min after a 2h train). The
+  // sog-success patch drops this checkpoint again once the result is stored.
+  try { await checkpointRun('finish'); } catch { /* best-effort */ }
   S.session.exportPlyBlob().then(async (b) => {
     S.plyBlob = b;
     // local library: a finished run's result is kept on this device — the
@@ -3226,8 +3261,8 @@ function dock(kind) {
         <span class="playwrap"><button class="play" id="t-play" data-state="pause">❚❚</button><button class="tbtn-sm" id="t-finish" hidden title="End the run here — the model is kept as it is and ready to export">Stop &amp; keep</button></span>
         <div class="tmeta">
           <span class="t-title" id="t-title">Training…</span>
-          <span class="tmeta-1"><span id="t-iter">${fmt(S.iter)}</span> <span class="tmeta-max">/ <span id="t-max">${fmt(S.maxIters)}</span></span></span>
-          <span class="tmeta-2"><span id="t-splats">${S.splats ? fmt(S.splats) : '—'}</span> splats · <span id="t-ips">${S.itersPerSec ? fmt(S.itersPerSec) : '—'}</span>/s</span>
+          <span class="tmeta-1"><span id="t-iter">${pctOf(S.iter)}</span></span>
+          <span class="tmeta-2"><span id="t-splats">${S.splats ? fmt(S.splats) : '—'}</span> splats · <span id="t-eta">${etaOf(S.iter, S.itersPerSec)}</span></span>
           <span class="tmeta-grow" id="t-grow"></span>
         </div>
       </div>
@@ -3983,6 +4018,10 @@ function renderDetails() {
         'something is slower than it should be.',
       ],
       rows: [
+        stat('GPU', (() => {
+          const gi = (S.session && S.session.gpu && S.session.gpu.info) || {};
+          return esc([gi.vendor, gi.architecture].filter(Boolean).join(' ')) || '—';
+        })()),
         stat('Speed', ipsAll ? `${fmt(ipsAll)} <small>cycles/s</small>` : '—', 'accent'),
         stat('GPU per cycle', ipsAll ? `${(1000 / ipsAll).toFixed(1)} <small>ms</small>` : '—'),
         stat('Cycles per submit', pf.length ? fmt(pctl(colv(2), .5)) : '—'),

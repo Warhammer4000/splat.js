@@ -4,6 +4,24 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-08-31 (field report #2: the 3-hour 3070)
+
+Same reporter, second report: RTX 3070 desktop, runs took 3 h / 2 h+, then
+the share froze 30 min at "Compressing to .sog" on a 169k-splat model
+(black canvas). Diagnosis: (a) the compressor's second WebGPU device
+request hangs forever on a wedged GPU process (our own documented failure
+mode after heavy device churn) — the bundle awaits `createDevice` with no
+guard; (b) 3 h ≈ 2 it/s = Intel iGPU, not the 3070 — the NVIDIA control
+panel does NOT govern Chrome's WebGPU adapter (Windows Graphics settings
+does), so her "fix" changed nothing. Shipped: finish-time raw-state
+checkpoint (awaited BEFORE the export chain — a multi-hour result now
+survives a frozen compressor), 15 s deadline on the compressor device with
+an honest message, GPU row in the Timing tab, one-time Intel-adapter
+warning with the actual Windows setting. Also UX: phone default 10k→8k
+cycles; the dock now shows progress % and time-left instead of cycle
+counts and cycles/s (verified at 390px — screenshots in scratch). E2E
+suite green after all of it.
+
 ## 2026-08-31 (crash-safe training: pause = safe to close)
 
 - **Pause checkpoint shipped** (from a real user report: 2h+ train, froze

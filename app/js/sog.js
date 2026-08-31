@@ -14,6 +14,21 @@ export const loadST = () => stP ??= import('../vendor/splat-transform.bundle.mjs
   return st;
 });
 
+/** Compressor GPU device with a deadline. The bundle awaits createDevice with
+ *  no guard of its own, and a wedged GPU process (seen after multi-hour
+ *  training runs) leaves that await pending FOREVER — the visitor stares at a
+ *  frozen "Compressing" card for half an hour. Fail loud instead; the caller
+ *  turns it into an honest message and the model stays exportable as .ply. */
+function makeStDevice(st, keep) {
+  const cv = document.createElement('canvas');
+  return Promise.race([
+    st.createGraphicsDevice(cv, { deviceTypes: ['webgpu'] }).then((d) => { keep(d); return d; }),
+    new Promise((_, rej) => setTimeout(() => rej(new Error(
+      'the GPU compressor did not answer. Restarting the browser usually clears this — ' +
+      'the model is kept on this device under Yours')), 15000)),
+  ]);
+}
+
 /**
  * PLY bytes -> bundled .sog Blob.
  * onProgress({ label, frac }): the writer's own stage names (gather, cluster,
@@ -38,11 +53,7 @@ export async function plyToSog(plyBytes, { iterations = 10, onProgress = () => {
   // GPU device for the SH clustering — the CPU fallback pins the main thread
   // for MINUTES on big models (measured: 566k splats did not finish in 8)
   let device = null;
-  const createDevice = async () => {
-    const cv = document.createElement('canvas');
-    device = await st.createGraphicsDevice(cv, { deviceTypes: ['webgpu'] });
-    return device;
-  };
+  const createDevice = () => makeStDevice(st, (d) => { device = d; });
   try {
     await st.writeSource(
       { filename: 'model.sog', outputFormat: 'sog-bundle', source, pool, options: { iterations }, createDevice }, out);
@@ -79,10 +90,7 @@ export async function plysToLodEntries(plyLevels, { iterations = 10, onProgress 
   const main = st.stackLods(sources);
   const out = new st.MemoryFileSystem();
   let device = null;
-  const createDevice = async () => {
-    device = await st.createGraphicsDevice(document.createElement('canvas'), { deviceTypes: ['webgpu'] });
-    return device;
-  };
+  const createDevice = () => makeStDevice(st, (d) => { device = d; });
   try {
     await st.writeLodSource({
       filename: 'lod-meta.json', mainSource: main, envSource: null,

@@ -525,9 +525,6 @@ body { overflow: hidden; }
 .setgear[aria-expanded="true"] .chev { transform: rotate(90deg); }
 
 
-/* the run length, inline after the live cycle count */
-.tmeta-max { font: 400 11px var(--mono); color: var(--dim); }
-
 /* the state header floats above the numbers WITHOUT moving them (out of
    flow); phones have no headroom above the controls row — hidden there */
 .tmeta { position: relative; }
