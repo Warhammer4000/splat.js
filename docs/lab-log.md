@@ -46,9 +46,10 @@ about ±0.1 dB.
   incl. legacy blobs. Judges by NUMBERS (readbacks, IndexedDB, PSNR) —
   the fFeat bug hid behind a healthy DOM. Whole suite: **25 s** on the
   5080. Mutation-verified: stripping all three fFeat fix layers makes
-  the resume spec fail at the target-validity guard. Nightly scheduled
-  task `SplatJs-E2E-nightly` 05:00 → tests/e2e/test-results/nightly.log.
-  GPU-less CI can't run it; it lives on the dev box.
+  the resume spec fail at the target-validity guard. GPU-less CI can't
+  run it; at 25 s it simply runs with every change during active dev
+  (a nightly scheduled task was set up and dropped the same day —
+  redundant while we build daily).
 
 ## 2026-08-31 (defaults: measured rollout)
 
