@@ -1515,8 +1515,8 @@ function toggleTrain() {
     // SVG icons, not font glyphs: the ▶ character carries right-side bearing
     // that drifts it off optical centre — a drawn triangle cannot
     b.innerHTML = on
-      ? '<svg viewBox="0 0 24 24" class="pl" aria-hidden="true"><path d="M8 6.5h2.7v11H8zM13.3 6.5H16v11h-2.7z"/></svg>'
-      : '<svg viewBox="0 0 24 24" class="pl" aria-hidden="true"><path d="M9.3 6.2v11.6l10-5.8z"/></svg>';
+      ? '<svg viewBox="0 0 24 24" class="pl" aria-hidden="true"><path d="M6.5 4.5h4v15h-4zM13.5 4.5h4v15h-4z"/></svg>'
+      : '<svg viewBox="0 0 24 24" class="pl" aria-hidden="true"><path d="M8 4.8v14.4l12.4-7.2z"/></svg>';
   }
   const label = on ? 'Training…' : 'Paused';
   const tt = $('t-title');
@@ -3303,7 +3303,7 @@ function dock(kind) {
   if (kind === 'train') {
     d.innerHTML = `
       <div class="tcontrols">
-        <span class="playwrap"><button class="play" id="t-play" data-state="pause"><svg viewBox="0 0 24 24" class="pl" aria-hidden="true"><path d="M8 6.5h2.7v11H8zM13.3 6.5H16v11h-2.7z"/></svg></button><button class="tbtn-sm" id="t-finish" hidden title="End the run here — the model is kept as it is and ready to export">Stop &amp; keep</button></span>
+        <span class="playwrap"><button class="play" id="t-play" data-state="pause"><svg viewBox="0 0 24 24" class="pl" aria-hidden="true"><path d="M6.5 4.5h4v15h-4zM13.5 4.5h4v15h-4z"/></svg></button><button class="tbtn-sm" id="t-finish" hidden title="End the run here — the model is kept as it is and ready to export">Stop &amp; keep</button></span>
         <div class="tmeta">
           <span class="tmeta-1"><span id="t-iter">${pctOf(S.iter)}</span></span>
           <span class="tmeta-2">ETA <span id="t-eta">${etaText()}</span></span>
@@ -3312,11 +3312,11 @@ function dock(kind) {
       <div class="chartwrap"><canvas id="chart"></canvas><div class="chart-tip" id="chart-tip" hidden></div></div>
       <div class="tscores">
         <div class="score" data-tone="accent">
-          <div class="score-1"><span class="t-state" id="t-title">Training…</span><span class="score-v"><span id="t-ptrain">${S.psnrTrain != null ? S.psnrTrain.toFixed(2) : '—'}</span> <small class="unit">dB</small></span></div>
+          <div class="score-1"><span class="t-state" id="t-title">Training…</span><span class="score-v"><span id="t-ptrain">${S.psnrTrain != null ? S.psnrTrain.toFixed(2) : '—'}</span><small class="unit">dB</small></span></div>
           <div class="score-sub"><span id="t-splats">${S.splats ? fmt(S.splats) : '—'}</span> splats</div>
           <span class="tmeta-grow" id="t-grow">&nbsp;</span>
         </div>
-        ${S.session && S.session.holdout >= 0 ? `<div class="score" data-tone="alt"><div class="score-1"><span class="score-v"><span id="t-phold">${S.psnrHold != null ? S.psnrHold.toFixed(2) : '—'}</span> <small class="unit">dB</small></span></div><div class="score-sub">held out</div></div>` : ''}
+        ${S.session && S.session.holdout >= 0 ? `<div class="score" data-tone="alt"><div class="score-1"><span class="score-v"><span id="t-phold">${S.psnrHold != null ? S.psnrHold.toFixed(2) : '—'}</span><small class="unit">dB</small></span></div><div class="score-sub">held out</div></div>` : ''}
       </div>`;
     $('t-play').addEventListener('click', toggleTrain);
     $('t-finish').addEventListener('click', async () => {
