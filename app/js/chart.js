@@ -74,6 +74,14 @@ export class Chart {
     const X = (i) => l + (i / this.maxIter) * pw;
     const Y = (v) => t + ph - ((v - lo) / (hi - lo)) * ph;
 
+    // faint progress wash left of the latest sample — the chart quietly
+    // doubles as a progress bar without competing with the curve
+    if (this.train.length) {
+      const px = X(this.train[this.train.length - 1][0]);
+      ctx.fillStyle = 'rgba(94, 231, 214, .055)';
+      ctx.fillRect(l, t, Math.max(0, Math.min(px, l + pw) - l), ph);
+    }
+
     // grid
     ctx.font = `400 ${9 * dpr}px "Spline Sans Mono", monospace`;
     ctx.textBaseline = 'middle';

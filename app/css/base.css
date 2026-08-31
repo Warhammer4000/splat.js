@@ -505,6 +505,9 @@ select.sel {
   width: 40px; height: 40px; border-radius: 50%; background: var(--accent); color: #04231f;
   display: grid; place-content: center; font-size: 15px;
 }
+/* the ▶ glyph sits small and left-biased in its em box — enlarge and nudge
+   to optical centre; the circle keeps its position and scale */
+.play[data-state="play"] { font-size: 19px; padding-left: 3px; }
 .play:hover { background: #5ee7d6; }
 .play[data-state="pause"] { background: var(--panel-2); color: var(--paper); border: 1px solid var(--line-2); }
 .tbtn-sm {
@@ -514,13 +517,13 @@ select.sel {
 }
 .tbtn-sm:hover { color: var(--paper); border-color: var(--line-2); }
 
-/* iter + splats centre as a pair on the play button; only the transient
-   growth note hangs below */
-.tmeta { display: flex; flex-direction: column; gap: 2px; padding-left: 4px; transform: translateY(8px); }
-.tmeta-1 { font: 500 15px var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.tmeta-2 { font: 400 11px var(--mono); color: var(--dim); white-space: nowrap; }
-/* fixed-height slot: the note appears and vanishes without moving the stats */
-.tmeta-grow { display: block; height: 15px; font: 500 11px var(--mono); color: var(--accent); white-space: nowrap; }
+/* progress % + ETA centre as a pair on the play button */
+.tmeta { display: flex; flex-direction: column; gap: 1px; padding-left: 4px; }
+.tmeta-1 { font: 500 15px var(--mono); font-variant-numeric: tabular-nums; color: var(--accent); line-height: 20px; white-space: nowrap; }
+.tmeta-2 { font: 400 11px var(--mono); color: var(--dim); line-height: 15px; white-space: nowrap; }
+/* the growth note lives under the splat count now (right column) — a
+   fixed-height slot holding an nbsp when quiet, so nothing ever shifts */
+.tmeta-grow { display: block; height: 13px; line-height: 13px; margin-top: -1px; font: 500 11px var(--mono); color: var(--accent); white-space: nowrap; text-align: right; }
 
 .chartwrap { position: relative; min-width: 0; height: 92px; }
 .chartwrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -536,9 +539,13 @@ select.sel {
 
 .tscores { display: flex; gap: 20px; }
 .score { text-align: right; }
-.score-v { font: 500 20px var(--mono); font-variant-numeric: tabular-nums; line-height: 1.1; }
+/* state + value share one line, one quiet size — the % carries the weight */
+.score-1 { display: flex; align-items: baseline; justify-content: flex-end; gap: 10px; line-height: 20px; white-space: nowrap; }
+.t-state { font: 500 15px var(--ui); color: var(--accent); }
+.score-v { font: 500 15px var(--mono); font-variant-numeric: tabular-nums; }
+.score-v .unit { font: 400 11px var(--mono); color: var(--dim); }
 .score-k { font: 400 10.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
-.score-sub { font: 400 11px var(--mono); color: var(--dim); margin-top: 3px; white-space: nowrap; }
+.score-sub { font: 400 11px var(--mono); color: var(--dim); line-height: 15px; margin-top: 1px; white-space: nowrap; }
 .score[data-tone="alt"] .score-v { color: var(--alt); }
 .score[data-tone="accent"] .score-v { color: var(--accent); }
 

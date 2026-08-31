@@ -1514,8 +1514,6 @@ function toggleTrain() {
   const label = on ? 'Training…' : 'Paused';
   const tt = $('t-title');
   if (tt) tt.textContent = label;
-  const tm = $('t-title-m');
-  if (tm) tm.textContent = label;
   const f = $('t-finish');
   if (f) f.hidden = on;   // paused = the moment "stop here" makes sense
   if (!on) checkpointRun('pause').catch(() => {});
@@ -1625,14 +1623,15 @@ function pctOf(iter) {
   return `${Math.min(100, Math.floor((iter || 0) / S.maxIters * 100))}%`;
 }
 
-/** Time remaining as a live 04:32-style countdown. Metrics re-anchor the
- *  estimate (blended, so a wobbling pace doesn't make the clock stutter);
- *  the main loop ticks the display once a second while training runs. */
+/** Time remaining as a live 04:32-style countdown (digits only — the static
+ *  "ETA" label lives in the template). Metrics re-anchor the estimate
+ *  (blended, so a wobbling pace doesn't make the clock stutter); the main
+ *  loop ticks the display while training runs. */
 function etaText() {
-  if (S.etaAt == null) return '…';
+  if (S.etaAt == null) return '—:—';
   const s = Math.max(0, (S.etaAt - performance.now()) / 1000);
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60);
-  return `${h ? `${h}:` : ''}${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')} left`;
+  return `${h ? `${h}:` : ''}${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
 }
 
 function onTrainEvent(e) {
@@ -3299,21 +3298,18 @@ function dock(kind) {
       <div class="tcontrols">
         <span class="playwrap"><button class="play" id="t-play" data-state="pause">❚❚</button><button class="tbtn-sm" id="t-finish" hidden title="End the run here — the model is kept as it is and ready to export">Stop &amp; keep</button></span>
         <div class="tmeta">
-          <span class="t-title" id="t-title">Training…</span>
           <span class="tmeta-1"><span id="t-iter">${pctOf(S.iter)}</span></span>
-          <span class="tmeta-2"><span id="t-eta">${etaText()}</span></span>
+          <span class="tmeta-2">ETA <span id="t-eta">${etaText()}</span></span>
         </div>
       </div>
       <div class="chartwrap"><canvas id="chart"></canvas><div class="chart-tip" id="chart-tip" hidden></div></div>
       <div class="tscores">
-        <span class="t-title-m" id="t-title-m">Training…</span>
         <div class="score" data-tone="accent">
-          <div class="score-v" id="t-ptrain">${S.psnrTrain != null ? S.psnrTrain.toFixed(2) : '—'}</div>
-          <div class="score-k">trained dB</div>
+          <div class="score-1"><span class="t-state" id="t-title">Training…</span><span class="score-v"><span id="t-ptrain">${S.psnrTrain != null ? S.psnrTrain.toFixed(2) : '—'}</span> <small class="unit">dB</small></span></div>
           <div class="score-sub"><span id="t-splats">${S.splats ? fmt(S.splats) : '—'}</span> splats</div>
-          <span class="tmeta-grow" id="t-grow"></span>
+          <span class="tmeta-grow" id="t-grow">&nbsp;</span>
         </div>
-        ${S.session && S.session.holdout >= 0 ? `<div class="score" data-tone="alt"><div class="score-v" id="t-phold">${S.psnrHold != null ? S.psnrHold.toFixed(2) : '—'}</div><div class="score-k">hidden dB</div></div>` : ''}
+        ${S.session && S.session.holdout >= 0 ? `<div class="score" data-tone="alt"><div class="score-1"><span class="score-v"><span id="t-phold">${S.psnrHold != null ? S.psnrHold.toFixed(2) : '—'}</span> <small class="unit">dB</small></span></div><div class="score-sub">held out</div></div>` : ''}
       </div>`;
     $('t-play').addEventListener('click', toggleTrain);
     $('t-finish').addEventListener('click', async () => {
@@ -3650,7 +3646,8 @@ function loop() {
   }
   const grow = $('t-grow');
   if (grow) {
-    const txt = (S.growNote && now < S.growNote.until) ? S.growNote.text : '';
+    // nbsp when quiet: the slot keeps its baseline, so nothing below shifts
+    const txt = (S.growNote && now < S.growNote.until) ? S.growNote.text : ' ';
     if (grow.textContent !== txt) grow.textContent = txt;
   }
   // the countdown ticks between metrics events; paused = frozen, honest
