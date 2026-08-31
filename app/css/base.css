@@ -538,6 +538,7 @@ select.sel {
 .score { text-align: right; }
 .score-v { font: 500 20px var(--mono); font-variant-numeric: tabular-nums; line-height: 1.1; }
 .score-k { font: 400 10.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
+.score-sub { font: 400 11px var(--mono); color: var(--dim); margin-top: 3px; white-space: nowrap; }
 .score[data-tone="alt"] .score-v { color: var(--alt); }
 .score[data-tone="accent"] .score-v { color: var(--accent); }
 

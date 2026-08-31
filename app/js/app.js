@@ -1435,6 +1435,7 @@ function buildSceneFromSession() {
 function startTraining() {
   S.state = 'train';
   S.trainT0 = performance.now();
+  S.etaAt = null;   // the countdown re-anchors on this run's own pace
   // dual-GPU desktops: WebGPU can land on the integrated GPU even when a
   // dedicated card sits idle (seen in the wild: 3 h for a run a 3070 does in
   // minutes — the NVIDIA control panel does NOT govern this). Say so once.
@@ -1592,18 +1593,25 @@ function onMetrics(m) {
   if (m.psnrTrain != null) S.psnrTrain = m.psnrTrain;
   if (m.psnrHold != null) S.psnrHold = m.psnrHold;
   if (m.psnrHold != null) (S.holdHist ??= []).push([m.iter, m.psnrHold]);
-  if (chart && m.psnrTrain != null) {
+  // the first few hundred cycles rocket from near-nothing to the real curve —
+  // charting that ramp squashes the whole run's y-scale into a corner
+  if (chart && m.psnrTrain != null && m.iter >= Math.min(500, S.maxIters * 0.02)) {
     chart.push(m.iter, m.psnrTrain, m.psnrHold ?? null);
     chart.maxIter = S.maxIters;
     chart.events = S.chartEvents.map((e) => ({ ...e, at: e.iter / S.maxIters }));
     chart.draw();
+  }
+  // re-anchor the countdown on every fresh pace measurement
+  if (m.itersPerSec > 0 && S.maxIters) {
+    const est = performance.now() + Math.max(0, S.maxIters - m.iter) / m.itersPerSec * 1000;
+    S.etaAt = S.etaAt == null ? est : S.etaAt + 0.35 * (est - S.etaAt);
   }
   if (S.state === 'train') {
     const el = $('t-iter');
     if (el) {
       el.textContent = pctOf(S.iter);
       $('t-splats').textContent = fmt(S.splats);
-      $('t-eta').textContent = etaOf(S.iter, S.itersPerSec);
+      $('t-eta').textContent = etaText();
       $('t-ptrain').textContent = S.psnrTrain != null ? S.psnrTrain.toFixed(2) : '—';
       const ph = $('t-phold');   // only rendered in ?eval benchmark mode
       if (ph) ph.textContent = S.psnrHold != null ? S.psnrHold.toFixed(2) : '—';
@@ -1617,13 +1625,14 @@ function pctOf(iter) {
   return `${Math.min(100, Math.floor((iter || 0) / S.maxIters * 100))}%`;
 }
 
-/** Time remaining at the current pace — people plan in minutes, not cycles/s. */
-function etaOf(iter, ips) {
-  if (!ips || !S.maxIters) return '…';
-  const s = Math.max(0, S.maxIters - (iter || 0)) / ips;
-  if (s < 50) return '< 1 min left';
-  if (s < 3540) return `~${Math.round(s / 60)} min left`;
-  return `~${(s / 3600).toFixed(1)} h left`;
+/** Time remaining as a live 04:32-style countdown. Metrics re-anchor the
+ *  estimate (blended, so a wobbling pace doesn't make the clock stutter);
+ *  the main loop ticks the display once a second while training runs. */
+function etaText() {
+  if (S.etaAt == null) return '…';
+  const s = Math.max(0, (S.etaAt - performance.now()) / 1000);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60);
+  return `${h ? `${h}:` : ''}${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')} left`;
 }
 
 function onTrainEvent(e) {
@@ -2422,6 +2431,7 @@ function continueTraining() {
   if (!S.session || S.state !== 'done') return;
   stopTour();
   S.plyBlob = null; S.sogBlob = null;   // the cached export goes stale the moment training resumes
+  S.etaAt = null;
   S.maxIters = S.session.continueFor(MORE_ITERS);
   S.state = 'train';
   S.trainT0 = performance.now() - S.minutes * 60000;   // minutes stay cumulative
@@ -3291,14 +3301,18 @@ function dock(kind) {
         <div class="tmeta">
           <span class="t-title" id="t-title">Training…</span>
           <span class="tmeta-1"><span id="t-iter">${pctOf(S.iter)}</span></span>
-          <span class="tmeta-2"><span id="t-splats">${S.splats ? fmt(S.splats) : '—'}</span> splats · <span id="t-eta">${etaOf(S.iter, S.itersPerSec)}</span></span>
-          <span class="tmeta-grow" id="t-grow"></span>
+          <span class="tmeta-2"><span id="t-eta">${etaText()}</span></span>
         </div>
       </div>
       <div class="chartwrap"><canvas id="chart"></canvas><div class="chart-tip" id="chart-tip" hidden></div></div>
       <div class="tscores">
         <span class="t-title-m" id="t-title-m">Training…</span>
-        <div class="score" data-tone="accent"><div class="score-v" id="t-ptrain">${S.psnrTrain != null ? S.psnrTrain.toFixed(2) : '—'}</div><div class="score-k">trained dB</div></div>
+        <div class="score" data-tone="accent">
+          <div class="score-v" id="t-ptrain">${S.psnrTrain != null ? S.psnrTrain.toFixed(2) : '—'}</div>
+          <div class="score-k">trained dB</div>
+          <div class="score-sub"><span id="t-splats">${S.splats ? fmt(S.splats) : '—'}</span> splats</div>
+          <span class="tmeta-grow" id="t-grow"></span>
+        </div>
         ${S.session && S.session.holdout >= 0 ? `<div class="score" data-tone="alt"><div class="score-v" id="t-phold">${S.psnrHold != null ? S.psnrHold.toFixed(2) : '—'}</div><div class="score-k">hidden dB</div></div>` : ''}
       </div>`;
     $('t-play').addEventListener('click', toggleTrain);
@@ -3638,6 +3652,15 @@ function loop() {
   if (grow) {
     const txt = (S.growNote && now < S.growNote.until) ? S.growNote.text : '';
     if (grow.textContent !== txt) grow.textContent = txt;
+  }
+  // the countdown ticks between metrics events; paused = frozen, honest
+  if (S.state === 'train' && S.session && S.session.training && now - (S._etaTick || 0) > 250) {
+    S._etaTick = now;
+    const eta = $('t-eta');
+    if (eta) {
+      const txt = etaText();
+      if (eta.textContent !== txt) eta.textContent = txt;
+    }
   }
   // no fade on the photo overlay — it reads as lag on slow devices
   S.fade = S.fadeTo;
