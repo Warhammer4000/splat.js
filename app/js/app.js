@@ -646,14 +646,16 @@ async function localRunTiles() {
   return runs.map((r) => {
     const b = document.createElement('div');
     b.className = 'galtile';
-    b.style.cursor = r.sog ? 'pointer' : 'default';
+    b.style.cursor = (r.sog || (r.state && r.recon)) ? 'pointer' : 'default';
     // finished scenes wear the same sub-header as the preset tiles:
     // splats · dB · MB — a scene is a scene, wherever it was trained
     const state = r.status === 'finished'
       ? `${fmt(r.splats || 0)} splats${r.psnr != null ? ` · ${(+r.psnr).toFixed(1)} dB` : ''}${r.sog ? ` · ${Math.max(1, Math.round(r.sog.size / 1e6))} MB` : ''}`
       : (S.runId === r.id && S.state === 'train')
         ? `training now · ${fmt(r.iter || 0)} cycles`
-        : `interrupted · ${fmt(r.iter || 0)} cycles`;
+        : (r.state && r.recon)
+          ? `paused · ${fmt(r.iter || 0)} cycles — tap to continue`
+          : `interrupted · ${fmt(r.iter || 0)} cycles`;
     // same anatomy as a preset tile: name, a description referring back to
     // the capture, then the stats line
     const desc = r.status === 'finished'
@@ -671,9 +673,16 @@ async function localRunTiles() {
       reconUrl: URL.createObjectURL(new Blob([JSON.stringify(r.recon)], { type: 'application/json' })),
       localRun: r,
     });
+    const resumeRun = () => {
+      S._localRun = r;
+      continueLocalRun().catch((e) => {
+        console.error(e);
+        flash(`Could not continue this run: ${e.message}`, 8000);
+      });
+    };
     tileMenu(b.querySelector('.run-menu'), [
       r.sog && r.recon && { label: 'View', act: openRun },
-      (r.sog || r.ownSrc) && { label: 'Train', act: () => { S._localRun = r; trainLocalChoice(); } },
+      (r.sog || r.ownSrc || (r.state && r.recon)) && { label: 'Train', act: () => { S._localRun = r; trainLocalChoice(); } },
       r.sog && r.recon && { label: 'Share', act: () => shareDialog(r) },
       { label: 'Delete', danger: true, act: async () => { await deleteRun(r.id); b.remove(); } },
     ]);
@@ -684,6 +693,10 @@ async function localRunTiles() {
           reconUrl: URL.createObjectURL(new Blob([JSON.stringify(r.recon)], { type: 'application/json' })),
           localRun: r, // the viewer's Train button reads this
         });
+      } else if (r.state && r.recon && !(S.runId === r.id && S.state === 'train')) {
+        // a pause checkpoint: no sog to view yet, but the run continues
+        // exactly where it stopped
+        resumeRun();
       } else if (!(S.runId === r.id && S.state === 'train')) {
         flash('This run stopped before finishing — no result was kept, only this record.', 5000);
       }
@@ -1403,8 +1416,19 @@ function startTraining() {
   S.trainT0 = performance.now();
   // local library: every run is listed from the moment it starts — a small
   // record now, the finished result later (see finish())
-  S.runId = `run_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+  // a checkpoint resume keeps its run identity — same tile, same slot; only
+  // fresh runs (and continuations of FINISHED runs) get a new record
+  const resumeId = S._resumeRunId;
+  S._resumeRunId = null;
+  S.runId = resumeId || `run_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+  S._ckptIter = 0;
   (async () => {
+    if (resumeId) {
+      // the record already exists (thumb, checkpoint, name) — just mark it live
+      const { patchRun } = await import('./store.js');
+      await patchRun(resumeId, { status: 'training', maxIters: S.maxIters });
+      return;
+    }
     let thumb = null;
     try {
       const p = S.photos && S.photos[0];
@@ -1460,6 +1484,41 @@ function toggleTrain() {
   if (tm) tm.textContent = label;
   const f = $('t-finish');
   if (f) f.hidden = on;   // paused = the moment "stop here" makes sense
+  if (!on) checkpointRun('pause').catch(() => {});
+}
+
+// ── crash-safe checkpoint ───────────────────────────────────────────────────
+// The raw trainer state — a straight GPU readback, no PLY text, no SOG
+// k-means — goes into the run record whenever the user pauses, and (desktop
+// only) when the tab goes hidden mid-training. One slot per run, overwritten:
+// pausing means the browser may be closed, and the Yours tile continues the
+// run bit-exactly from where it stopped. The blob is dropped again the moment
+// the run finishes properly — the sog takes over.
+async function checkpointRun(reason) {
+  if (!S.runId || !S.session || !S.session.trainer || S.state !== 'train') return;
+  const it = S.session.trainer.iter | 0;
+  if (it < 200 || S._ckptBusy) return;   // nothing worth keeping yet
+  // hidden fires on every tab switch — only rewrite after real progress
+  if (reason === 'hidden' && it - (S._ckptIter || 0) < 500) return;
+  S._ckptBusy = true;
+  const gen = S.gen;
+  try {
+    const { packState, buildReconJson } = await import('./session_io.js');
+    const state = new Blob([await packState(S.session)]);
+    if (S.gen !== gen) return;
+    const recon = buildReconJson(S);
+    const { patchRun } = await import('./store.js');
+    await patchRun(S.runId, {
+      iter: it, splats: S.splats || S.session.trainer.n,
+      psnr: S.psnrHold ?? S.psnrTrain ?? null,
+      cap: S.session.trainer.cap || 0,   // growth headroom carries over
+      state, recon, ckptAt: Date.now(),
+    });
+    S._ckptIter = it;
+    if (reason === 'pause') flash('Progress saved on this device — safe to close, continue anytime from Yours.', 6000);
+  } catch (e) {
+    console.warn('checkpoint failed', e);   // best-effort: never disturb a run
+  } finally { S._ckptBusy = false; }
 }
 
 function onMetrics(m) {
@@ -1614,6 +1673,18 @@ if (IOS) document.addEventListener('visibilitychange', () => {
   }
 });
 
+// Desktop counterpart: training keeps running while hidden (worker tick), but
+// a hidden tab is also where runs die unseen — crash, GPU reset, closed
+// window. Snapshot the state when the user switches away; exportRawState is
+// serialized against the step loop, so the readback is a consistent frame.
+// (iOS stays pause-only above — reading buffers that may already be purged
+// could overwrite a good checkpoint with garbage.)
+if (!IOS) document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden' && S.state === 'train') {
+    checkpointRun('hidden').catch(() => {});
+  }
+});
+
 async function finish() {
   S.state = 'done';
   S.iter = S.session.trainer.iter;   // honest count — the run may end early
@@ -1666,6 +1737,7 @@ async function finish() {
         // app runs train every photo (holdout -1): train PSNR is the number
         psnr: S.psnrHold ?? S.psnrTrain ?? null, minutes: S.minutes,
         sog, recon, ...(thumb ? { thumb } : {}),
+        state: null, ckptAt: null,   // the pause checkpoint yields to the sog
       });
       flash('Result saved on this device — it stays under Yours', 5000);
     } catch (e) { console.warn('local save failed', e); }
@@ -1734,6 +1806,7 @@ async function restoreSession(src) {
         cams: reconJson.cams.map((c) => ({ imgIdx: c.imgIdx, R: c.R, t: c.t, f: c.f, cx: c.cx, cy: c.cy })),
         points: [],
         k1: reconJson.k1 || 0, k2: reconJson.k2 || 0,
+        ...(reconJson.fFeat ? { fFeat: reconJson.fFeat } : {}),
       });
       ses.useFrames(reconJson.frames.map((f) => ({ ...f, sampleColor: () => [0.5, 0.5, 0.5] })));
     }
@@ -2155,27 +2228,49 @@ function trainLocalChoice() {
  *  from the stored camera solve + the capture's photos, and run on. */
 async function continueLocalRun() {
   const lr = S._localRun;
-  if (!lr || !lr.sog || !lr.recon) return;
-  const rec = await loadLastCapture();
-  if (!rec || !rec.files) { flash('The photos are no longer stored on this device.', 6000); return; }
+  if (!lr || !lr.recon || !(lr.state || lr.sog)) return;
   const recon = lr.recon;
-  // photos matched BY NAME to the run's own frame order — re-sorting could
-  // reorder against recon.cams imgIdx, and a newer capture must not sneak in
-  const byName = new Map(rec.files.map((e) => [e.name, e]));
-  const files = (recon.frames || []).map((fr) => {
-    const e = byName.get(fr.name);
-    return e ? new File([e.blob], e.name, { type: e.blob.type || 'image/jpeg' }) : null;
-  });
-  if (!files.length || files.some((f) => !f)) {
-    flash('The stored photos no longer match this run — Train new instead.', 7000);
-    return;
+  let files;
+  const srcUrls = (recon.source && recon.source.urls) || [];
+  if (!lr.ownSrc && srcUrls.length && srcUrls.every(Boolean)) {
+    // preset / shared runs: the photographs live at stable URLs — refetch
+    flash('Fetching the photos …', 60000);
+    files = await Promise.all(srcUrls.map(async (u, i) => {
+      const r = await fetch(u);
+      if (!r.ok) throw new Error(`photo fetch failed (${r.status})`);
+      return new File([await r.blob()], recon.source.names[i], { type: 'image/jpeg' });
+    }));
+  } else {
+    const rec = await loadLastCapture();
+    if (!rec || !rec.files) { flash('The photos are no longer stored on this device.', 6000); return; }
+    // photos matched BY NAME to the run's own frame order — re-sorting could
+    // reorder against recon.cams imgIdx, and a newer capture must not sneak in
+    const byName = new Map(rec.files.map((e) => [e.name, e]));
+    files = (recon.frames || []).map((fr) => {
+      const e = byName.get(fr.name);
+      return e ? new File([e.blob], e.name, { type: e.blob.type || 'image/jpeg' }) : null;
+    });
+    if (!files.length || files.some((f) => !f)) {
+      flash('The stored photos no longer match this run — Train new instead.', 7000);
+      return;
+    }
   }
   flash('Preparing to continue training …', 60000);
-  const { decodeModel } = await import('./session_io.js');
-  const { gaussians: g } = await decodeModel(new Uint8Array(await lr.sog.arrayBuffer()), null);
+  let g, engine, stateIter = null;
+  if (lr.state) {
+    // pause checkpoint: the trainer's raw floats — nothing baked, nothing
+    // quantized, tagged with the engine that wrote them. Bit-exact resume.
+    const { parseState } = await import('./session_io.js');
+    const st = parseState(new Uint8Array(await lr.state.arrayBuffer()));
+    g = st.gaussians; engine = st.engine; stateIter = st.iter;
+  } else {
+    const { decodeModel } = await import('./session_io.js');
+    ({ gaussians: g } = await decodeModel(new Uint8Array(await lr.sog.arrayBuffer()), null));
+  }
   // un-bake opacity compensation (pure fn of position, mean scale, focal,
-  // camera centres — recompute and divide out in logit space)
-  {
+  // camera centres — recompute and divide out in logit space); only sog/ply
+  // exports carry the baking, the raw checkpoint never does
+  if (!lr.state) {
     const pos = [];
     for (const c of recon.cams) {
       const R = c.R, t = c.t;
@@ -2206,6 +2301,7 @@ async function continueLocalRun() {
   }
   // tear down the viewer, build the training session (trainFromShare's reset)
   stopTour();
+  $('start').hidden = true;   // a paused tile resumes straight from the wall
   try { S.session.dispose(); } catch (e) { /* view-only facade */ }
   document.getElementById('cv-model')?.remove();
   gpuCanvas = null;
@@ -2215,16 +2311,30 @@ async function continueLocalRun() {
   S._viewerOpen = false;
   if (history.state && history.state.sj) history.replaceState(null, '');
   S.plyBlob = null; S.sogBlob = null;
-  S.preset = { id: '__own', name: `${lr.name || 'Your photos'}` };
+  // keep the source identity: own captures stay '__own' (the next resume goes
+  // back to the capture store), URL-backed runs keep their preset/urls so a
+  // pause during THIS run checkpoints a resumable source list again
+  S.preset = lr.ownSrc
+    ? { id: '__own', name: `${lr.name || 'Your photos'}` }
+    : { id: (recon.source && recon.source.preset) || '__url', name: `${lr.name || 'Your photos'}` };
+  S.loadedFiles = files.map((f, i) => Object.assign(f, { url: srcUrls[i] || undefined }));
   S.photos = files.map((f, i) => ({ url: URL.createObjectURL(f), name: f.name, i }));
-  const baseIter = lr.iter || 0;
-  const extra = Math.max(10000, Math.round((lr.maxIters || 20000) / 2));
-  S.maxIters = baseIter + extra;
+  const baseIter = stateIter ?? (lr.iter || 0);
+  // a finished run continues PAST its old horizon; a paused one resumes
+  // toward the horizon it was already aiming at
+  S.maxIters = lr.status !== 'finished' && lr.maxIters > baseIter
+    ? lr.maxIters
+    : baseIter + Math.max(10000, Math.round((lr.maxIters || 20000) / 2));
   const fr0 = recon.frames[0] || {};
+  const cap = Math.max(g.n, lr.splats || 0, lr.status !== 'finished' ? lr.cap || 0 : 0);
   const ses = createSession({
     maxIters: S.maxIters, holdout: -1,
     frames: { trainMaxDim: Math.max(fr0.tw || 0, fr0.th || 0) || undefined },
-    trainer: { maxSplats: Math.max(g.n, lr.splats || 0), capMult: 2, shDeg: 3 },
+    trainer: {
+      maxSplats: cap, shDeg: 3,
+      capMult: Math.max(2, Math.ceil(cap / Math.max(1, g.n))),
+      ...(engine === 'v2' ? { engine: 'v2', refineEvery: 200 } : {}),
+    },
   });
   S.session = ses;
   ses.on('stage', (e) => { if (S.gen === gen) onStage(e); });
@@ -2236,6 +2346,7 @@ async function continueLocalRun() {
     cams: recon.cams.map((c) => ({ imgIdx: c.imgIdx, R: c.R, t: c.t, f: c.f, cx: c.cx, cy: c.cy })),
     points: [],
     k1: recon.k1 || 0, k2: recon.k2 || 0,
+    ...(recon.fFeat ? { fFeat: recon.fFeat } : {}),
   });
   if (undistortFrames(ses.frames, ses.recon)) { /* targets match the original run */ }
   await ses.seedFrom(g, { iter: baseIter });
@@ -2245,8 +2356,9 @@ async function continueLocalRun() {
   S.holdHist = []; S.chartEvents = []; S.growthStopped = false;
   buildSceneFromSession();
   mountModelCanvas();
+  if (lr.state && lr.status !== 'finished') S._resumeRunId = lr.id;
   startTraining();
-  flash(`Continuing from ${fmt(baseIter)} cycles — +${fmt(extra)} more.`, 6000);
+  flash(`Continuing from ${fmt(baseIter)} cycles — +${fmt(S.maxIters - baseIter)} more.`, 6000);
 }
 
 /** Resume from done: raise the horizon, restore the curve, back to train. */

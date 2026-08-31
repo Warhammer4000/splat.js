@@ -4,6 +4,40 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-08-31 (crash-safe training: pause = safe to close)
+
+- **Pause checkpoint shipped** (from a real user report: 2h+ train, froze
+  at finish, everything lost). Pausing (and, on desktop, hiding the tab)
+  now persists the RAW trainer state into the run's IndexedDB record —
+  one overwritten slot, a straight GPU readback (no PLY text, no SOG
+  k-means, none of the export-path memory spike that likely froze her
+  machine). The wall tile turns "paused · N cycles — tap to continue";
+  resume is bit-exact (state.bin round-trip, node-tested both engines +
+  legacy blobs), keeps the SAME run record, resumes toward the original
+  horizon with the original growth cap (new `cap` field), and the blob is
+  dropped when the run finishes properly. State header now records
+  dc-convention + engine for the v2 bridge. E2E on synthetic (headless):
+  pause@30k → reload → resume → 46.5 dB model restored param-identical
+  (opacity/scale/pos stats match), trains on to 42→46 dB. Cold Adam
+  moments cost a ~7 dB transient that recovers in ~15k iters.
+- **MAJOR pre-existing bug found by the E2E: resumed runs trained against
+  EMPTY targets whenever |k1| ≥ 0.01.** `undistortFrames` divides by
+  `recon.fFeat`, which only the live SfM result carries — every
+  `useReconstruction` consumer (the old sog "Keep training", restored
+  session zips) fed it undefined → NaN remap → all pixels flagged
+  invalid → zero photometric gradient, and opacityReg quietly faded the
+  model to full transparency (looked like: black render, PSNR frozen,
+  it/s ×3, oMean 0.108→0.001 in 14k iters). Real phone lenses are k1
+  −0.05..−0.2, so effectively EVERY real continued run was ruined.
+  Fixed in session.js (fFeat defaults to cams[0].f), stored in
+  recon.json going forward. Our GT-recon benches dodged it (COLMAP
+  PINHOLE / pre-undistorted sets, k=0).
+- **Rig note**: `--use-angle=d3d11` now breaks headless WebGPU on this
+  box (requestDevice → DXGI_ERROR_DEVICE_REMOVED; visible chrome fine,
+  headless without the flag fine — dropped from the recipe). The Dawn
+  d3d11 fallback backend is NOT a substitute: pipelines run but stats
+  atomics silently zero — models train to garbage.
+
 ## 2026-08-31 (defaults: measured rollout)
 
 - **DC-convention bridge shipped** (b5b2356): PLY/SOG imports keep the

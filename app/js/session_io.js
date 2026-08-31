@@ -46,7 +46,7 @@ export function buildReconJson(S) {
     shK: ses.trainer.shK,
     sceneRadius: ses.model.radius,
     center: ses.model.center ? r6(ses.model.center) : null,
-    k1: recon.k1, k2: recon.k2,
+    k1: recon.k1, k2: recon.k2, fFeat: recon.fFeat ?? null,
     cams: recon.cams.map((c) => ({
       imgIdx: c.imgIdx, name: ses.frames[c.imgIdx].name,
       R: r6(c.R), t: r6(c.t), f: +c.f.toPrecision(7),
@@ -83,9 +83,12 @@ const decimate = (arr, max) => {
 
 /** The trainer's exact float state as one binary blob. */
 export async function packState(ses) {
-  const { data, n, sh, shK } = await ses.exportRawState();
+  const { data, n, sh, shK, dc } = await ses.exportRawState();
   const head = new TextEncoder().encode(JSON.stringify({
     magic: 'splatjs-state', version: 1, n, shK, iter: ses.trainer.iter,
+    // convention tags (absent in old blobs = the v1 defaults): dc names the
+    // color-slot encoding, engine picks the trainer a resume must rebuild
+    dc: dc || 'sigmoid', engine: ses.trainer.v2 ? 'v2' : 'v1',
   }));
   const params = new Uint8Array(data.buffer, data.byteOffset, n * STRIDE * 4);
   const shBytes = sh ? new Uint8Array(sh.buffer, sh.byteOffset, n * shK * 3 * 4) : new Uint8Array(0);
@@ -162,7 +165,11 @@ export function parseState(bytes) {
     sh = new Float32Array(head.n * head.shK * 3);
     new Uint8Array(sh.buffer).set(bytes.subarray(o, o + sh.byteLength));
   }
-  return { gaussians: { data: params, n: head.n, sh, shK: head.shK }, iter: head.iter };
+  return {
+    gaussians: { data: params, n: head.n, sh, shK: head.shK, dc: head.dc === 'sh' ? 'sh' : 'sigmoid' },
+    iter: head.iter,
+    engine: head.engine === 'v2' ? 'v2' : 'v1',
+  };
 }
 
 function readPlyHeader(bytes) {

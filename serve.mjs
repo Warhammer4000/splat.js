@@ -18,7 +18,7 @@ createServer(async (req, res) => {
     let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
     if (req.method === 'POST' && p.startsWith('/scratch/')) {
       const name = basename(p);
-      if (!/^[\w.-]+\.(json|webp|sog|ply)$/.test(name)) throw new Error('bad name');
+      if (!/^[\w.-]+\.(json|webp|sog|ply|png|txt)$/.test(name)) throw new Error('bad name');
       const chunks = [];
       for await (const c of req) chunks.push(c);
       await mkdir(join(root, 'scratch'), { recursive: true });
