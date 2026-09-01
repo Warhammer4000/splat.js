@@ -4,6 +4,48 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-01 (the thinness ban: trt finds the ceiling in one closeup)
+
+trt compared the San Pedro sign closeup, Brush vs ours: theirs thin
+wispy strokes, ours blobs with dark ringing halos — "we don't allow
+our splats to get smaller or thinner than x." Confirmed as a THREE
+layer ban: (1) +0.3 px^2 screen dilation = sigma>=0.55px floor in every
+direction; (2) Mip comp sqrt(detV/detVd) makes a thinning splat FADE,
+so thinness is gradient-dead (Brush dilates 0.3 too but doesn't comp —
+their thin splats stay opaque); (3) anisoReg pulls to isotropy exactly
+where data gradients are weak. Distribution forensics (splat_stats.mjs,
+should have run on day one): median aniso ratio OURS 1.03 (a sphere)
+vs BRUSH 88 (a needle); ratio>20 1.3% vs 72%. Method lessons saved to
+memory: outputs-first forensics; symmetric audit (our-extras are prime
+suspects — "Brush does NOT use Mip compensation" sat in my own notes).
+
+Ladder (truck 30k, frozen poses, auto 1.05M, eval8): stock 24.97 ->
+dilate 0.1 +0.17 -> +anisoReg 0 = 25.36 -> +minScale 1e-5 = **25.53**
+(the needle model piled p5=p25=p50 exactly at the 1e-4*r clamp — next
+wall down; 1e-6 adds nothing). dilate 0.05 overshoots (-0.32; the Mip
+paper's 3D filter is the unlock for lower). D-SSIM 0.2 retested under
+shape freedom: STILL negative (truck -0.21, garden -0.37) — the old
+"loss isn't the lever" verdict survives; Brush converts SSIM via their
+placement system, not the loss alone. 2M cap under needle config =
+25.10, WORSE than 1.05M — capacity dilutes without placement/prune;
+that (not capacity) is the remaining 0.54 to Brush-native 26.07.
+Garden honest delta vs today-stock: 26.52 -> 26.64 (+0.13; the Aug-26
+baseline was stale, maxScale had already moved it). trt on synthetic
+with the needle set: "ringing is now almost completely gone".
+
+Corpse census: classic-era flagships carry >50% DEAD splats (opacity
+~1e-6): truck_2m_500k AND bar360_v4 (2M+ of its 4M). Mechanism traced:
+opa*comp < A_MIN in every view -> culled -> zero data gradient, but
+the opacity regularizer subtracts UNCONDITIONALLY every step (Adam
+kernel) -> one-way ratchet; relocation only recycles while refine
+runs. Fresh MCMC 30k runs show no pile. Shipped: exportPlyBlob drops
+alpha < 1/255 rows (PLY + SOG both derive from it); nightly needle set
+?dilate=0.1&aniso=0&minscale=1e-5 (sticky, ?dilate=0 clears). Audit
+suspects still open: eMax footprint shrink, gradFixed rounding
+starvation on faint giants, logit floor -9 recovery, poslr/SH-ramp
+retests under needle config. Defaults UNCHANGED pending the 3D
+smoothing filter + pruning + export/viewer dilation consistency.
+
 ## 2026-09-01 (setup card: quality dropdown; % born at 50/100)
 
 Follow-ups from the same live pass. (6) The dock's % opened at 50 or

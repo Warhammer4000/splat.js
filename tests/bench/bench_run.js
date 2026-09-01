@@ -12,7 +12,9 @@ const ITERS = +(Q.get('iters') || 20000);
 const TAG = `${SET}_${ITERS}` + (Q.has('classic') ? '_classic' : '')
   + (Q.get('dilate') ? `_dil${Q.get('dilate')}` : '')
   + (Q.get('aniso') != null ? `_ar${Q.get('aniso')}` : '')
-  + (Q.get('ssim') ? `_ssim${Q.get('ssim')}` : '');
+  + (Q.get('ssim') ? `_ssim${Q.get('ssim')}` : '')
+  + (Q.get('maxsplats') ? `_cap${Q.get('maxsplats')}` : '')
+  + (Q.get('minscale') ? `_ms${Q.get('minscale')}` : '');
 const t0 = Date.now();
 const logEl = document.getElementById('log');
 const post = (name, body) => fetch(`/scratch/${name}`, { method: 'POST', body });
@@ -74,6 +76,7 @@ try {
         ...(Q.get('maxscale') ? { maxScale: +Q.get('maxscale') } : {}),
         ...(Q.get('dilate') ? { dilate: +Q.get('dilate') } : {}),
         ...(Q.get('aniso') != null ? { anisoReg: +Q.get('aniso') } : {}),
+        ...(Q.get('minscale') ? { minScale: +Q.get('minscale') } : {}),
         ...(Q.get('ssim') ? { ssimWeight: +Q.get('ssim') } : {}),
         ...(Q.get('v2') ? { engine: 'v2' } : {}),
         ...(Q.get('growfrac') ? { growFrac: +Q.get('growfrac') } : {}),
@@ -147,6 +150,13 @@ try {
     const test = await ses.evalTestPsnr();
     psnrTest = test ? +test.psnr.toFixed(3) : null;
     heldOut = test ? test.frames.length : 0;
+  }
+  if (Q.get('postply')) {
+    // dump the trained model for distribution forensics (splat_stats.mjs)
+    await say('export-ply');
+    const blob = await ses.exportPlyBlob();
+    await post(Q.get('postply'), blob);
+    await say('ply-posted', { mb: +(blob.size / 1e6).toFixed(0) });
   }
   const result = {
     set: SET, iters: ITERS,

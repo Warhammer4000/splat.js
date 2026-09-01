@@ -42,5 +42,9 @@ test('own-photos run: solve, train, finish, stored, viewable', async ({ page }) 
     window.__splat.state === 'done' && window.__splat.preset &&
     window.__splat.preset.id === '__restored', null, { timeout: 60_000 });
   const view = await page.evaluate(() => ({ splats: window.__splat.splats }));
-  expect(view.splats).toBe(done.splats);
+  // export purges dead splats (alpha < 1/255 — invisible in any 8-bit
+  // viewer), so the stored model may be smaller than the live count, never
+  // larger, and never by much on a fresh short run
+  expect(view.splats).toBeLessThanOrEqual(done.splats);
+  expect(view.splats).toBeGreaterThan(done.splats * 0.85);
 });

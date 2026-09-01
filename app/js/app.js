@@ -79,13 +79,17 @@ const ITERS_OVERRIDE = parseInt(sessionStorage.getItem('splatjs_iters'), 10) || 
 // still bake and rasterize at the stock 0.3, so needles view fatter there.
 {
   const q = new URLSearchParams(location.search);
-  if (q.get('dilate') === '0') { sessionStorage.removeItem('splatjs_dilate'); sessionStorage.removeItem('splatjs_aniso'); }
-  else if (q.get('dilate')) sessionStorage.setItem('splatjs_dilate', q.get('dilate'));
+  if (q.get('dilate') === '0') {
+    for (const k of ['splatjs_dilate', 'splatjs_aniso', 'splatjs_minscale']) sessionStorage.removeItem(k);
+  } else if (q.get('dilate')) sessionStorage.setItem('splatjs_dilate', q.get('dilate'));
   if (q.get('aniso') != null && q.get('aniso') !== '') sessionStorage.setItem('splatjs_aniso', q.get('aniso'));
+  if (q.get('minscale')) sessionStorage.setItem('splatjs_minscale', q.get('minscale'));
 }
 const DILATE_OVR = parseFloat(sessionStorage.getItem('splatjs_dilate'));
 const ANISO_OVR = sessionStorage.getItem('splatjs_aniso') == null ? NaN : parseFloat(sessionStorage.getItem('splatjs_aniso'));
-const NEEDLE_ON = (Number.isFinite(DILATE_OVR) && DILATE_OVR > 0 && DILATE_OVR <= 1) || Number.isFinite(ANISO_OVR);
+const MINSCALE_OVR = parseFloat(sessionStorage.getItem('splatjs_minscale'));
+const NEEDLE_ON = (Number.isFinite(DILATE_OVR) && DILATE_OVR > 0 && DILATE_OVR <= 1)
+  || Number.isFinite(ANISO_OVR) || (Number.isFinite(MINSCALE_OVR) && MINSCALE_OVR > 0);
 
 // training settings (start-card panel), persisted across visits.
 // res 0 = auto, iters 0 = the 20k default, buf = working-buffer scale.
@@ -1197,7 +1201,8 @@ async function startPrep() {
     if (NEEDLE_ON) {
       if (Number.isFinite(DILATE_OVR) && DILATE_OVR > 0 && DILATE_OVR <= 1) trainerOpts.dilate = DILATE_OVR;
       if (Number.isFinite(ANISO_OVR) && ANISO_OVR >= 0) trainerOpts.anisoReg = ANISO_OVR;
-      flash(`Needle set active — dilate ${trainerOpts.dilate ?? 0.3}, anisoReg ${trainerOpts.anisoReg ?? 'default'} (?dilate=0 clears)`, 6000);
+      if (Number.isFinite(MINSCALE_OVR) && MINSCALE_OVR > 0 && MINSCALE_OVR < 1e-3) trainerOpts.minScale = MINSCALE_OVR;
+      flash(`Needle set active — dilate ${trainerOpts.dilate ?? 0.3}, anisoReg ${trainerOpts.anisoReg ?? 'default'}, minScale ${trainerOpts.minScale ?? '1e-4'} (?dilate=0 clears)`, 6000);
     }
     // Auto splat budget: sized from the CYCLE budget, not just the solve —
     // the measured capacity law (~15 splats/cycle classic, ~35 under MCMC),

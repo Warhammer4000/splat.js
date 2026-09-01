@@ -737,7 +737,28 @@ export class Session {
         ? bakeOpacityCompensation(data, n, meta.f,
             Float32Array.from(this.trainer.camMeta.flatMap(camPosition)))
         : data;
-      return gaussiansToPly(baked, n, sh, shK, this.trainer.dcMode);
+      // dead splats — invisible at the smallest 8-bit alpha — are pure
+      // file-size and render tax for every viewer. Long classic-era runs
+      // accumulated 50%+ of them (opacity-reg ratchet, lab log 2026-09-01):
+      // drop them at the door.
+      const A_DEAD = Math.log(1 / 254);   // logit of alpha 1/255
+      let live = 0;
+      for (let i = 0; i < n; i++) if (baked[i * 16 + 13] > A_DEAD) live++;
+      let oData = baked, oSh = sh, oN = n;
+      if (live < n) {
+        oData = new Float32Array(live * 16);
+        const shPer = sh ? sh.length / n : 0;
+        oSh = sh ? new Float32Array(live * shPer) : sh;
+        let w = 0;
+        for (let i = 0; i < n; i++) {
+          if (baked[i * 16 + 13] <= A_DEAD) continue;
+          oData.set(baked.subarray(i * 16, i * 16 + 16), w * 16);
+          if (sh) oSh.set(sh.subarray(i * shPer, (i + 1) * shPer), w * shPer);
+          w++;
+        }
+        oN = live;
+      }
+      return gaussiansToPly(oData, oN, oSh, shK, this.trainer.dcMode);
     });
   }
 
