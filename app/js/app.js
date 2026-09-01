@@ -3163,6 +3163,9 @@ function trainFromShare() {
   // remember where we came from: ‹ and × on the setup card return INTO this
   // scene instead of dumping the visitor on the front page
   S._fromSpace = S.share ? S.share.id : null;
+  // the SHARE's title names the set — the recon carries the original
+  // creator's local set name ("Your photos"), meaningless to this visitor
+  const name = (S.share && S.share.title) || rj.name || 'Shared sample';
   try { S.session.dispose(); } catch (e) {}
   document.getElementById('cv-model')?.remove();
   gpuCanvas = null;
@@ -3172,13 +3175,13 @@ function trainFromShare() {
   S._viewerOpen = false;
   S.plyBlob = null; S.sogBlob = null;
   S.state = 'ready';
-  S.preset = { id: '__sample', name: rj.name || 'Shared sample' };
+  S.preset = { id: '__sample', name };
   S.photos = rj.source.names.map((n, i) => ({ url: rj.source.urls[i], name: n }));
   S.sel = 0; S.atFrame = -1; S.fadeTo = 0;
   vp.lock = null; vp.pose = null; vp.scene = null; S.scene = null;
   renderControls();
   buildStrip(true);   // the card covers the strip — thumbs wait for the run
-  $('set-desc').innerHTML = `<b>${esc(rj.name || 'Shared sample')}</b> — ${S.photos.length} photographs from this creation, ready to train. The gear holds quality settings.`;
+  $('set-desc').innerHTML = `<b>${esc(name)}</b> — ${S.photos.length} photographs from this creation, ready to train. The gear holds quality settings.`;
   $('set-desc').hidden = false;
   paintTrainPlan();
   setStartStyle(true);
