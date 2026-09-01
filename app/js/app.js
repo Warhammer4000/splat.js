@@ -103,7 +103,9 @@ function loadSettings() {
 }
 function saveSettings() {
   try { localStorage.setItem('splatjs_settings', JSON.stringify(S.settings)); } catch { /* private mode */ }
-  paintTrainPlan();   // the setup card's plan line mirrors every change
+  // the quick quality dropdown next to Start mirrors every change
+  const q = $('q-quick');
+  if (q) q.value = qualityOf(S.settings);
 }
 
 // quality macros: the one-knob row that drives the individual rows below it.
@@ -287,6 +289,7 @@ function boot() {
     $('set-iters').value = st.iters ? String(st.iters) : '';
     $('set-splats').value = st.splats ? String(st.splats) : '';
     $('set-q').value = qualityOf(st);
+    $('q-quick').value = qualityOf(st);   // the dropdown next to Start
     // LOD levels only make sense from 1M splats up
     const lodOk = st.splats >= 1000000;
     $('set-lod').disabled = !lodOk;
@@ -294,13 +297,17 @@ function boot() {
     $('set-mcmc').value = st.mcmc === '0' ? '0' : '';
   };
   showSettings();
-  $('set-q').addEventListener('change', () => {
-    const m = qualityMacros()[$('set-q').value];
+  // the quality knob exists twice — full row in the gear panel, quick
+  // dropdown beside Start — one handler, either element
+  const pickQuality = (v) => {
+    const m = qualityMacros()[v];
     if (!m) return;           // Custom is a display state, not a choice
     Object.assign(st, m);
     showSettings();
     saveSettings();
-  });
+  };
+  $('set-q').addEventListener('change', () => pickQuality($('set-q').value));
+  $('q-quick').addEventListener('change', () => pickQuality($('q-quick').value));
   $('btn-settings').addEventListener('click', () => {
     const open = $('settings').hidden;
     // the gear lives on whichever card is showing — start page or detail
@@ -459,7 +466,7 @@ function boot() {
     // card, and Start training lives only there. The visitor's own sets
     // (last capture, own shares) live under the wall's Local tab.
     $('start').appendChild($('gallery'));
-    $('detail-body').append($('set-desc'), $('train-plan'), document.querySelector('.startrow'), $('settings'));
+    $('detail-body').append($('set-desc'), document.querySelector('.startrow'), $('settings'));
     $('detail-back').addEventListener('click', detailClose);
     $('detail-x').addEventListener('click', detailClose);
     // no implicit boot set: nothing loads until the visitor picks — the old
@@ -810,25 +817,6 @@ function paintCard(preset) {
     $('set-count-v').textContent = `${cnt} / ${mx}`;
   }
   $('btn-go').textContent = 'Start training';
-  paintTrainPlan();
-}
-
-/** The one-line training plan on the setup card: WHAT trains, at which
- *  quality, for how many cycles — visible without opening the gear. */
-function paintTrainPlan() {
-  const el = $('train-plan');
-  if (!el) return;
-  const name = S.pendingShare
-    ? (S.pendingShare.title || 'Shared creation')
-    : (S.preset && S.preset.name);
-  if (!name) { el.hidden = true; return; }
-  const st = S.settings;
-  const q = qualityOf(st);
-  const bits = [`${q[0].toUpperCase()}${q.slice(1)} quality`,
-    `${fmt(ITERS_OVERRIDE >= 1000 ? ITERS_OVERRIDE : (st.iters || INITIAL_ITERS))} cycles`];
-  if (st.res) bits.push(`${st.res} px`);
-  el.innerHTML = `Training <b>${esc(name)}</b> · ${bits.join(' · ')}`;
-  el.hidden = false;
 }
 
 /** re-cut the photo list to the chosen count (only while on the start card
@@ -1114,6 +1102,17 @@ async function startPrep() {
       flash('The photos could not be kept on this device — export the result before closing this tab.', 9000);
     }
   })().catch(() => {});
+  // a fresh solve ALWAYS starts from zero. Paths that arrive here without
+  // open() — Train on a shared scene, Start after a failed solve — would
+  // otherwise leak the viewed model's numbers into the dock's first paint
+  // (seen live: the % born at 50 or 100, jumping down to 1 on the first
+  // metrics tick; stale dB and splat counts flash the same way).
+  S.iter = 0; S.splats = 0; S.psnrTrain = null; S.psnrHold = null;
+  S.itersPerSec = 0; S.minutes = 0; S.etaAt = null;
+  S.holdHist = []; S.chartEvents = []; S.growthStopped = false;
+  S.feats = new Map(); S.lastPairEv = null; S.regCams = [];
+  S.regPts = null; S.regPtsCount = 0; S.growNote = null;
+  S.solveStats = { pairsChecked: 0, pairsUsable: 0, solveSec: 0 };
   S.maxIters = PERF.on ? PERF.iters : (S.settings.iters || INITIAL_ITERS);
   S.state = 'prep';
   S.prep = { stage: 'decode', done: 0, total: S.photos.length };
@@ -2999,7 +2998,6 @@ function showDetail(setOrPreset) {
       }).catch(() => {});
   }
   $('btn-go').disabled = !!S.noGpu;
-  paintTrainPlan();
   $('start').hidden = true;
   $('detail').hidden = false;
   // the card is a navigable UI state: Back must close IT, not leave the app
@@ -3183,7 +3181,6 @@ function trainFromShare() {
   buildStrip(true);   // the card covers the strip — thumbs wait for the run
   $('set-desc').innerHTML = `<b>${esc(name)}</b> — ${S.photos.length} photographs from this creation, ready to train. The gear holds quality settings.`;
   $('set-desc').hidden = false;
-  paintTrainPlan();
   setStartStyle(true);
   $('btn-go').disabled = !!S.noGpu;
   $('btn-settings').disabled = false;   // open() normally arms the gear — this path skips it

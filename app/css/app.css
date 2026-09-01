@@ -501,10 +501,20 @@ body { overflow: hidden; }
   font: 500 12px var(--mono); color: var(--paper); border-radius: 6px;
 }
 .countv:hover { color: var(--accent); }
-/* Start sits on the card's true centre line; the gear hangs off its right */
+/* Start sits on the card's true centre line; the quality dropdown hangs off
+   its left, the gear off its right */
 .startrow { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; }
 .startrow #btn-go { grid-column: 2; }
 .startrow .setgear { grid-column: 3; justify-self: start; margin-left: 10px; }
+.startrow .q-quick { grid-column: 1; justify-self: end; margin-right: 12px; }
+.q-quick {
+  height: 36px; padding: 0 10px; text-align: right; text-align-last: right;
+  font: 500 13px var(--ui); color: var(--muted);
+  background: var(--panel-2); border: 1px solid transparent; border-radius: var(--pill);
+  cursor: pointer;
+}
+.q-quick:hover { color: var(--paper); border-color: var(--line-2); }
+.q-quick:focus { border-color: var(--accent-30); outline: none; }
 /* same height as .btn.big beside it; the chevron flips down when open */
 .setgear {
   display: inline-flex; align-items: center; gap: 5px;
@@ -752,11 +762,6 @@ label.btn { cursor: pointer; }
 .setdesc a { color: var(--accent); text-decoration: none; margin-left: 2px; }
 .setdesc a:hover { text-decoration: underline; }
 .setdesc .approx { color: var(--dim); margin-left: 8px; }
-
-/* the one-line training plan: what trains, at which quality, how long —
-   readable without opening the gear */
-.trainplan { font: 400 13px/1.5 var(--ui); color: var(--dim); text-align: center; margin: 6px 0 0; }
-.trainplan b { color: var(--paper); font-weight: 600; }
 
 /* solve-failure card: plain words + the capture rules that matter */
 .failcard {
