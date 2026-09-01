@@ -4,6 +4,21 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-01 (setup card: quality dropdown; % born at 50/100)
+
+Follow-ups from the same live pass. (6) The dock's % opened at 50 or
+100 and jumped to 1: paths that reach startPrep without open() — Train
+on a shared scene, retry after a failed solve — kept the VIEWED model's
+iter/maxIters until the first metrics tick (statue: 10000/10000 → 100%,
+or 50% against the fresh 20k horizon). startPrep now zeroes every run
+counter. (7) My "training plan" text line duplicated the set
+description — what trt actually wanted was the quality DROPDOWN next to
+Start: shipped as a pill select (Draft/Standard/High/Showcase) left of
+the button, two-way synced with the gear (macro applies on pick, custom
+gear edits flip it to Custom). Layout verified by screenshot at 390 and
+1200 px; iter-reset and dropdown verified on nightly against the statue
+share, then deployed live.
+
 ## 2026-09-01 (trt's live pass: five navigation/dead-end bugs)
 
 trt walked the share->train loop on live and hit a cluster: (1) Train
