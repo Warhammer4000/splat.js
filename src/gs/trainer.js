@@ -39,9 +39,15 @@ export class GSTrainer {
   _buildPipelines() {
     const d = this.device;
     const mk = (code, label) => d.createShaderModule({ code, label });
+    // screen-space AA dilation (px^2 added to the 2D covariance diagonal).
+    // 0.3 = the classic 3DGS constant; with Mip opacity comp it is ALSO the
+    // floor on how thin a splat can render (thinner axes fatten AND fade),
+    // which is what text/edge ringing compensates for. Lowering it trades
+    // that floor against distant-texture aliasing.
+    this.dilate = this.opts.dilate ?? 0.3;
     this.pipeProject = d.createComputePipeline({
       label: 'project', layout: 'auto',
-      compute: { module: mk(makeProjectSrc(this.opts.eCut, this.opts.aMin, this.opts.radClamp, this.shDeg, this.dcMode), 'project'), entryPoint: 'main' },
+      compute: { module: mk(makeProjectSrc(this.opts.eCut, this.opts.aMin, this.opts.radClamp, this.shDeg, this.dcMode, this.dilate), 'project'), entryPoint: 'main' },
     });
     // the (key,id) entry budget scales with an explicit splat ceiling — the
     // fixed 12M cap silently dropped tiles at 800k splats (fast iterations,
@@ -80,7 +86,7 @@ export class GSTrainer {
       d.features && d.features.has('subgroups');
     this.pipeRender = d.createComputePipeline({
       label: 'render', layout: 'auto',
-      compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg), 'render'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
+      compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg, 0, 0.2, 2, this.dilate), 'render'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
     });
     // D-SSIM loss (opts.ssimWeight > 0): split renderer + image passes.
     // The fused kernel stays untouched for the default path.
@@ -89,14 +95,14 @@ export class GSTrainer {
     if (this.ssimW > 0 || this.ssaa >= 2) {
       this.pipeRenderFwd = d.createComputePipeline({
         label: 'render-fwd', layout: 'auto',
-        compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg, 1), 'render-fwd'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
+        compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg, 1, 0.2, 2, this.dilate), 'render-fwd'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
       });
     }
     if (this.ssaa >= 2) {
       // supersampled training: raster at ssaa x, box-downsample + loss at 1x
       this.pipeRenderBwd3 = d.createComputePipeline({
         label: 'render-bwd-ssaa', layout: 'auto',
-        compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg, 3, 0, this.ssaa), 'render-bwd-ssaa'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
+        compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg, 3, 0, this.ssaa, this.dilate), 'render-bwd-ssaa'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
       });
       this.pipeSsaaLoss = d.createComputePipeline({
         label: 'ssaa-loss', layout: 'auto',
@@ -106,7 +112,7 @@ export class GSTrainer {
     if (this.ssimW > 0) {
       this.pipeRenderBwd = d.createComputePipeline({
         label: 'render-bwd', layout: 'auto',
-        compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg, 2, this.ssimW), 'render-bwd'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
+        compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg, 2, this.ssimW, 2, this.dilate), 'render-bwd'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
       });
       const ssimMod = mk(SSIM_SRC, 'ssim');
       const sp = (entry, constants) => d.createComputePipeline({
@@ -125,7 +131,7 @@ export class GSTrainer {
       // anisoReg default 0.005 (was 0.02): with SIFT-grade poses the needle
       // pathology is gone (camping p99 ratio 42:1) and the stronger pull
       // toward isotropy measurably blurs edges (-0.8dB holdout on train-84)
-      compute: { module: mk(makeChainSrc(this.opts.anisoReg ?? (this.v2 ? 0 : 0.005), this.shDeg, this.dcMode, this.opts.statMax ?? false), 'chain'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
+      compute: { module: mk(makeChainSrc(this.opts.anisoReg ?? (this.v2 ? 0 : 0.005), this.shDeg, this.dcMode, this.opts.statMax ?? false, this.dilate), 'chain'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
     });
     this.pipeAdam = d.createComputePipeline({
       label: 'adam', layout: 'auto',

@@ -46,11 +46,12 @@ export const DEFAULT_A_MIN = 0.0039;
 // RC (binning radius clamp, fraction of image width) defaults to full frame:
 // clamping smaller shows up as square-clipped splats when the camera gets
 // close (the Gaussian renders only inside its binned tiles).
-const cutConsts = (E, A, RC = 1.0) => /* wgsl */ `
+const cutConsts = (E, A, RC = 1.0, D = 0.3) => /* wgsl */ `
 const E_CUT = ${E.toExponential()};
 const A_MIN = ${A.toExponential()};
 const RADM = ${Math.sqrt(2 * E).toExponential()};
 const RADCL = ${RC.toExponential()};
+const DILATE = ${D.toExponential()};
 `;
 
 // ---- spherical harmonics (view-dependent color) ----
@@ -246,8 +247,8 @@ fn computeGeom(pbase: u32) -> Geom {
 // Pass 1: project each splat and COUNT the tiles it touches.
 // dc: 'sigmoid' (legacy bounded DC) | 'sh' (v2: standard unbounded SH-DC,
 // col = C0*dc + 0.5 — matches the PLY convention directly)
-export const makeProjectSrc = (E = DEFAULT_E_CUT, A = DEFAULT_A_MIN, RC = 1.0, shDeg = 0, dc = 'sigmoid') =>
-  CAM_STRUCT + cutConsts(E, A, RC) + /* wgsl */ `
+export const makeProjectSrc = (E = DEFAULT_E_CUT, A = DEFAULT_A_MIN, RC = 1.0, shDeg = 0, dc = 'sigmoid', D = 0.3) =>
+  CAM_STRUCT + cutConsts(E, A, RC, D) + /* wgsl */ `
 @group(0) @binding(1) var<storage, read> params: array<f32>;
 @group(0) @binding(2) var<storage, read_write> proj: array<f32>;
 @group(0) @binding(3) var<storage, read_write> tileCnt: array<atomic<u32>>;
@@ -264,8 +265,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   if (g.ok < 0.5) { return; }
 
   let detV = max(g.va * g.vc - g.vb * g.vb, 0.0);
-  let ad = g.va + 0.3;
-  let cd = g.vc + 0.3;
+  let ad = g.va + DILATE;
+  let cd = g.vc + DILATE;
   let detVd = ad * cd - g.vb * g.vb;
   if (detVd < 1e-8) { return; }
   // Mip-Splatting opacity compensation: dilation must not add energy
@@ -538,8 +539,8 @@ fn main(@builtin(workgroup_id) wg: vec3u,
 // 2 = backward only (restores C/T/end, mixes the SSIM gradient into gC);
 // 3 = backward only for SSAA (this kernel runs at ssaa x the loss res; gC
 //     comes from the downsample-loss pass's per-1x-pixel gradient buffer).
-export const makeRenderSrc = (E = DEFAULT_E_CUT, A = DEFAULT_A_MIN, tileGrad = false, subgroups = false, mode = 0, ssimW = 0.2, ssaa = 2) =>
-  (subgroups ? 'enable subgroups;\n' : '') + CAM_STRUCT + cutConsts(E, A) + /* wgsl */ `
+export const makeRenderSrc = (E = DEFAULT_E_CUT, A = DEFAULT_A_MIN, tileGrad = false, subgroups = false, mode = 0, ssimW = 0.2, ssaa = 2, D = 0.3) =>
+  (subgroups ? 'enable subgroups;\n' : '') + CAM_STRUCT + cutConsts(E, A, 1.0, D) + /* wgsl */ `
 @group(0) @binding(1) var<storage, read> proj: array<f32>;
 @group(0) @binding(2) var<storage, read> tileStart: array<u32>;
 @group(0) @binding(3) var<storage, read> entries: array<u32>;
@@ -822,8 +823,8 @@ ${tileGrad ? (subgroups ? '    q0 = gmean.x;\n    q1 = gmean.y;'
     // stay O(1) without amplifying quantization noise (a radius^2 normalizer
     // overshoots by (rad/sigma)^2 and BREAKS the FD gradcheck). The chain
     // pass recomputes the identical factor from proj[12..14] and undoes it.
-    let cva = proj[b + 12u] + 0.3;
-    let cvc = proj[b + 14u] + 0.3;
+    let cva = proj[b + 12u] + DILATE;
+    let cvc = proj[b + 14u] + DILATE;
     let cmid = 0.5 * (cva + cvc);
     let lmax = cmid + sqrt(max(cmid * cmid - (cva * cvc - proj[b + 13u] * proj[b + 13u]), 0.0));
     let cnorm = 1.0 / (1.0 + lmax);
@@ -891,8 +892,9 @@ ${tileGrad ? (subgroups ? /* wgsl */ `
 }
 `);
 
-export const makeChainSrc = (AREG = 0.02, shDeg = 0, dc = 'sigmoid', statMax = false) => CAM_STRUCT + /* wgsl */ `
+export const makeChainSrc = (AREG = 0.02, shDeg = 0, dc = 'sigmoid', statMax = false, D = 0.3) => CAM_STRUCT + /* wgsl */ `
 const AREG = ${AREG.toExponential()};
+const DILATE = ${D.toExponential()};
 ` + /* wgsl */ `
 @group(0) @binding(1) var<storage, read> params: array<f32>;
 @group(0) @binding(2) var<storage, read> proj: array<f32>;
@@ -923,8 +925,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   // undo the render pass's per-splat conic range normalization (identical
   // lambda_max formula from the same proj values)
   {
-    let cva = proj[b + 12u] + 0.3;
-    let cvc = proj[b + 14u] + 0.3;
+    let cva = proj[b + 12u] + DILATE;
+    let cvc = proj[b + 14u] + DILATE;
     let cmid = 0.5 * (cva + cvc);
     let lmax = cmid + sqrt(max(cmid * cmid - (cva * cvc - proj[b + 13u] * proj[b + 13u]), 0.0));
     let cdenorm = 1.0 + lmax;
@@ -946,8 +948,8 @@ ${shDeg > 0 ? /* wgsl */ `
   let iz = 1.0 / z;
 
   // ---- conic -> dilated 2D covariance ----
-  let ad = g.va + 0.3;
-  let cd = g.vc + 0.3;
+  let ad = g.va + DILATE;
+  let cd = g.vc + DILATE;
   let detVd = ad * cd - g.vb * g.vb;
   let inv = 1.0 / detVd;
   let kA = cd * inv;

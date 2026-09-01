@@ -9,7 +9,7 @@ import { createSession } from '/src/index.js';
 const Q = new URLSearchParams(location.search);
 const SET = Q.get('set');
 const ITERS = +(Q.get('iters') || 20000);
-const TAG = `${SET}_${ITERS}` + (Q.has('classic') ? '_classic' : '');
+const TAG = `${SET}_${ITERS}` + (Q.has('classic') ? '_classic' : '') + (Q.get('dilate') ? `_dil${Q.get('dilate')}` : '');
 const t0 = Date.now();
 const logEl = document.getElementById('log');
 const post = (name, body) => fetch(`/scratch/${name}`, { method: 'POST', body });
@@ -69,6 +69,7 @@ try {
         maxSplats: +(Q.get('maxsplats') || Math.min(2000000, Math.round(ITERS * 35))), capMult: 8, shDeg: 3,
         growRate: 0.05, mcmcNoise: true, scaleReg: 0.01, moveCap: 0.25, shLr: 3e-4,
         ...(Q.get('maxscale') ? { maxScale: +Q.get('maxscale') } : {}),
+        ...(Q.get('dilate') ? { dilate: +Q.get('dilate') } : {}),
         ...(Q.get('ssim') ? { ssimWeight: +Q.get('ssim') } : {}),
         ...(Q.get('v2') ? { engine: 'v2' } : {}),
         ...(Q.get('growfrac') ? { growFrac: +Q.get('growfrac') } : {}),
