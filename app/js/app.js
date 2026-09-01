@@ -103,6 +103,7 @@ function loadSettings() {
 }
 function saveSettings() {
   try { localStorage.setItem('splatjs_settings', JSON.stringify(S.settings)); } catch { /* private mode */ }
+  paintTrainPlan();   // the setup card's plan line mirrors every change
 }
 
 // quality macros: the one-knob row that drives the individual rows below it.
@@ -234,7 +235,10 @@ function boot() {
       else location.href = 'index.html';
       return;
     }
-    showPicker();
+    // Back from a run leaves the same way the logo does: a page navigation
+    // home. The wall is never rendered OVER a live scene — the beforeunload
+    // confirm guards a training in progress.
+    location.href = 'index.html';
   });
   $('card-x').addEventListener('click', closePicker);
   $('file-input').addEventListener('change', (e) => useOwnPhotos(e.target.files));
@@ -455,15 +459,9 @@ function boot() {
     // card, and Start training lives only there. The visitor's own sets
     // (last capture, own shares) live under the wall's Local tab.
     $('start').appendChild($('gallery'));
-    $('detail-body').append($('set-desc'), document.querySelector('.startrow'), $('settings'));
-    $('detail-back').addEventListener('click', () => {
-      // route through history so the phone's Back gesture stays in sync
-      if (history.state && history.state.sj === 'detail') { history.back(); return; }
-      S.pendingShare = null;
-      $('detail').hidden = true;
-      $('start').hidden = false;
-      mountWall();
-    });
+    $('detail-body').append($('set-desc'), $('train-plan'), document.querySelector('.startrow'), $('settings'));
+    $('detail-back').addEventListener('click', detailClose);
+    $('detail-x').addEventListener('click', detailClose);
     // no implicit boot set: nothing loads until the visitor picks — the old
     // truck default sat invisibly behind the start card and leaked into
     // Back navigation ("why is the truck loaded?")
@@ -644,19 +642,30 @@ function tileMenu(btn, items) {
 async function localRunTiles() {
   const { listRuns, deleteRun } = await import('./store.js');
   const runs = await listRuns();
-  return runs.map((r) => {
+  const tiles = [];
+  for (const r of runs) {
+    const live = S.runId === r.id && S.state === 'train';
+    const src = r.recon && r.recon.source;
+    const urlSrc = !!(src && Array.isArray(src.urls) && src.urls.length && src.urls.every(Boolean));
+    const retrainable = !!(r.ownSrc || urlSrc);
+    if (r.status !== 'finished' && !r.sog && !(r.state && r.recon) && !retrainable && !live) {
+      // a dead tombstone: nothing to view, resume or retrain — the only
+      // possible action was Delete, so do that instead of listing it
+      deleteRun(r.id).catch(() => {});
+      continue;
+    }
     const b = document.createElement('div');
     b.className = 'galtile';
-    b.style.cursor = (r.sog || (r.state && r.recon)) ? 'pointer' : 'default';
+    b.style.cursor = (r.sog || (r.state && r.recon) || retrainable) ? 'pointer' : 'default';
     // finished scenes wear the same sub-header as the preset tiles:
     // splats · dB · MB — a scene is a scene, wherever it was trained
     const state = r.status === 'finished'
       ? `${fmt(r.splats || 0)} splats${r.psnr != null ? ` · ${(+r.psnr).toFixed(1)} dB` : ''}${r.sog ? ` · ${Math.max(1, Math.round(r.sog.size / 1e6))} MB` : ''}`
-      : (S.runId === r.id && S.state === 'train')
+      : live
         ? `training now · ${fmt(r.iter || 0)} cycles`
         : (r.state && r.recon)
           ? `paused · ${fmt(r.iter || 0)} cycles — tap to continue`
-          : `interrupted · ${fmt(r.iter || 0)} cycles`;
+          : `interrupted · ${fmt(r.iter || 0)} cycles — tap to train again`;
     // same anatomy as a preset tile: name, a description referring back to
     // the capture, then the stats line
     const desc = r.status === 'finished'
@@ -683,7 +692,7 @@ async function localRunTiles() {
     };
     tileMenu(b.querySelector('.run-menu'), [
       r.sog && r.recon && { label: 'View', act: openRun },
-      (r.sog || r.ownSrc || (r.state && r.recon)) && { label: 'Train', act: () => { S._localRun = r; trainLocalChoice(); } },
+      (r.sog || retrainable || (r.state && r.recon)) && { label: 'Train', act: () => { S._localRun = r; trainLocalChoice(); } },
       r.sog && r.recon && { label: 'Share', act: () => shareDialog(r) },
       { label: 'Delete', danger: true, act: async () => { await deleteRun(r.id); b.remove(); } },
     ]);
@@ -698,16 +707,23 @@ async function localRunTiles() {
         // a pause checkpoint: no sog to view yet, but the run continues
         // exactly where it stopped
         resumeRun();
-      } else if (!(S.runId === r.id && S.state === 'train')) {
-        flash('This run stopped before finishing — no result was kept, only this record.', 5000);
+      } else if (retrainable && !(S.runId === r.id && S.state === 'train')) {
+        // interrupted before any result — but the photos are reachable, so
+        // the tap leads straight back into training
+        S._localRun = r;
+        trainLocalChoice();
       }
     });
-    return b;
-  });
+    tiles.push(b);
+  }
+  return tiles;
 }
 
 /** the first `cnt` photos of a preset, honouring its skip list */
 function presetPhotoList(preset, cnt) {
+  // a set rebuilt from stored addresses (an interrupted run's record)
+  // carries its photo list ready-made
+  if (preset.urlList) return preset.urlList.slice(0, cnt || preset.urlList.length);
   const skip = new Set(preset.skip || []);
   const out = [];
   const start = preset.names ? 0 : preset.start;
@@ -794,6 +810,25 @@ function paintCard(preset) {
     $('set-count-v').textContent = `${cnt} / ${mx}`;
   }
   $('btn-go').textContent = 'Start training';
+  paintTrainPlan();
+}
+
+/** The one-line training plan on the setup card: WHAT trains, at which
+ *  quality, for how many cycles — visible without opening the gear. */
+function paintTrainPlan() {
+  const el = $('train-plan');
+  if (!el) return;
+  const name = S.pendingShare
+    ? (S.pendingShare.title || 'Shared creation')
+    : (S.preset && S.preset.name);
+  if (!name) { el.hidden = true; return; }
+  const st = S.settings;
+  const q = qualityOf(st);
+  const bits = [`${q[0].toUpperCase()}${q.slice(1)} quality`,
+    `${fmt(ITERS_OVERRIDE >= 1000 ? ITERS_OVERRIDE : (st.iters || INITIAL_ITERS))} cycles`];
+  if (st.res) bits.push(`${st.res} px`);
+  el.innerHTML = `Training <b>${esc(name)}</b> · ${bits.join(' · ')}`;
+  el.hidden = false;
 }
 
 /** re-cut the photo list to the chosen count (only while on the start card
@@ -809,15 +844,8 @@ function applyCount(preset) {
   }
 }
 
-function showPicker() {
-  if (S.state === 'ready') return;
-  S.picking = true;
-  S.pending = S.preset;
-  paintCard(S.preset);
-  $('card-x').hidden = false;
-  $('start').hidden = false;
-  mountWall(); // rebuilt: a just-finished run's tile must already be there
-}
+// (the old mid-run picker — the wall shown OVER a live run — is gone on
+// purpose: leaving a run is a page navigation home, never an overlay)
 
 function closePicker() {
   S.picking = false; S.pending = null;
@@ -1020,6 +1048,8 @@ async function open(preset, autostart = false) {
   S._lastReady = null;
   S.growthStopped = false;
   S.plyBlob = null; S.sogBlob = null;
+  S._fromSpace = null;
+  S._thumbsUrl = null; S._thumbPack = null;
   S._recovering = false;
   S._dragPaused = false;
   S._errRender = null;
@@ -1239,7 +1269,7 @@ async function startPrep() {
           'that is unusual for this test set. Reloading the page and retrying usually clears it.');
       S.state = 'ready';
       dock('');
-      $('start').hidden = false;
+      backToSetup();
       return;
     }
     if (placed < S.photos.length) {
@@ -1263,7 +1293,19 @@ async function startPrep() {
       : (e.message || 'An unexpected error occurred during reconstruction.'));
     S.state = 'ready';
     dock('');
+    backToSetup();
+  }
+}
+
+/** After a failed solve: back to the setup card the run started from — with
+ *  its settings and Start button, so a different resolution is one tap away.
+ *  (In classic mode Start lives ON the detail card; the bare start card was
+ *  a dead end: upload buttons, no presets, no way to retry.) */
+function backToSetup() {
+  if (!WALL_FIRST && S.photos.length) showDetail(S.preset || undefined);
+  else {
     $('start').hidden = false;
+    mountWall();
   }
 }
 
@@ -1999,7 +2041,11 @@ function finishRestore(ses, reconJson, nSplats, hasState, gaussians) {
       }
     }
     // viewer mode: the strip is visible UI — thumbs lazy-load for the tiles
-    // in view (deferral is for the card flows, where the strip is covered)
+    // in view (deferral is for the card flows, where the strip is covered).
+    // A share may carry a packed thumbnail zip: one small fetch feeds the
+    // whole strip instead of N full training photographs.
+    S._thumbsUrl = (source && source.thumbs) || null;
+    S._thumbPack = null;
     buildStrip();
     const cl = (reconJson && reconJson.cloud) || { xyz: [], rgb: [] };
     let center = reconJson && reconJson.center;
@@ -2277,6 +2323,38 @@ function renderControls() {
  *  fresh solve from the photos in the capture store. */
 function trainLocalChoice() {
   document.getElementById('ltchoice')?.remove();
+  const r = S._localRun;
+  const trainNew = async () => {
+    const src = r && r.recon && r.recon.source;
+    if (r && r.ownSrc) {
+      const set = await openCaptureSet();
+      if (!set) { flash('The photos are no longer stored on this device.', 6000); return; }
+      stopTour();
+      S.restored = null;
+      await open(set);
+      if (!WALL_FIRST) showDetail(set);
+    } else if (src && Array.isArray(src.urls) && src.urls.length && src.urls.every(Boolean)) {
+      // URL-backed run (a preset or a shared creation's photos): the set
+      // rebuilds from the addresses kept with the record
+      stopTour();
+      S.restored = null;
+      const n = src.urls.length;
+      const set = {
+        id: src.preset || '__url', name: r.name || 'Training run',
+        kind: 'Saved run',
+        origin: `${n} photographs kept with this run's record, fetched again to train from scratch.`,
+        links: [], blurb: '', count: n,
+        approx: n <= 20 ? '~3 min' : n <= 60 ? '~6 min' : '~10 min',
+        urlList: src.names.map((nm, i) => ({ url: src.urls[i], name: nm })),
+      };
+      await open(set);
+      if (!WALL_FIRST) showDetail(set);
+    } else {
+      flash('The photos are no longer stored on this device.', 6000);
+    }
+  };
+  // nothing to continue (no checkpoint, no result): straight to the fresh solve
+  if (!(r && (r.sog || (r.state && r.recon)))) { trainNew().catch((e) => { console.error(e); }); return; }
   const card = document.createElement('div');
   card.className = 'upcard';
   card.id = 'ltchoice';
@@ -2291,15 +2369,7 @@ function trainLocalChoice() {
     </div>`;
   $('stage').appendChild(card);
   $('lt-x').addEventListener('click', () => card.remove());
-  $('lt-new').addEventListener('click', async () => {
-    card.remove();
-    const set = await openCaptureSet();
-    if (!set) { flash('The photos are no longer stored on this device.', 6000); return; }
-    stopTour();
-    S.restored = null;
-    open(set);
-    if (!WALL_FIRST) showDetail(set);
-  });
+  $('lt-new').addEventListener('click', () => { card.remove(); trainNew().catch((e) => { console.error(e); }); });
   $('lt-cont').addEventListener('click', () => { card.remove(); continueLocalRun().catch((e) => {
     console.error(e);
     flash(`Could not continue this run: ${e.message}`, 8000);
@@ -2393,6 +2463,8 @@ async function continueLocalRun() {
   const gen = S.gen;
   S.session = null; S.share = null; S.restored = null;
   S._viewerOpen = false;
+  S._fromSpace = null;
+  S._thumbsUrl = null; S._thumbPack = null;
   if (history.state && history.state.sj) history.replaceState(null, '');
   S.plyBlob = null; S.sogBlob = null;
   // keep the source identity: own captures stay '__own' (the next resume goes
@@ -2927,6 +2999,7 @@ function showDetail(setOrPreset) {
       }).catch(() => {});
   }
   $('btn-go').disabled = !!S.noGpu;
+  paintTrainPlan();
   $('start').hidden = true;
   $('detail').hidden = false;
   // the card is a navigable UI state: Back must close IT, not leave the app
@@ -2940,20 +3013,37 @@ function showDetail(setOrPreset) {
 addEventListener('popstate', () => {
   if (!$('about').hidden) { $('about').hidden = true; return; }
   if (S._viewerOpen) { closeViewerToHome(); return; }
-  if (!$('detail').hidden) {
-    S.pendingShare = null;
-    $('detail').hidden = true;
-    $('start').hidden = false;
-    mountWall();   // fresh — a capture picked moments ago must show its tile
-    return;
-  }
-  // back during a running solve/training used to be SWALLOWED (the consumed
-  // detail entry popped with no visible effect; the next back exited the
-  // app). Treat it like the header Back: the front page over the live run.
+  if (!$('detail').hidden) { closeDetailCard(); return; }
+  // back during a running solve/training: leave the same way the header
+  // Back does — a page navigation home (the wall is never rendered OVER a
+  // live scene; beforeunload asks before a training is thrown away)
   if ((S.state === 'prep' || S.state === 'train') && $('start').hidden) {
-    showPicker();
+    location.href = 'index.html';
   }
 });
+
+/** The setup card's ‹ and ×: route through history when the card owns an
+ *  entry so the phone's Back gesture stays in sync. */
+function detailClose() {
+  if (history.state && history.state.sj === 'detail') { history.back(); return; }
+  closeDetailCard();
+}
+
+/** Close the setup card — back INTO the shared scene its Train came from,
+ *  otherwise home to the wall. */
+function closeDetailCard() {
+  document.getElementById('failcard')?.remove();
+  S.pendingShare = null;
+  $('detail').hidden = true;
+  if (S.state === 'ready' && S._fromSpace) {
+    const id = S._fromSpace;
+    S._fromSpace = null;
+    restoreShared(id);
+    return;
+  }
+  $('start').hidden = false;
+  mountWall();   // fresh — a capture picked moments ago must show its tile
+}
 
 /** Tear the restored viewer down and land on the wall — the SPA counterpart
  *  of the old full-page navigation home. */
@@ -2967,6 +3057,8 @@ function closeViewerToHome() {
   S.gen++;
   S.session = null; S.share = null; S.restored = null; S._localRun = null;
   S._viewerOpen = false;
+  S._fromSpace = null;
+  S._thumbsUrl = null; S._thumbPack = null;
   S.plyBlob = null; S.sogBlob = null;
   S.state = 'ready'; S.preset = null; S.photos = [];
   S.scene = null; S.tour = null;
@@ -3068,11 +3160,15 @@ function trainFromShare() {
   const rj = S.restored && S.restored.reconJson;
   if (!rj || !rj.source || !rj.source.urls || !rj.source.urls.every(Boolean)) return;
   stopTour();
+  // remember where we came from: ‹ and × on the setup card return INTO this
+  // scene instead of dumping the visitor on the front page
+  S._fromSpace = S.share ? S.share.id : null;
   try { S.session.dispose(); } catch (e) {}
   document.getElementById('cv-model')?.remove();
   gpuCanvas = null;
   S.gen++;
   S.session = null; S.share = null; S.restored = null;
+  S._thumbsUrl = null; S._thumbPack = null;
   S._viewerOpen = false;
   S.plyBlob = null; S.sogBlob = null;
   S.state = 'ready';
@@ -3084,6 +3180,7 @@ function trainFromShare() {
   buildStrip(true);   // the card covers the strip — thumbs wait for the run
   $('set-desc').innerHTML = `<b>${esc(rj.name || 'Shared sample')}</b> — ${S.photos.length} photographs from this creation, ready to train. The gear holds quality settings.`;
   $('set-desc').hidden = false;
+  paintTrainPlan();
   setStartStyle(true);
   $('btn-go').disabled = !!S.noGpu;
   $('btn-settings').disabled = false;   // open() normally arms the gear — this path skips it
@@ -3231,7 +3328,8 @@ function buildStrip(deferPhotos = false) {
   const fill = async (el) => {
     if (el.dataset.filled) return;
     el.dataset.filled = '1';
-    const b = await bmp(S.photos[+el.dataset.i].url, 140);
+    const i = +el.dataset.i;
+    const b = (await thumbBmp(i)) || (await bmp(S.photos[i].url, 140));
     if (!b) return;
     const cv = document.createElement('canvas');
     // equirect panoramas crop to the card: the centre 4:3 window (the
@@ -3267,6 +3365,27 @@ function buildStrip(deferPhotos = false) {
     if (io) io.observe(b);
   });
   paintStrip();
+}
+
+/** A shared creation's packed strip thumbnails: the zip is fetched once,
+ *  lazily, and each card decodes its small JPEG — no full photographs are
+ *  pulled just to draw 140px tiles. Null (fallback) when the share predates
+ *  the pack or the fetch fails. */
+async function thumbBmp(i) {
+  if (!S._thumbsUrl) return null;
+  try {
+    S._thumbPack ??= (async () => {
+      const r = await fetch(S._thumbsUrl);
+      if (!r.ok) throw new Error(`thumbs fetch failed (${r.status})`);
+      const { unzipStore } = await import('./session_io.js');
+      return unzipStore(new Uint8Array(await r.arrayBuffer()));
+    })();
+    const data = (await S._thumbPack).get(`${i}.jpg`);
+    return data ? await createImageBitmap(new Blob([data], { type: 'image/jpeg' })) : null;
+  } catch {
+    S._thumbsUrl = null;   // broken pack: every card falls back to the photo
+    return null;
+  }
 }
 
 function paintStrip() {

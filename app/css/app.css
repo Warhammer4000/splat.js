@@ -753,6 +753,11 @@ label.btn { cursor: pointer; }
 .setdesc a:hover { text-decoration: underline; }
 .setdesc .approx { color: var(--dim); margin-left: 8px; }
 
+/* the one-line training plan: what trains, at which quality, how long —
+   readable without opening the gear */
+.trainplan { font: 400 13px/1.5 var(--ui); color: var(--dim); text-align: center; margin: 6px 0 0; }
+.trainplan b { color: var(--paper); font-weight: 600; }
+
 /* solve-failure card: plain words + the capture rules that matter */
 .failcard {
   position: fixed;

@@ -4,6 +4,28 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-01 (trt's live pass: five navigation/dead-end bugs)
+
+trt walked the share->train loop on live and hit a cluster: (1) Train
+from a shared scene, then `<` — landed on the home list with no way
+back into the scene; (2) an "interrupted · 496 cycles" tile that could
+only be deleted ("why even have it there?"); (3) a share link pulling
+every FULL training photo just to draw 140px strip cards; (4) a failed
+solve dumped you on the bare upload card — no presets, no Start, no
+retry; (5) Back during training overlaid the wall on the live run.
+Shipped, one commit: the setup card remembers the scene it came from
+(`<` and a new X return INTO it); dead run tombstones are purged and
+interrupted-with-source tiles retrain on tap (URL-backed sets rebuild
+via a `urlList` preset); shares now pack a per-photo thumbnail zip
+(`recon.source.thumbs`, ~10 KB/card, one fetch) that the strip prefers,
+old shares fall back; solve failure returns to the real setup card with
+settings one tap away; Back/back-gesture during a run now navigates
+home like the logo (beforeunload guards the training) — the mid-run
+wall-over-scene picker is deleted. Plus a plan line on every setup
+card: "Training <set> · Standard quality · 20,000 cycles". E2E 7/7;
+share-flow CDP check runs against nightly (UGC CDN CORS blocks
+localhost).
+
 ## 2026-09-01 (field report #3: DEVICE_REMOVED reaches real users)
 
 A user hit `requestDevice → DXGI_ERROR_DEVICE_REMOVED` — the EXACT

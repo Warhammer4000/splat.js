@@ -56,6 +56,31 @@ export async function shareCreation(S, sogBlob, {
       };
       await Promise.all(Array.from({ length: 4 }, worker));
     }
+    // 2b) strip thumbnails, packed into ONE stored zip: the viewer's film
+    //     strip draws 140px cards — without this it pulls every full-size
+    //     training photograph just to paint them (reported: minutes of
+    //     loading on a share link). Best-effort — a share without the pack
+    //     simply falls back to the old per-photo loads.
+    try {
+      const files = S.loadedFiles || [];
+      const urls = recon.source && recon.source.urls;
+      if (!reconOverride && urls && urls.length && urls.every(Boolean) && files.length === urls.length) {
+        const entries = [];
+        for (let i = 0; i < files.length; i++) {
+          onStatus(`Packing strip thumbnails … ${i + 1}/${files.length}`);
+          const bm = await createImageBitmap(files[i].source || files[i], { resizeWidth: 280, resizeQuality: 'medium' });
+          const cv = document.createElement('canvas');
+          cv.width = bm.width; cv.height = bm.height;
+          cv.getContext('2d').drawImage(bm, 0, 0);
+          bm.close();
+          const blob = await new Promise((res) => cv.toBlob(res, 'image/jpeg', 0.7));
+          if (!blob) throw new Error('thumb encode failed');
+          entries.push({ name: `${i}.jpg`, data: new Uint8Array(await blob.arrayBuffer()) });
+        }
+        const tz = await uploadFile(zipStore(entries), `${slug}_thumbs.zip`, { token, contentType: 'application/zip', onStatus });
+        recon.source.thumbs = tz.fileUrl;
+      }
+    } catch (e) { console.warn('thumbnail pack skipped:', e); }
     const rz = await uploadFile(
       new Blob([JSON.stringify(recon)], { type: 'application/json' }),
       `${slug}_recon.json`, { token, contentType: 'application/json', onStatus });
