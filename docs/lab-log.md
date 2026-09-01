@@ -4,6 +4,18 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-01 (field report #3: DEVICE_REMOVED reaches real users)
+
+A user hit `requestDevice → DXGI_ERROR_DEVICE_REMOVED` — the EXACT
+failure our headless rig saw on 08-31. Correction to that diagnosis:
+not a rig quirk or the angle flag alone; Dawn/D3D12 device creation
+fails this way in the wild (TDR, driver updates, power-gated laptop
+GPUs). Worse, our failcard blamed their CAPTURE for it — photography
+tips under a driver error. Shipped: (1) createGpu retries once after
+1.5 s, re-requesting adapter AND device (the adapter handle dies with
+the removal); (2) GPU-classed failures get their own card — your
+photos are fine, restart the browser fully.
+
 ## 2026-08-31 (back-gesture repro: "my photos were not saved")
 
 trt repro: pick own photos, press back during SfM → no trace of the

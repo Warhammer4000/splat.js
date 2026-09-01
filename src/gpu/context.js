@@ -23,25 +23,40 @@ export async function createGpu(opts = {}) {
   if (typeof navigator === 'undefined' || !navigator.gpu) {
     throw new Error('WebGPU not available in this environment');
   }
-  const adapter = await navigator.gpu.requestAdapter({
-    powerPreference: opts.powerPreference || 'high-performance',
-  });
-  if (!adapter) throw new Error('no WebGPU adapter');
-  // full-res training-target buffers can exceed the 128MB default binding
-  // limit — ask for everything the adapter offers, up to 4GB (measured: 426
-  // pano faces at 1024px = 1.79GB of packed targets; desktop NVIDIA adapters
-  // offer 2GB). Asking for the adapter's own maximum can never fail.
-  const want = 4 * (1 << 30);
-  const device = await adapter.requestDevice({
-    // subgroups (when the adapter has them) let the render backward
-    // aggregate its workgroup-shared gradient atomics per-subgroup —
-    // optional: shaders compile a fallback without it
-    requiredFeatures: adapter.features.has('subgroups') ? ['subgroups'] : [],
-    requiredLimits: {
-      maxStorageBufferBindingSize: Math.min(adapter.limits.maxStorageBufferBindingSize, want),
-      maxBufferSize: Math.min(adapter.limits.maxBufferSize, want),
-    },
-  });
+  const attempt = async () => {
+    const adapter = await navigator.gpu.requestAdapter({
+      powerPreference: opts.powerPreference || 'high-performance',
+    });
+    if (!adapter) throw new Error('no WebGPU adapter');
+    // full-res training-target buffers can exceed the 128MB default binding
+    // limit — ask for everything the adapter offers, up to 4GB (measured: 426
+    // pano faces at 1024px = 1.79GB of packed targets; desktop NVIDIA adapters
+    // offer 2GB). Asking for the adapter's own maximum can never fail.
+    const want = 4 * (1 << 30);
+    const device = await adapter.requestDevice({
+      // subgroups (when the adapter has them) let the render backward
+      // aggregate its workgroup-shared gradient atomics per-subgroup —
+      // optional: shaders compile a fallback without it
+      requiredFeatures: adapter.features.has('subgroups') ? ['subgroups'] : [],
+      requiredLimits: {
+        maxStorageBufferBindingSize: Math.min(adapter.limits.maxStorageBufferBindingSize, want),
+        maxBufferSize: Math.min(adapter.limits.maxBufferSize, want),
+      },
+    });
+    return { adapter, device };
+  };
+  let got;
+  try {
+    got = await attempt();
+  } catch (e) {
+    // DXGI_ERROR_DEVICE_REMOVED at requestDevice is often a momentary driver
+    // stall (seen in the wild on user machines, not just test rigs). The
+    // adapter handle dies with the device, so wait a beat and re-request
+    // BOTH once before surfacing the failure.
+    await new Promise((r) => setTimeout(r, 1500));
+    got = await attempt();
+  }
+  const { adapter, device } = got;
   const info = adapter.info || {};
   return watchLost({ device, adapter, info, owned: true, dispose() { device.destroy(); } });
 }

@@ -1267,13 +1267,26 @@ async function startPrep() {
   }
 }
 
-/** the solve failed — say so in plain words and teach the capture that works */
+/** the solve failed — say so in plain words and teach the capture that works.
+ *  GPU/driver failures get their OWN card: telling someone whose graphics
+ *  driver stalled to "move sideways" blames their photography for our
+ *  hardware trouble (seen in the wild: DXGI_ERROR_DEVICE_REMOVED at
+ *  requestDevice, surfaced under capture tips). */
 function solveFailed(why) {
   document.getElementById('failcard')?.remove();
   const c = document.createElement('div');
   c.className = 'upcard failcard';
   c.id = 'failcard';
-  c.innerHTML = `
+  const gpuTrouble = /DXGI|DEVICE_REMOVED|D3D12|requestDevice|GPUAdapter|WebGPU|graphics device|device lost|Vulkan/i.test(why);
+  c.innerHTML = gpuTrouble ? `
+    <b>Your graphics device stalled</b>
+    <p class="fail-why">${esc(why)}</p>
+    <ul class="fail-tips">
+      <li><b>Your photos are fine.</b> The graphics driver refused to start — this is the computer, not the capture.</li>
+      <li><b>Restart the browser completely</b> (quit, not just the tab) — that clears it in most cases.</li>
+      <li><b>Still stuck?</b> Close other GPU-heavy apps and tabs, or restart the machine; on laptops, plug in power.</li>
+    </ul>
+    <div class="upcard-row"><button class="btn btn-accent" id="fail-ok">Got it</button></div>` : `
     <b>That capture didn't solve</b>
     <p class="fail-why">${esc(why)}</p>
     <ul class="fail-tips">
