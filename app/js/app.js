@@ -1302,10 +1302,40 @@ async function startPrep() {
  *  a dead end: upload buttons, no presets, no way to retry.) */
 function backToSetup() {
   if (!WALL_FIRST && S.photos.length) showDetail(S.preset || undefined);
-  else {
-    $('start').hidden = false;
-    mountWall();
-  }
+  else showHome();
+}
+
+/** The home wall, properly: the start card is NEVER revealed without its
+ *  scenes mounted — a bare upload card with no presets is a bug, not a
+ *  state. Every path that lands on home goes through here. */
+function showHome() {
+  $('detail').hidden = true;
+  $('start').hidden = false;
+  mountWall();
+}
+
+/** A restore link failed (file gone, share revoked, a CDN edge caching an
+ *  old 403): say it in plain words on a card OVER the mounted home — never
+ *  a silent toast over a half-built page. */
+function loadFailed(what, why) {
+  S._viewerOpen = false;
+  document.getElementById('share-hero')?.remove();
+  dock('');
+  showHome();
+  document.getElementById('failcard')?.remove();
+  const c = document.createElement('div');
+  c.className = 'upcard failcard';
+  c.id = 'failcard';
+  c.innerHTML = `
+    <b>${esc(what)}</b>
+    <p class="fail-why">${esc(why)}</p>
+    <ul class="fail-tips">
+      <li><b>The link may be stale.</b> The file behind it moved, expired or is not public.</li>
+      <li><b>Reload to retry.</b> A fresh load also clears a stale error cached at the CDN edge.</li>
+    </ul>
+    <div class="upcard-row"><button class="btn btn-accent" id="fail-ok">Got it</button></div>`;
+  document.body.appendChild(c);
+  c.querySelector('#fail-ok').addEventListener('click', () => c.remove());
 }
 
 /** the solve failed — say so in plain words and teach the capture that works.
@@ -1944,8 +1974,7 @@ async function restoreSession(src) {
     finishRestore(ses, reconJson, gaussians.n, !!state, gaussians);
   } catch (e) {
     console.error(e);
-    $('start').hidden = false;
-    flash(`Could not load the model: ${e.message}`, 8000);
+    loadFailed('That model didn\'t load', e.message);
   }
 }
 
@@ -2109,8 +2138,7 @@ function finishRestore(ses, reconJson, nSplats, hasState, gaussians) {
     flash(`Loaded ${fmt(nSplats)} splats — ${S.preset.name}.`, 5000);
   } catch (e) {
     console.error(e);
-    $('start').hidden = false;
-    flash(`Could not present the model: ${e.message}`, 8000);
+    loadFailed('That model couldn\'t be shown', e.message);
   }
 }
 
@@ -2918,12 +2946,9 @@ async function restoreShared(spaceId) {
   } catch (e) {
     console.error(e);
     S.share = null;
-    document.getElementById('share-hero')?.remove();
-    $('start').hidden = false;
-    // the feed (boot skips mountWall when a share link is loading);
-    // no default set — the visitor picks from the wall
-    mountWall();
-    flash(`Could not load the shared creation: ${e.message}`, 9000);
+    // boot skips mountWall while a share link loads — loadFailed mounts the
+    // feed properly and says what happened on a real card
+    loadFailed('That shared creation didn\'t load', e.message);
   }
 }
 
@@ -3039,8 +3064,7 @@ function closeDetailCard() {
     restoreShared(id);
     return;
   }
-  $('start').hidden = false;
-  mountWall();   // fresh — a capture picked moments ago must show its tile
+  showHome();   // fresh — a capture picked moments ago must show its tile
 }
 
 /** Tear the restored viewer down and land on the wall — the SPA counterpart
@@ -3062,10 +3086,8 @@ function closeViewerToHome() {
   S.scene = null; S.tour = null;
   $('strip').innerHTML = '';
   $('controls').hidden = true;
-  $('detail').hidden = true;
   dock('');
-  $('start').hidden = false;
-  mountWall(); // fresh tiles — runs may have finished or been added since
+  showHome(); // fresh tiles — runs may have finished or been added since
 }
 
 /** The creation's recon json (plain or store-zipped) — the photographs and
