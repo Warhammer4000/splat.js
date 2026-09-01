@@ -72,6 +72,21 @@ const EVAL = { on: EVAL_Q != null, split: Math.max(2, parseInt(EVAL_Q, 10) || 8)
 const MCMC_ON = sessionStorage.getItem('splatjs_mcmc') === '1';
 const ITERS_OVERRIDE = parseInt(sessionStorage.getItem('splatjs_iters'), 10) || 0;
 
+// ?dilate=<px2> + ?aniso=<w>: the NEEDLE experimental set — lower the
+// screen-space AA dilation floor and/or the isotropy spring so splats may
+// train thin (Brush-like strokes). Sticky like ?mcmc; ?dilate=0 clears both.
+// In-session view renders with the same kernels (faithful); exports/shares
+// still bake and rasterize at the stock 0.3, so needles view fatter there.
+{
+  const q = new URLSearchParams(location.search);
+  if (q.get('dilate') === '0') { sessionStorage.removeItem('splatjs_dilate'); sessionStorage.removeItem('splatjs_aniso'); }
+  else if (q.get('dilate')) sessionStorage.setItem('splatjs_dilate', q.get('dilate'));
+  if (q.get('aniso') != null && q.get('aniso') !== '') sessionStorage.setItem('splatjs_aniso', q.get('aniso'));
+}
+const DILATE_OVR = parseFloat(sessionStorage.getItem('splatjs_dilate'));
+const ANISO_OVR = sessionStorage.getItem('splatjs_aniso') == null ? NaN : parseFloat(sessionStorage.getItem('splatjs_aniso'));
+const NEEDLE_ON = (Number.isFinite(DILATE_OVR) && DILATE_OVR > 0 && DILATE_OVR <= 1) || Number.isFinite(ANISO_OVR);
+
 // training settings (start-card panel), persisted across visits.
 // res 0 = auto, iters 0 = the 20k default, buf = working-buffer scale.
 // Phones start from lighter defaults; anything saved wins.
@@ -1178,6 +1193,11 @@ async function startPrep() {
         ...((st.sh ?? 3) > 0 ? { shLr: 3e-4 } : {}),
       });
       flash('MCMC experimental set active', 5000);
+    }
+    if (NEEDLE_ON) {
+      if (Number.isFinite(DILATE_OVR) && DILATE_OVR > 0 && DILATE_OVR <= 1) trainerOpts.dilate = DILATE_OVR;
+      if (Number.isFinite(ANISO_OVR) && ANISO_OVR >= 0) trainerOpts.anisoReg = ANISO_OVR;
+      flash(`Needle set active — dilate ${trainerOpts.dilate ?? 0.3}, anisoReg ${trainerOpts.anisoReg ?? 'default'} (?dilate=0 clears)`, 6000);
     }
     // Auto splat budget: sized from the CYCLE budget, not just the solve —
     // the measured capacity law (~15 splats/cycle classic, ~35 under MCMC),
