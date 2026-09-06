@@ -28,7 +28,7 @@ const TAG = `${SET}_${ITERS}` + (Q.has('classic') ? '_classic' : '')
   + (Q.get('donor') ? `_dw${Q.get('donor')}` : '')
   + (Q.get('deadthr') ? `_dt${Q.get('deadthr')}` : '') + (Q.get('poolmin') != null ? `_pm${Q.get('poolmin')}` : '')
   + (Q.get('opadecay') ? `_od${Q.get('opadecay')}` : '') + (Q.get('ratiocap') ? `_rc${Q.get('ratiocap')}` : '')
-  + (Q.get('econ') ? `_e${Q.get('econ')}` : '') + (Q.get('deadtiny') ? '_dtn' : '') + (Q.get('minutes') ? `_m${Q.get('minutes')}` : '')
+  + (Q.get('econ') ? `_e${Q.get('econ')}` : '') + (Q.get('deadtiny') ? '_dtn' : '') + (Q.get('minutes') ? `_m${Q.get('minutes')}` : '') + (Q.get('evalmin') ? `_ev${Q.get('evalmin')}` : '')
   + (Q.has('classicsolve') ? '_cs' : '') + (Q.get('featres') ? `_fr${Q.get('featres')}` : '') + (Q.get('feats') ? `_nf${Q.get('feats')}` : '') + (Q.get('octave') ? `_oc${Q.get('octave')}` : '') + (Q.get('peak') ? `_pk${Q.get('peak')}` : '')
   + (Q.get('compact') === '0' ? '_ncp' : '') + (Q.get('gspread') ? `_gs${Q.get('gspread')}` : '') + (Q.get('gbatch') ? `_gb${Q.get('gbatch')}` : '') + (Q.get('gzskip') ? '_gz' : '') + (Q.get('pvec') ? '_pv' : '') + (Q.get('sgagg') ? '_sg' : '') + (Q.get('tilegrad') === '0' ? '_ntg' : '') + (Q.get('frommodel') ? '_fm' : '') + (Q.get('aspect') ? '_asp' : '') + (Q.get('asplr') ? `_al${Q.get('asplr')}` : '') + (Q.get('sfmaspect') ? '_sa' : '') + (Q.get('lockk') ? '_lk' : '')
   + (Q.get('dir') ? `_d${Q.get('dir')}` : '') + (Q.get('tag') ? `_${Q.get('tag')}` : '')   // free suffix: e.g. the recon source, which no flag names
@@ -263,15 +263,35 @@ try {
   // ?minutes=N: a wall-clock training budget — the run ends at N minutes
   // wherever the iteration count is (the schedule still runs on ?iters, so
   // size that to what fits: ~1 min per 1k at the 2M cap on the 5080)
+  // ?evalmin=N: held-out (eval8) PSNR every N minutes of TRAINING time for a
+  // dB-over-time curve; the evaluation itself is excluded from the clock
+  // (evalOverhead) so the minute budget and the curve's x-axis stay train-only
+  let evalOverhead = 0, evaluating = false;
+  const curve = [];
+  const trainClockMin = () => (Date.now() - trainT - evalOverhead) / 60000;
+  let curveTimer = null;
+  if (Q.get('evalmin') && !cfg.holdout1) {
+    curveTimer = setInterval(async () => {
+      if (evaluating) return;
+      evaluating = true;
+      const t = Date.now();
+      const min = +trainClockMin().toFixed(2), iter = ses.trainer.iter, splats = ses.trainer.n;
+      const r = await ses.evalTestPsnr();
+      evalOverhead += Date.now() - t;
+      if (r) { curve.push({ min, iter, splats, psnr: +r.psnr.toFixed(3) }); await say('curve', { min, iter, psnr: +r.psnr.toFixed(3) }); }
+      evaluating = false;
+    }, +Q.get('evalmin') * 60000);
+  }
   let clock = null;
   if (Q.get('minutes')) {
     clock = setInterval(() => {
-      if ((Date.now() - trainT) / 60000 >= +Q.get('minutes')) { ses.opts.maxIters = ses.trainer.iter; clearInterval(clock); }
+      if (trainClockMin() >= +Q.get('minutes')) { ses.opts.maxIters = ses.trainer.iter; clearInterval(clock); }
     }, 5000);
   }
   await done;
-  clearInterval(guard); if (clock) clearInterval(clock);
-  const trainMin = +((Date.now() - trainT) / 60000).toFixed(1);
+  clearInterval(guard); if (clock) clearInterval(clock); if (curveTimer) clearInterval(curveTimer);
+  while (evaluating) await new Promise((r) => setTimeout(r, 200));
+  const trainMin = +trainClockMin().toFixed(1);
   // dead census at the horizon (opacity < 1/255: what the export purges)
   let deadPct = null;
   {
@@ -334,7 +354,7 @@ try {
     psnrTest,
     heldOut,
     protocol: cfg.holdout1 ? 'holdout1' : 'eval8',
-    trainMin, solveMin, deadPct,
+    trainMin, solveMin, deadPct, ...(curve.length ? { curve } : {}),
     // tiles whose (key,id) entry budget overflowed over the whole run — a
     // non-zero count means whole tiles were silently skipped in training
     overflowTiles: ses.trainer.entryOverflowTiles || 0,
