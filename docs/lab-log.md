@@ -4,6 +4,29 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-07 (the same hour for LichtFeld and Brush; dB-over-time diagram)
+
+- **Native trainers given the same hour** (truck, 979 px, eval8, COLMAP poses,
+  RTX 5080; logs `C:\Dev\Lichtfeld\runs\truck-60min-mcmc`, `C:\Dev\brush\runs\truck-60min-head`):
+
+  | trainer | schedule | final | wall-clock |
+  |---|---|---|---|
+  | LichtFeld MCMC, 2 M | 320k, refine window scaled ×10.7 | **26.42** | 51 min |
+  | LichtFeld MCMC, 2 M (08-25) | default 30k | 26.14 | 5½ min |
+  | Brush HEAD, 2 M | 150k (its LR schedule stretches, growth stops at 15k) | 25.83 (peak 25.91 @135k) | 64 min |
+  | Brush HEAD, 2 M (09-02) | default 30k | 26.14 | 12 min |
+  | Splat.js, 1.05 M, our poses | 200k | **26.65** | 56 min |
+
+  LichtFeld converts the hour into +0.28 and flattens after 40 min (26.34 →
+  26.42 over the last ten). Brush does not: with 150k total its mean LR decays
+  five times slower, so at 30k it sits at 25.70 (vs 26.14 on the 30k
+  schedule) and never recovers — "Brush given an hour" with defaults is
+  worse than Brush at 12 minutes. Ours: 26.65 at 56 min. First LF attempt
+  ran at `-r 2` = 489 px (the T&T images on disk are already 979 px) and was
+  killed at 2 min; the eval smoke had shown 219/32 cameras and the PSNR log
+  format. Bench gained `?evalmin=N` (held-out curve, train-only clock) for the
+  dB-over-time diagram.
+
 ## 2026-09-06 (speed day 1: per-kernel profile, three negatives, visibility compaction = 3 %)
 
 - **Per-kernel timestamps** (`opts.profile` / bench `?gputime=N`, one pass per
