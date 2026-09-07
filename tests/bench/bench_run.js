@@ -13,7 +13,7 @@ const TAG = `${SET}_${ITERS}` + (Q.has('classic') ? '_classic' : '')
   + (Q.get('dilate') ? `_dil${Q.get('dilate')}` : '')
   + (Q.get('aniso') != null ? `_ar${Q.get('aniso')}` : '')
   + (Q.get('ssim') ? `_ssim${Q.get('ssim')}` : '')
-  + (Q.get('maxsplats') ? `_cap${Q.get('maxsplats')}` : '') + (Q.get('capmult') ? `_cm${Q.get('capmult')}` : '')
+  + (Q.get('maxsplats') ? `_cap${Q.get('maxsplats')}` : '') + (Q.get('res') ? `_r${Q.get('res')}` : '') + (Q.has('evalsplit') ? `_es${Q.get('evalsplit')}` : '') + (Q.get('capmult') ? `_cm${Q.get('capmult')}` : '')
   + (Q.get('entriescap') ? `_ec${Q.get('entriescap')}` : '')
   + (Q.get('minscale') ? `_ms${Q.get('minscale')}` : '')
   + (Q.get('comp') != null ? `_c${Q.get('comp')}` : '')
@@ -54,6 +54,7 @@ const SETS = {
   playroom:  { dir: 'playroom', list: true },
   bicycle:   { dir: 'bicycle', list: true },
   garden:    { dir: 'garden', list: true },
+  statue:    { dir: 'statue_ka', list: true },   // user's 34-photo statue set (8064x6048), registration probe 2026-09-08
   bar360:    { dir: 'bar360/images', res: 912, pano: true, names: () => {
     const n = [];
     for (let i = 0; i <= 150; i += 2) n.push(`0_${String(i).padStart(4, '0')}.jpg`);
@@ -80,11 +81,11 @@ try {
   const ses = window.__ses = createSession({
     ...(Q.get('init') ? { initTarget: +Q.get('init') } : {}),
     maxIters: ITERS,
-    evalSplit: cfg.holdout1 ? 0 : 8,
+    evalSplit: Q.has('evalsplit') ? +Q.get('evalsplit') : (cfg.holdout1 ? 0 : 8),   // ?evalsplit=0 trains on every view (showcase runs; no test PSNR)
     ...(cfg.holdout1 ? { holdout: 'auto' } : {}),
     // benchmark mode pins resolution like ?eval (adaptive budget otherwise
     // shrinks big sets and PSNR at reduced res is not comparable run-to-run)
-    frames: { trainMaxDim: cfg.res || 1600, ...(Q.get('featres') ? { featMaxDim: +Q.get('featres') } : {}) },
+    frames: { trainMaxDim: +(Q.get('res') || cfg.res || 1600), ...(Q.get('featres') ? { featMaxDim: +Q.get('featres') } : {}) },   // ?res= overrides the set's training resolution
     // ?classic=1: pre-MCMC defaults (A/B for small-set anomalies)
     // refine cadence is a SESSION option: the economy packages carry their
     // own (Brush 200, LichtFeld 100); ?refevery overrides either
