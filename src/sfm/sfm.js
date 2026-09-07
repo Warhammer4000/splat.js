@@ -26,7 +26,9 @@ import {
 import { bundleAdjust } from './ba.js';
 import { rotationAveraging, globalPositionsJoint } from './global.js';
 
-const MAXF = 16384; // feature-id stride per image (must exceed per-image feature count; SIFT emits up to 2
+const MAXF = 32768; // feature-id stride per image (must exceed per-image feature count; SIFT emits up to 2x the
+// requested budget). 16384 -> 32768 on 2026-09-08: a 16000-feature budget at featMaxDim 3200 (48 MP
+// statue photos) tripped it. Only the union-find is sized n*MAXF (612 faces -> 20 M ids, fine on desktop).
                     // orientations/keypoint, so an 8000-keypoint budget from the upsampled octave needs > 8192 — garden
                     // hit 'too many features per image' at 8192, 2026-09-04; only the union-find stride depends on it)
 const FOCAL_SCALES = [1.0, 0.8, 0.65, 1.3]; // relative to the 1.2*maxDim guess

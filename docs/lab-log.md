@@ -11,6 +11,27 @@ about ±0.1 dB.
   second in the README table, tied with SSS 26.41 inside the noise band, 0.25
   above LichtFeld/Brush at their default 30k. Row goes into the README with the
   next deploy (the anneal cap and relocation stop are not live yet).
+- **Statue KA** (user's set, 34 photos 8064×6048, EXIF orientation 6 on all;
+  `data/statue_ka`, bench `set=statue`). Registration probes (solve only):
+
+  | solver | registered | rms px |
+  |---|---|---|
+  | desktop default (960 px feature frame, 8000, octave −1, aspect) | **19 / 34** | 0.71 |
+  | old solver (3900, octave 0) | 15 | 0.70 |
+  | 16000 feats @960 | 19 | 0.71 (identical — budget not binding) |
+  | featres 2400 | 7 | — |
+  | featres 2400 + peak 0.5 | 7 | — |
+  | featres 2400 + 16000 | 14 | 3.43 |
+  | featres 2400 + 16000 + peak 0.5 | 4 | — |
+  | featres 3200 + 16000 (MAXF → 32768) | 8 | 4.26 |
+
+  Finer feature frames make registration WORSE on this set (the opposite of
+  camping's 720 → 960 gain) and the few registrations they get are bad (3–4
+  px). Suspects: fixed pixel thresholds in matching / registration that
+  tighten in angle as the feature frame grows; or a genuinely wide-baseline
+  walk-around where 34 photos leave gaps no feature setting can bridge. Next:
+  dump the registered subset (`postrecon`) to see whether the failures are one
+  contiguous arc, and probe 1200 px.
 
 ## 2026-09-07 (the same hour for LichtFeld and Brush; dB-over-time diagram)
 
