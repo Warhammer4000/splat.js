@@ -36,6 +36,26 @@ about ±0.1 dB.
   checkpoints 6/12/30/45 min, protocol notes (poses, undistortion, caps,
   Brush schedule, no Brush web build).
 
+- **Why the Splat.js hour curve swings ±0.4 dB** (user question): relocation
+  churn. Every 508 iterations the default relocates ~86k splats (8 % of 1.05 M)
+  up to the last step (last refine @199,618, LR already ≈ 0), and only 62 % of
+  the relocated survive the next round. Not a refine-phase sawtooth: evals
+  right after a refine average the same as late-cycle evals (26.28 / 26.28).
+  Tests (truck 30k s1/s2 vs 25.68/25.71; hour = 200k, 1.05 M, curve every 2 min):
+
+  | knob | truck 30k | garden 30k | hour |
+  |---|---|---|---|
+  | default (relocate to the end) | 25.68 / 25.71 | 26.72 | 26.53 (curve run), 26.65 (published) |
+  | `relocUntil` 85 % | 25.66 / 25.76 | — | **26.51**, tail flat (26.48–26.60 over the last 8 min) |
+  | + `relocTaper` 0.5 (ceiling → 0 at 85 %) | 25.62 / 25.74, dead 16 % | 26.80, dead 1.8 % | — |
+
+  Stopping late fixes the predictability of the endpoint, not the level; the
+  swings before the stop are as large as ever (24.7 at min 37). Tapering the
+  count leaves dead capacity unrelocated (16 % dead on truck) and is neutral.
+  The lever is the 38 % immediate death rate of relocated splats (placement
+  quality — the 09-02 ladder territory), not their number. Knobs stay opt-in
+  (`?relocuntil=`, `?reloctaper=`).
+
 ## 2026-09-06 (speed day 1: per-kernel profile, three negatives, visibility compaction = 3 %)
 
 - **Per-kernel timestamps** (`opts.profile` / bench `?gputime=N`, one pass per

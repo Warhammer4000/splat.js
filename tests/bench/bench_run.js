@@ -21,7 +21,7 @@ const TAG = `${SET}_${ITERS}` + (Q.has('classic') ? '_classic' : '')
   + (Q.get('refv2') ? '_rv2' : '') + (Q.get('errdon') ? '_ed' : '') + (Q.get('splitv2') ? '_sv2' : '')
   + (Q.get('growrate') ? `_gr${Q.get('growrate')}` : '') + (Q.get('movecap') ? `_mc${Q.get('movecap')}` : '')
   + (Q.get('refevery') ? `_re${Q.get('refevery')}` : '') + (Q.get('growuntil') ? `_gu${Q.get('growuntil')}` : '')
-  + (Q.get('relocuntil') ? `_ru${Q.get('relocuntil')}` : '')
+  + (Q.get('relocuntil') ? `_ru${Q.get('relocuntil')}` : '') + (Q.get('reloctaper') ? `_rt${Q.get('reloctaper')}` : '')
   + (Q.get('poslr') ? `_pl${Q.get('poslr')}` : '') + (Q.get('shramp') === '0' ? '_nsr' : '')
   + (Q.get('opareg') ? `_or${Q.get('opareg')}` : '') + (Q.get('scalereg') ? `_sr${Q.get('scalereg')}` : '')
   + (Q.get('oregref') ? `_orr${Q.get('oregref')}` : '') + (Q.get('oregrefmax') ? `_orm${Q.get('oregrefmax')}` : '')
@@ -172,6 +172,7 @@ try {
         ...(Q.get('growtau') ? { growTau: +Q.get('growtau') } : {}),
         ...(Q.get('growuntil') ? { growUntil: +Q.get('growuntil') } : {}),
         ...(Q.get('relocuntil') ? { relocUntil: +Q.get('relocuntil') } : {}),
+        ...(Q.get('reloctaper') ? { relocTaper: +Q.get('reloctaper') } : {}),
       },
   });
   // refine census lines (dead / relocated / grown per call) are the only

@@ -1366,6 +1366,22 @@ export class GSTrainer {
     return { moved: dead.length, grown, n: this.n };
   }
 
+  /** opts.relocTaper = f (fraction of the horizon, e.g. 0.5): the per-round
+   *  relocation ceiling (moveCap) shrinks linearly from its full value at f·H
+   *  to zero at relocUntil (or the horizon). Motivation 2026-09-07: the hour
+   *  signature relocates ~8 % of the model every 508 iterations to the last
+   *  step, 38 % of those die again next round, and the held-out curve swings
+   *  ±0.4 dB between evals; a hard stop at 85 % flattened the tail but not
+   *  the level. Default: no taper (factor 1). */
+  _relocTaperFactor() {
+    const f = this.opts.relocTaper;
+    if (!(f > 0)) return 1;
+    const end = Math.min(this.opts.relocUntil ?? Infinity, this.horizon);
+    const start = f * this.horizon;
+    if (!(end > start)) return 1;
+    return Math.max(0, Math.min(1, (end - this.iter) / (end - start)));
+  }
+
   async refine(rng = this.rand) {
     if (this.v2 && (this.opts.v2Refine ?? true)) return this._refineV3(rng);
     // OPT-IN while unproven: at truck 40k the v2 mechanics plateau 0.1-0.2 dB
@@ -1421,7 +1437,7 @@ export class GSTrainer {
     if (this._lastReloc) for (const i of this._lastReloc) if (sig(g[i * 4]) >= deadThr) survived++;
     const census = { dead: deadAll, survived, lastReloc: this._lastReloc ? this._lastReloc.length : 0 };
     if (pool.length < 16) return { moved: 0, grown: 0, n: this.n, ...census };
-    const moveCap = Math.ceil(this.n * (this.opts.moveCap ?? 1.0));
+    const moveCap = Math.ceil(this.n * (this.opts.moveCap ?? 1.0) * this._relocTaperFactor());
     if (dead.length > moveCap) dead = dead.slice(0, moveCap);
     const grown = canGrow
       ? Math.max(0, Math.min(Math.ceil(this.n * (this.opts.growRate ?? 0.15)), limit - this.n)) : 0;
@@ -1659,7 +1675,7 @@ export class GSTrainer {
     // relocation ceiling per refine — at the old hard 5%, any dead fraction
     // above it stayed dead FOREVER (a monotonic capacity leak; the reference
     // relocates every dead splat every 100 iters)
-    const moveCap = Math.ceil(this.n * (this.opts.moveCap ?? 0.05));
+    const moveCap = Math.ceil(this.n * (this.opts.moveCap ?? 0.05) * this._relocTaperFactor());
     if (dead.length > moveCap) dead = dead.slice(0, moveCap);
 
     const gauss = () => {
