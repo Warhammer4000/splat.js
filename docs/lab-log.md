@@ -83,6 +83,17 @@ about ±0.1 dB.
   now; a 260k-schedule signature (`_ru221000_m60_ev2_sig`) with PLY/recon
   export is queued behind a garden `relocUntil` guard.
 
+- **260k-schedule signature (v4 candidate): 26.46 in 58.8 min — not published.**
+  More iterations under the 80k anneal did not pay: 200k → 26.52 / 26.61, 260k
+  → 26.46 (tail 26.43–26.48 after the stop at 221k). Reading: with the LR at
+  its floor from 80k on, every extra relocation round (80k → 221k = 141k floor
+  iterations vs 90k in the 200k run) places splats that can no longer settle;
+  the churn is the limiter again, not the budget. Garden `relocUntil` guard
+  26.68 vs 26.72 (neutral, 5.2 vs 5.9 min). README keeps 26.65 (old schedule,
+  published run); the new default's hour lands 26.5–26.6 with the early curve
+  fixed. Next lever if pursued: fewer / better relocations after the anneal
+  (survival 62 %), or a floor LR above 1 % while relocation is active.
+
 ## 2026-09-06 (speed day 1: per-kernel profile, three negatives, visibility compaction = 3 %)
 
 - **Per-kernel timestamps** (`opts.profile` / bench `?gputime=N`, one pass per
