@@ -75,6 +75,14 @@ about ±0.1 dB.
   run). Minutes on the 0.4 run are ~5 % inflated (shared GPU). The relocation
   swings remain; a combined run (cap + `relocUntil` 85 %) is the next hour cell.
 
+- **Combined hour: capped decay (default) + `relocUntil` 85 %** (truck 200k, curve):
+  25.6 @10 min, 26.15 @14, 26.4 @20; after the stop at 170k the tail is flat
+  (26.47 → 26.56) and the final lands at **26.52 in 44 min** — no end-of-run
+  dip, in the 26.5–26.65 band. 44 min for 200k on a free GPU (the earlier
+  56-min runs overlapped the user's work) means ~260k iterations fit the hour
+  now; a 260k-schedule signature (`_ru221000_m60_ev2_sig`) with PLY/recon
+  export is queued behind a garden `relocUntil` guard.
+
 ## 2026-09-06 (speed day 1: per-kernel profile, three negatives, visibility compaction = 3 %)
 
 - **Per-kernel timestamps** (`opts.profile` / bench `?gputime=N`, one pass per
