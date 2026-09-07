@@ -33,6 +33,20 @@ about ±0.1 dB.
   dump the registered subset (`postrecon`) to see whether the failures are one
   contiguous arc, and probe 1200 px.
 
+- **Bar showcase night, findings so far.** The published `bar360_v5test` PLY
+  (4 M rows, 372k iters, Aug trainer) has a median opacity of 3.3e-4: more
+  than half its splats are invisible — the user's "doesn't look like 4 M" is
+  literal. Overnight matrix at 100k, eval8: 1280 px faces OOM'd the feature
+  worker (612 × 1280² frames > the tab's array-buffer budget) → 1024 px is the
+  ceiling; the 912 px control gave 21.07 (vs 20.99 at 30k / 1.05 M) in 23 min
+  with **dead 52 %** and n stuck at 1.78 M: the bench's `capMult 8` × 223k seed
+  points caps the buffer below the 4 M asked for (`?capmult=20` from here on).
+  Each refine relocates ~280k splats (16 % of n) with ~40 % survival — the
+  360 rig kills splats far faster than truck; suspects: regs on rows invisible
+  in the current face (`regVisOnly`), relocation to the end vs anneal-bound.
+  Cells queued: 1024 px pair (res effect), then true-4M × {default, regVisOnly,
+  relocate-to-end}; the showcase run (all views, 200k) follows the winner.
+
 ## 2026-09-07 (the same hour for LichtFeld and Brush; dB-over-time diagram)
 
 - **Native trainers given the same hour** (truck, 979 px, eval8, COLMAP poses,

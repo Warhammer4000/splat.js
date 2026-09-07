@@ -89,12 +89,19 @@ function buildPairs(n, profile = 'walk') {
 // Corner detections are pixel-quantized (~1.5px BA residual floor); a chain
 // of short-baseline cameras with that much obs noise has smooth low-frequency
 // bend modes as its NOISE FLOOR — no amount of bundle adjustment removes them.
+// Every pixel tolerance in this file was tuned on a 960 px feature frame (the
+// phone/desktop default). A finer frame (opts.featMaxDim 2400/3200 for 48 MP
+// photos) made the SAME pixel numbers 2.5-3.3x stricter in angle and
+// registration collapsed (statue set 2026-09-08: 19/34 at 960 -> 7/34 at 2400,
+// 8/34 at 3200 with 3-4 px rms). Scale them with the frame instead.
+const pxScaleOf = (im) => Math.max(1, Math.max(im.fw, im.fh) / 960);
+
 // Align each observation's patch against a single reference patch of its track
 // (zero-mean SSD, translation-only LK) so all obs of a track agree at subpixel
 // on the SAME physical point.
 function refineObsLK(images, feats, tracks, poses, vlog) {
   const W = 5;                 // half window -> 11x11 patch
-  const MAXSHIFT = 2.5;        // px; larger moves are considered mismatches
+  const MAXSHIFT = 2.5 * pxScaleOf(images[0]); // px at the feature scale; larger moves are mismatches
   const P = 2 * W + 1;
   const refP = new Float32Array(P * P);
   const curP = new Float32Array(P * P);
@@ -176,10 +183,11 @@ function refineObsLK(images, feats, tracks, poses, vlog) {
 // Returns the list of added observations [{ tr, o }].
 function extendTracks(feats, tracks, poses, K, regList, k1, k2, im0, vlog) {
   const DESC_WORDS = 8;
-  const RADIUS = 4;        // px search radius around the projection
+  const pxs = pxScaleOf(im0);
+  const RADIUS = 4 * pxs;  // px search radius around the projection (960-px tuned)
   const HAM_MAX = 64;      // stricter than the 90 used for blind matching
-  const MARGIN = 6;        // stay away from the frame border
-  const CELL = 8;          // spatial-grid cell size in px
+  const MARGIN = 6 * pxs;  // stay away from the frame border
+  const CELL = Math.ceil(8 * pxs); // spatial-grid cell size in px
   const w = im0.fw, h = im0.fh;
 
   const hamming = (dA, oA, dB, oB) => {
@@ -495,6 +503,9 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
   const pairInfo = []; // { i, j, matches: [[fa, fb], ...] }
   const failedRich = []; // many matches but failed the E-gate (rescue candidates)
   let done = 0, filtered = 0;
+  // per-image diagnostics for the log: usable-pair degree, best raw match count,
+  // best E-inlier count — the answer to "why did these frames not register"
+  const diag = images.map(() => ({ deg: 0, raw: 0, inl: 0 }));
   // SIFT matching runs on GPU when available (CPU 128-D L2 is the dominant
   // cost of a SIFT run: ~350s of 484s on train-84; the GPU does the whole
   // graph in ~1s of compute)
@@ -514,6 +525,7 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
         ? matchSift(feats[i].desc, feats[i].n, feats[j].desc, feats[j].n)
         : matchDescriptors(feats[i].desc, feats[i].n, feats[j].desc, feats[j].n);
     done++;
+    diag[i].raw = Math.max(diag[i].raw, m.length / 2); diag[j].raw = Math.max(diag[j].raw, m.length / 2);
     if (m.length / 2 >= 25) {
       let matches = [];
       for (let k = 0; k < m.length; k += 2) matches.push([m[k], m[k + 1]]);
@@ -521,12 +533,14 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
       const x2s = matches.map(([, fb]) => [(feats[j].x[fb] - K0[j].cx) / K0[j].f, (feats[j].y[fb] - K0[j].cy) / K0[j].f]);
       const favg = (K0[i].f + K0[j].f) / 2;
       const res = ransacE(x1s, x2s, 2.5 / favg, matchRng, 600);
+      if (res) { diag[i].inl = Math.max(diag[i].inl, res.inliers.length); diag[j].inl = Math.max(diag[j].inl, res.inliers.length); }
       // pairs whose matches can't support an essential matrix are junk —
       // letting their raw matches into the track graph merges unrelated
       // tracks, which then get dropped as conflicted
       if (res && res.inliers.length >= 25 && res.inliers.length >= 0.4 * matches.length) {
         matches = res.inliers.map((idx) => matches[idx]);
         filtered++;
+        diag[i].deg++; diag[j].deg++;
         pairInfo.push({ i, j, matches });
       } else if (matches.length >= 60) {
         failedRich.push({ i, j, matches });
@@ -542,6 +556,11 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
   }
   checkAbort();
   log(`  usable pairs: ${pairInfo.length} (${filtered} E-filtered, rest raw)`);
+  {
+    // isolated / weakly connected frames, with what their best pair looked like
+    const weak = diag.map((d, k) => ({ k, ...d })).filter((d) => d.deg <= 1);
+    if (weak.length) log(`  weakly connected frames (usable pairs <= 1): ` + weak.map((d) => `#${d.k}[deg ${d.deg}, best raw ${d.raw}, best E-inl ${d.inl}, feats ${feats[d.k].n}]`).join(' '));
+  }
   if (pairInfo.length === 0) throw new Error('no image pair with enough matches');
   await tick();
 
@@ -674,7 +693,7 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
     const failed = new Set();
     // Generous reprojection budget (feature-scale px): triangulation from
     // low-parallax pairs is noisy; global refinement tightens it afterwards.
-    const thN = (img) => 6.0 / K[img].f;
+    const thN = (img) => 6.0 * pxScaleOf(images[img]) / K[img].f;   // 6 px at 960, scaled with the frame
 
     function triangulateTrack(tr) {
       for (let attempt = 0; attempt < 2; attempt++) {
@@ -1160,7 +1179,7 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
       const res = await bundleAdjust(
         { cams: baCams, points: baPoints, obs: baObs, camRig: baRig,
           f: K[regList[0]].f, cx: K[regList[0]].cx, cy: K[regList[0]].cy },
-        { maxIters: o.maxIters ?? 30, huberPx: 1.5,
+        { maxIters: o.maxIters ?? 30, huberPx: 1.5 * pxScaleOf(images[0]),
           // lockIntrinsics (2026-09-06, the rig default via session.solve): sliced cubemap
           // faces know f, k1 = k2 = 0 and a square pixel EXACTLY by construction — refining
           // them only fits noise (bar360 30k: +0.29 dB locked). bench ?lockk=1 forces it on.

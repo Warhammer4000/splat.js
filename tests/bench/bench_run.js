@@ -181,7 +181,8 @@ try {
   // refine census lines (dead / relocated / grown per call) are the only
   // record of what the population did mid-run — posted next to the result
   const refineLog = [];
-  ses.on('log', (m) => { console.log('[SES]', m); if (/^refine @/.test(m)) refineLog.push(m); });
+  const sesLog = [];
+  ses.on('log', (m) => { console.log('[SES]', m); if (/^refine @/.test(m)) refineLog.push(m); if (Q.get('sfmlog')) sesLog.push(m); });
   let beat = 0;
   ses.on('stage', (e) => { if (Date.now() - beat > 30000) { beat = Date.now(); say('solve-' + e.stage, { done: e.done, total: e.total }); } });
   await ses.load(files);
@@ -216,6 +217,7 @@ try {
     recon = await ses.solve();
   }
   const solveMin = +((Date.now() - solveT) / 60000).toFixed(1);
+  if (Q.get('sfmlog')) await post(`bench_${TAG}_sfmlog.txt`, sesLog.join('\n'));   // ?sfmlog=1: the solver's full log (registration verdicts per image)
   await say('solved', { cams: recon.cams.length, of: ses.frames.length, rms: recon.rmsBA && +recon.rmsBA.toFixed(2), solveMin });
   if (Q.get('postrecon')) {
     await post(Q.get('postrecon'), JSON.stringify({
