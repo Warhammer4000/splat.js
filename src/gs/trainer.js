@@ -912,7 +912,16 @@ export class GSTrainer {
       ? this.basePosLr * Math.pow(0.05, Math.min(1, this.iter / this.horizon))
       : this.opts.lrExp
         ? this.basePosLr * Math.pow(this.opts.lrExp, Math.min(1, this.iter / this.horizon))
-        : this.basePosLr * Math.pow(0.01, Math.min(1, this.iter / (0.75 * this.horizon)));
+        // The 100x decay runs over lrDecayFrac (default 0.75) of the horizon, CAPPED at
+        // lrDecayMax iterations (default 80k); the rest is the floor polish. MEASURED
+        // 2026-09-07, truck 200k/hour: a 150k decay (0.75·H) keeps 25 % of the base LR at
+        // minute 12 and trails the natives by 2.5 dB until minute 30; decay over 80k
+        // (0.4·H) reaches 26.26 at minute 20 and ends 26.61 (default 26.53); over 50k
+        // (0.25·H) 26.1 at minute 10, ends 26.52. But a FRACTION does not transfer to
+        // short runs: at 30k, 0.4·H = 12k lost 0.2 and 0.25·H = 7.5k lost 0.3 — the
+        // anneal needs its ~22k iterations there. Hence a cap in iterations: 30k/40k
+        // schedules are unchanged, the hour schedule anneals over 80k.
+        : this.basePosLr * Math.pow(0.01, Math.min(1, this.iter / Math.min((this.opts.lrDecayFrac ?? 0.75) * this.horizon, this.opts.lrDecayMax === 0 ? Infinity : (this.opts.lrDecayMax ?? 80000))));
     this.adamData[0] = this.adamData[1] = this.adamData[2] = posLr;
     if (this.opts.opaDecay > 0) {
       // opts.opaDecay in Brush units (opacity per 200 iterations at t=0),
