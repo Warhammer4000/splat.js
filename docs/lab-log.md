@@ -69,8 +69,8 @@ about ±0.1 dB.
   | 0.25·H = 50k | 26.05 | 25.9 | 26.1 | 26.52 |
 
   A fraction does not transfer to short runs: truck 30k 0.4·H (12k) 25.47 vs
-  25.68, 0.25·H (7.5k) 25.38 / 25.34 vs 25.68 / 25.71 — the anneal needs its
-  ~22k iterations. **Default is now a cap: decay over min(0.75·H, 80k)** — 30k
+  25.68, 0.25·H (7.5k) 25.38 / 25.34 vs 25.68 / 25.71; garden 30k 0.25·H 26.60,
+  0.4·H 26.70 vs 26.72 — the anneal needs its ~22k iterations. **Default is now a cap: decay over min(0.75·H, 80k)** — 30k
   and 40k schedules unchanged, the hour schedule anneals over 80k (the 26.61
   run). Minutes on the 0.4 run are ~5 % inflated (shared GPU). The relocation
   swings remain; a combined run (cap + `relocUntil` 85 %) is the next hour cell.
