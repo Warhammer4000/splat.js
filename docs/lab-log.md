@@ -4,6 +4,14 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-08 (20-minute row; bar showcase night; statue set)
+
+- **20-minute truck** (112k schedule, `minutes=20`, new defaults, idle GPU):
+  **26.35 / 26.40** (seeds 1/2) at ~94k iterations, dead 26 %. Mean 26.38 —
+  second in the README table, tied with SSS 26.41 inside the noise band, 0.25
+  above LichtFeld/Brush at their default 30k. Row goes into the README with the
+  next deploy (the anneal cap and relocation stop are not live yet).
+
 ## 2026-09-07 (the same hour for LichtFeld and Brush; dB-over-time diagram)
 
 - **Native trainers given the same hour** (truck, 979 px, eval8, COLMAP poses,
