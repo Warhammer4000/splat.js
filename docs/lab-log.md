@@ -26,6 +26,15 @@ about ±0.1 dB.
   killed at 2 min; the eval smoke had shown 219/32 cameras and the PSNR log
   format. Bench gained `?evalmin=N` (held-out curve, train-only clock) for the
   dB-over-time diagram.
+- **Splat.js hour curve** (same config + seed as the 26.645 signature, `?evalmin=2`):
+  26.534 at 200k / 55.9 min — 0.11 below the published run with an identical
+  seed: GPU atomics make repeated runs differ by ≈ ±0.1. The curve is slow
+  early (20.6 @2 min, 23.2 @12 vs 25.7–26.1 for the native trainers at 12) and
+  oscillates ±0.3 between evals late (relocation cycle), crossing LichtFeld
+  around minute 30. Diagram published (claude.ai artifact "An Hour on Truck"):
+  four curves + LichtFeld default 30k and the published run as marks,
+  checkpoints 6/12/30/45 min, protocol notes (poses, undistortion, caps,
+  Brush schedule, no Brush web build).
 
 ## 2026-09-06 (speed day 1: per-kernel profile, three negatives, visibility compaction = 3 %)
 
