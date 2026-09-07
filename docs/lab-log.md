@@ -94,6 +94,17 @@ about ±0.1 dB.
   fixed. Next lever if pursued: fewer / better relocations after the anneal
   (survival 62 %), or a floor LR above 1 % while relocation is active.
 
+- **Relocation stopped at 50 % (100k of 200k), idle GPU**: 26.47 at 200k in
+  **37.9 min**; the curve is smooth from minute 18 (26.37 → 26.45, no dip
+  ≥ 0.1) and crosses the published top (26.41) at minute 24 for good. The
+  level is within noise of the 85 % stop (26.52) — the second-half relocations
+  bought nothing but swings, and skipping their refine read-backs saves ~6
+  min per 100k iterations. Hypothesis for a default: relocate only while the
+  LR anneals (`relocUntil` = anneal end = min(0.75·H, 80k)); guards queued
+  (truck 30k ru22500 s1/s2, garden 30k) plus the hour at ru80000. User: the
+  LichtFeld-hour value is not a target — nobody runs it that way; the bar is
+  the published 26.41 and LF/Brush at their default 30k (26.14).
+
 ## 2026-09-06 (speed day 1: per-kernel profile, three negatives, visibility compaction = 3 %)
 
 - **Per-kernel timestamps** (`opts.profile` / bench `?gputime=N`, one pass per
