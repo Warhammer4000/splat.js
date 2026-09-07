@@ -105,6 +105,24 @@ about ±0.1 dB.
   LichtFeld-hour value is not a target — nobody runs it that way; the bar is
   the published 26.41 and LF/Brush at their default 30k (26.14).
 
+- **Default: relocate only while the LR anneals** (`relocUntil` = min(0.75·H, 80k);
+  `?relocuntil=all` restores relocation to the last step). Guards: truck 30k
+  25.69 / 25.68 vs 25.68 / 25.71 in 4.9 min (was 5.9); garden 30k 26.81 vs
+  26.72; hour (stop at 80k) **26.44 at 200k in 35.5 min**, smooth from minute
+  14, past the published 26.41 at minute 24 and holding. Level ladder at the
+  hour: 26.52 (stop 85 %) → 26.47 (50 %) → 26.44 (anneal end) — a ~0.05 cost
+  per step, inside noise individually, for a curve that reads and a run that
+  is 20–35 % shorter (no refine read-backs after the stop).
+- **Dead capacity is a third of the model.** Without late relocation the dead
+  census at the end shows what the churn was hiding: truck 30k 20 % dead (was
+  0.5 %), the hour 39 % dead (31.7 % even with the 85 % stop) — at equal PSNR.
+  The 1.05 M model is really ~650 k live splats plus ~400 k that the opacity
+  regulariser kills, relocation re-places and the next round kills again. The
+  export already purges them (smaller SOGs for free); the smoke e2e's purge
+  guard is relaxed from 85 % to 60 % of the trained count. Turning that dead
+  third into live capacity is the opacity-economy problem from 09-01/09-02,
+  now quantified.
+
 ## 2026-09-06 (speed day 1: per-kernel profile, three negatives, visibility compaction = 3 %)
 
 - **Per-kernel timestamps** (`opts.profile` / bench `?gputime=N`, one pass per

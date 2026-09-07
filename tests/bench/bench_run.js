@@ -171,7 +171,7 @@ try {
         ...(Q.get('growfrac') ? { growFrac: +Q.get('growfrac') } : {}),
         ...(Q.get('growtau') ? { growTau: +Q.get('growtau') } : {}),
         ...(Q.get('growuntil') ? { growUntil: +Q.get('growuntil') } : {}),
-        ...(Q.get('relocuntil') ? { relocUntil: +Q.get('relocuntil') } : {}),
+        ...(Q.get('relocuntil') ? { relocUntil: Q.get('relocuntil') === 'all' ? Infinity : +Q.get('relocuntil') } : {}),   // 'all' = relocate to the last step (pre-09-07 default)
         ...(Q.get('reloctaper') ? { relocTaper: +Q.get('reloctaper') } : {}),
         ...(Q.get('lrdecay') ? { lrDecayFrac: +Q.get('lrdecay') } : {}),
         ...(Q.get('lrdecaymax') ? { lrDecayMax: +Q.get('lrdecaymax') } : {}),   // iterations; 0 = no cap

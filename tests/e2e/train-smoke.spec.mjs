@@ -60,5 +60,9 @@ test('own-photos run: solve, train, finish, compress, stored, viewable', async (
   // viewer), so the stored model may be smaller than the live count, never
   // larger, and never by much on a fresh short run
   expect(view.splats).toBeLessThanOrEqual(done.splats);
-  expect(view.splats).toBeGreaterThan(done.splats * 0.85);
+  // since 2026-09-07 relocation stops when the position LR reaches its floor, so
+  // rows that die in the final stretch stay dead until the export purges them:
+  // 20 % on truck 30k, ~20 % on this 2k smoke (was < 1 % when relocation ran
+  // to the last step). The purge is the point; guard only against a gutted file.
+  expect(view.splats).toBeGreaterThan(done.splats * 0.6);
 });

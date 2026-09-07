@@ -1231,7 +1231,7 @@ export class GSTrainer {
    *  Langevin needed. Readback stays 16 bytes/splat. */
   async _refineV3(rng = this.rand) {
     const d = this.device;
-    const canReloc = this.iter < (this.opts.relocUntil ?? Infinity);
+    const canReloc = this.iter < (this.opts.relocUntil ?? this._annealEnd());
     const limit = Math.min(this.cap, this.growLimit || this.cap);
     const canGrow = this.iter < (this.opts.growUntil ?? 0.5 * this.horizon) && this.n < limit;
     if (!canReloc && !canGrow) return { moved: 0, grown: 0, n: this.n };
@@ -1382,6 +1382,20 @@ export class GSTrainer {
    *  step, 38 % of those die again next round, and the held-out curve swings
    *  ±0.4 dB between evals; a hard stop at 85 % flattened the tail but not
    *  the level. Default: no taper (factor 1). */
+  /** Iteration at which the 100x position-LR decay reaches its floor (see the
+   *  posLr schedule): min(lrDecayFrac·H, lrDecayMax). Since 2026-09-07 also the
+   *  default end of relocation — relocated splats born at the floor LR cannot
+   *  settle (62 % survive a round), and every round re-places 8 % of the model:
+   *  truck hour 26.52 (stop 85 %) → 26.47 (50 %) → 26.44 (anneal end, 80k) but
+   *  the held-out curve is smooth from minute 14 instead of swinging ±0.4 to
+   *  the end, and 200k iterations take 36 min instead of 44-56 (no refine
+   *  read-backs after the stop). 30k guards: truck 25.69/25.68 vs 25.68/25.71,
+   *  garden 26.81 vs 26.72. opts.relocUntil overrides (Infinity = to the end). */
+  _annealEnd() {
+    const cap = this.opts.lrDecayMax === 0 ? Infinity : (this.opts.lrDecayMax ?? 80000);
+    return Math.min((this.opts.lrDecayFrac ?? 0.75) * this.horizon, cap);
+  }
+
   _relocTaperFactor() {
     const f = this.opts.relocTaper;
     if (!(f > 0)) return 1;
@@ -1399,7 +1413,7 @@ export class GSTrainer {
     // 12.7 dB over a full run while passing every 3k smoke. The cheap
     // gather/plan infrastructure is sound — the donor policy is not.
     if (this.opts.refineV2 !== true) return this._refineLegacy(rng);
-    const canReloc = this.iter < (this.opts.relocUntil ?? Infinity);
+    const canReloc = this.iter < (this.opts.relocUntil ?? this._annealEnd());
     const limit = Math.min(this.cap, this.growLimit || this.cap);
     const canGrow = this.iter < (this.opts.growUntil ?? 0.75 * this.horizon) && this.n < limit;
     if (!canReloc && !canGrow) return { moved: 0, grown: 0, n: this.n };
@@ -1619,7 +1633,7 @@ export class GSTrainer {
    *  the export); default Infinity = relocate for the whole run.
    *  Returns { moved, grown, n }. */
   async _refineLegacy(rng = this.rand) {
-    const canReloc = this.iter < (this.opts.relocUntil ?? Infinity);
+    const canReloc = this.iter < (this.opts.relocUntil ?? this._annealEnd());
     const canGrow = this.iter < (this.opts.growUntil ?? 0.75 * this.horizon) && this.n < Math.min(this.cap, this.growLimit || this.cap);
     if (!canReloc && !canGrow) return { moved: 0, grown: 0, n: this.n };
     const d = this.device;
