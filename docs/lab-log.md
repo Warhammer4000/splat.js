@@ -90,6 +90,15 @@ about ±0.1 dB.
   with density (vs 176/181 at 0.74 at 960 px) — same lesson as the statue,
   960 px stays. Charleston dropped from the evaluation (a zoom montage, not a
   capture, per the user).
+- **Needle set revisited under the anneal-bound relocation** (user saw the
+  ringing halos again on the synthetic corner — the 09-01 fix was a sticky
+  opt-in, never the default, because it lost at 40k+). 30k with dilate 0.1 /
+  anisoReg 0 / minScale 1e-5: truck **25.84** vs 25.70, garden 26.75 vs 26.72,
+  synthetic **40.97** vs 40.38. The long-horizon degeneration was relocation
+  churn, and that stops at the anneal end now. Queued: truck 40k, the hour
+  curve, bicycle, playroom — if they hold, the needle set becomes the default.
+  LichtFeld on the synthetic corner (MCMC 30k, GT cams, random init): needles
+  everywhere per the user; rerun from our sparse cloud in progress.
 
 ## 2026-09-08 (20-minute row; bar showcase night; statue set)
 

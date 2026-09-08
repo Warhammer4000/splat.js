@@ -747,7 +747,7 @@ export class Session {
       // exactly what external rasterizers render: nothing to bake.
       const baked = (meta && this.trainer.mipComp !== false)
         ? bakeOpacityCompensation(data, n, meta.f,
-            Float32Array.from(this.trainer.camMeta.flatMap(camPosition)))
+            Float32Array.from(this.trainer.camMeta.flatMap(camPosition)), this.trainer.dilate)
         : data;
       // dead splats — invisible at the smallest 8-bit alpha — are pure
       // file-size and render tax for every viewer. Long classic-era runs

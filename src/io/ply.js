@@ -11,10 +11,14 @@ const STRIDE = 16;
 
 /** The trainer's splat weights include a Mip-Splatting opacity compensation
  *  factor that standard sorted renderers don't apply. Bake an approximation
- *  into the opacities (screen size estimated per splat at its NEAREST
- *  training camera, isotropic approximation via the mean scale).
- *  camPositions: flat [x,y,z,...]. Returns a transformed copy. */
-export function bakeOpacityCompensation(data, n, f, camPositions) {
+ *  into the opacities: screen footprint estimated per splat at its NEAREST
+ *  training camera from its two LARGEST axes (a splat is seen across its
+ *  thin axis far more often than along it), with the run's own screen-space
+ *  dilation. BUG FIXED 2026-09-08: a hardcoded 0.3 and the mean of all three
+ *  scales made a needle-set export (dilate 0.1, thin splats) nearly
+ *  transparent — "full of holes" in every viewer while the trainer scored
+ *  41 dB. camPositions: flat [x,y,z,...]. Returns a transformed copy. */
+export function bakeOpacityCompensation(data, n, f, camPositions, dilate = 0.3) {
   const out = Float32Array.from(data);
   const nc = camPositions.length / 3;
   for (let i = 0; i < n; i++) {
@@ -28,9 +32,10 @@ export function bakeOpacityCompensation(data, n, f, camPositions) {
       if (d2 < z2min) z2min = d2;
     }
     const z = Math.max(1e-3, Math.sqrt(z2min));
-    const sMean = Math.exp((data[b + 3] + data[b + 4] + data[b + 5]) / 3);
-    const s2d = f * sMean / z;
-    const comp = (s2d * s2d) / (s2d * s2d + 0.3);
+    // two largest axes -> the 2-D Mip factor sqrt(det V / det(V + D I)) of the ellipse they span
+    const s = [data[b + 3], data[b + 4], data[b + 5]].sort((x, y) => y - x);
+    const a = f * Math.exp(s[0]) / z, c2 = f * Math.exp(s[1]) / z;
+    const comp = Math.sqrt((a * a * c2 * c2) / ((a * a + dilate) * (c2 * c2 + dilate)));
     const opa = comp / (1 + Math.exp(-data[b + 13]));
     const clamped = Math.min(1 - 1e-6, Math.max(1e-6, opa));
     out[b + 13] = Math.log(clamped / (1 - clamped));
