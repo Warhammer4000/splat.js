@@ -107,6 +107,11 @@ about ±0.1 dB.
   they span). Re-exports: synthetic needle 41.19, truck needle 25.88 vs 25.57
   default — user: "MUCH better". LichtFeld from our sparse cloud + cams on the
   12-view corner still shows needles/holes (its sparse-view behaviour).
+- **Needle set becomes the default** (dilate 0.1, anisoReg 0, minScale 1e-5) after
+  six guards: truck 30k 25.84 / 40k 26.12 / hour 26.59 (165k in a shared-GPU
+  hour, plateau 26.5–26.64 from minute 37) vs 25.70 / 25.93 / 26.44; garden
+  26.75 vs 26.72, bicycle 23.98 vs 23.82, playroom 27.73 vs 27.65, synthetic
+  41.16 vs 40.41. README rows re-measured under the new default before deploy.
 
 ## 2026-09-08 (20-minute row; bar showcase night; statue set)
 

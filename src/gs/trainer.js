@@ -53,7 +53,15 @@ export class GSTrainer {
     // floor on how thin a splat can render (thinner axes fatten AND fade),
     // which is what text/edge ringing compensates for. Lowering it trades
     // that floor against distant-texture aliasing.
-    this.dilate = this.opts.dilate ?? 0.3;
+    // Needle set as the default since 2026-09-08 (dilate 0.1, anisoReg 0, minScale 1e-5):
+    // thin splats were banned three ways (0.3 px² dilation floor, isotropy pull, 1e-4·r
+    // scale floor) and the ban made edges blobby with dark ringing halos. The set won at
+    // 20k in September but lost at 40k+ because relocation churn degenerated thin splats;
+    // with relocation stopping at the anneal end it wins everywhere measured: truck 30k
+    // 25.84 vs 25.70, 40k 26.12 vs 25.93, hour 26.59 vs 26.44, garden 26.75 vs 26.72,
+    // bicycle 23.98 vs 23.82, playroom 27.73 vs 27.65, synthetic 41.16 vs 40.41.
+    // ?dilate=0.3&aniso=0.005&minscale=1e-4 restores the blob regime.
+    this.dilate = this.opts.dilate ?? 0.1;
     // opts.mipComp false: no opacity compensation for the dilation (Brush /
     // classic-3DGS semantics, and what external viewers rasterize)
     this.mipComp = this.opts.mipComp ?? true;
@@ -143,7 +151,7 @@ export class GSTrainer {
       // anisoReg default 0.005 (was 0.02): with SIFT-grade poses the needle
       // pathology is gone (camping p99 ratio 42:1) and the stronger pull
       // toward isotropy measurably blurs edges (-0.8dB holdout on train-84)
-      compute: { module: mk(makeChainSrc(this.opts.anisoReg ?? (this.v2 ? 0 : 0.005), this.shDeg, this.dcMode, this.opts.statMax ?? false, this.dilate, this.mipComp), 'chain'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
+      compute: { module: mk(makeChainSrc(this.opts.anisoReg ?? 0, this.shDeg, this.dcMode, this.opts.statMax ?? false, this.dilate, this.mipComp), 'chain'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
     });
     this.pipeAdam = d.createComputePipeline({
       label: 'adam', layout: 'auto',
@@ -160,7 +168,7 @@ export class GSTrainer {
       this.pipeVisCount = cp('vis-count', VIS_COUNT_SRC);
       this.pipeVisScan = cp('vis-scan', VIS_SCAN_SRC);
       this.pipeVisScatter = cp('vis-scatter', VIS_SCATTER_SRC);
-      this.pipeChainC = cp('chain-compact', makeChainSrc(this.opts.anisoReg ?? (this.v2 ? 0 : 0.005), this.shDeg, this.dcMode, this.opts.statMax ?? false, this.dilate, this.mipComp, true), { FIXED: this.gradFixed });
+      this.pipeChainC = cp('chain-compact', makeChainSrc(this.opts.anisoReg ?? 0, this.shDeg, this.dcMode, this.opts.statMax ?? false, this.dilate, this.mipComp, true), { FIXED: this.gradFixed });
       this.pipeAdamC = cp('adam-compact', makeAdamSrc('compact'));
       this.pipeAdamI = cp('adam-invisible', makeAdamSrc('invis'));
       if (this.shK) this.pipeSHAdamC = cp('sh-adam-compact', makeSHAdamSrc('compact'));
@@ -641,7 +649,7 @@ export class GSTrainer {
       // truck +0.2, synthetic +0.15 (cap 2 regressed synthetic -1.6, its
       // room-scale giants overfit). Runaway sanity beyond that is anisoReg
       // + scaleReg's job, not an absolute ceiling's.
-      Math.log(r * (this.opts.minScale ?? 1e-4)), Math.log(r * (this.opts.maxScale ?? 0.5)), 8.0, this.n * STRIDE,
+      Math.log(r * (this.opts.minScale ?? 1e-5)), Math.log(r * (this.opts.maxScale ?? 0.5)), 8.0, this.n * STRIDE,
       // 0.01 (was 0.05): matches standard 3DGS-MCMC; the strong early-era pull
       // kept splats semi-transparent and layered ("milky")
       this.v2 ? (this.opts.opacityReg ?? 0) : (this.opts.opacityReg ?? 0.01),
@@ -1254,7 +1262,7 @@ export class GSTrainer {
     this.bufGatherRead.unmap();
 
     const sig = (x) => 1 / (1 + Math.exp(-x));
-    const minLog = Math.log(this.sceneRadius * (this.opts.minScale ?? 1e-4)) + 0.05;
+    const minLog = Math.log(this.sceneRadius * (this.opts.minScale ?? 1e-5)) + 0.05;
     let dead = [];
     const pool = [];
     for (let i = 0; i < this.n; i++) {
