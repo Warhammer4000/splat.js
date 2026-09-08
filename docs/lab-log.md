@@ -58,6 +58,13 @@ about ±0.1 dB.
   a registration retry for frames that failed against an early model (3
   rounds, support grown 1.5×) — no gain on charleston (montage), truck /
   statue probes pending.
+- **Charleston's transitions are dissolves, not hard cuts**: the frame difference
+  ramps 0.004 → 0.03 over ~1 s at each seam (max anywhere 0.037), so the
+  spike detector sees one shot. Hard cuts are detected; cross-fades are a known
+  gap (a sustained-diff-without-motion criterion would catch them). Low
+  priority — phone captures are single takes. Registration retry: truck
+  251/251 unchanged (no round triggered), statue 30/34 unchanged (one round,
+  nothing new) — neutral and safe.
 
 ## 2026-09-08 (20-minute row; bar showcase night; statue set)
 
