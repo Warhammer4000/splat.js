@@ -83,6 +83,13 @@ about ±0.1 dB.
   usable pairs. The relaxed-gate retry alone (176 → 224 pairs) changed
   nothing; the 30k on 96 frames read 12.4 dB. Default overlap → 0.9 (motion
   budget 10 % of the width); 30k training on the dense set queued.
+- **Lisa, dense selection, 30k**: 181 frames (0.3 s), 176 registered, rms 0.74,
+  **29.82 dB on 22 held-out frames**, 8.2 min training (from 12.4 dB on the
+  96-frame set). Published `lisa_video_2026-09-08` (13.4 MB). Finer feature
+  frames hurt again: 1600 px → 42/96 at 1.83 px alone, 128/181 at 1.34 px
+  with density (vs 176/181 at 0.74 at 960 px) — same lesson as the statue,
+  960 px stays. Charleston dropped from the evaluation (a zoom montage, not a
+  capture, per the user).
 
 ## 2026-09-08 (20-minute row; bar showcase night; statue set)
 
