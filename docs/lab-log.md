@@ -244,6 +244,12 @@ about ±0.1 dB.
   (160,945 live, 30k, 52.4 train / 41.2 on the held-out view; was the
   Aug 132.7k model at 49.5 train). Gallery feed verified. The cards now read
   held-out dB where the run had one; the intro camera paths were not re-recorded.
+- **20-minute row re-measured on the idle GPU** (needle default, 1.05 M cap,
+  `minutes=20`, two seeds): **26.419 / 26.405** at 72.6 k / 74.3 k cycles →
+  README row "20 min · 73 k · 1.05 M · 26.41 dB" (the shared-GPU attempt had
+  read 25.68 / 24.79 at half pace and was discarded). Same wall time now buys
+  fewer cycles than the 09-07 default (95 k) — the thin-splat set costs more per
+  step — and +0.03 dB.
 
 ## 2026-09-07 (the same hour for LichtFeld and Brush; dB-over-time diagram)
 

@@ -86,6 +86,7 @@ its native 979 px, on a desktop NVIDIA GPU, in one tab:
 | LichtFeld Studio v0.5.3 — 5½ min train · 30 k cycles · 2 M splats (measured here) | 26.14 dB |
 | **Splat.js — 10 min train · 40 k cycles · 1.4 M splats** | **26.14 dB** |
 | Student Splatting & Scooping (CVPR 2025) | 26.41 dB |
+| **Splat.js — 20 min train · 73 k cycles · 1.05 M splats** | **26.41 dB** |
 | **Splat.js — 60 min train · 165 k cycles · 1.05 M splats** | **26.59 dB** |
 
 Same images, same resolution, same held-out-every-8th protocol; all times
@@ -101,7 +102,8 @@ SH degree 3, 2 M splat cap, from the COLMAP poses and sparse cloud.
 The published methods train 30 k iterations of 2–2.6 M Gaussians with
 degree-3 spherical harmonics on native CUDA. The 30 k and 40 k Splat.js
 rows are six- and ten-minute browser runs (mean of two seeds, 2026-09-08);
-the 60 min row is the same system given an hour on a shared GPU (165 k of
+the 20 min row is the same trainer stopped at twenty minutes (73 k cycles,
+mean of two seeds, 26.42 / 26.41 dB); the 60 min row is the same system given an hour on a shared GPU (165 k of
 its 200 k-cycle schedule) — a 1.05 M cap fits more cycles into the time than
 2 M does and scores higher (2 M at 114 k cycles: 26.19 dB). Its poses come
 from the in-browser solve at its desktop defaults: 8000 SIFT features from
