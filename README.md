@@ -78,9 +78,9 @@ its native 979 px, on a desktop NVIDIA GPU, in one tab:
 | method | Truck test PSNR |
 |---|---|
 | 3DGS (SIGGRAPH 2023) | 25.18 dB |
-| **Splat.js — 6 min train · 30 k cycles · 1.05 M splats** | **25.83 dB** |
 | Mip-Splatting (CVPR 2024) | 25.74 dB |
 | Scaffold-GS (CVPR 2024) | 25.77 dB |
+| **Splat.js — 6 min train · 30 k cycles · 1.05 M splats** | **25.83 dB** |
 | Brush v0.3 — 30 min train · 30 k cycles · 2 M splats (measured here) | 26.10 dB |
 | 3DGS-MCMC (NeurIPS 2024) | 26.11 dB |
 | LichtFeld Studio v0.5.3 — 5½ min train · 30 k cycles · 2 M splats (measured here) | 26.14 dB |
