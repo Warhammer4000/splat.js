@@ -104,9 +104,17 @@ export class GSTrainer {
     // Revisit when the analysis learns subgroup scopes.
     this.subgroupAgg = this.tileGrad && (this.opts.subgroupAgg ?? false) &&
       d.features && d.features.has('subgroups');
+    // shader feature flags (speed plan #1): compile out the gradients and
+    // statistics nothing consumes under the current options. opts.camGrads
+    // forces the camera-side gradients on (gradcheck; anything that reads
+    // bufCamGrad without enabling camOpt/aspectOpt/expComp).
+    this.camGrads = !!(this.opts.camGrads ?? (this.opts.camOpt || this.opts.aspectOpt || this.opts.expComp));
+    this.useStats = !!(this.opts.useStats ?? (this.opts.engine === 'v2' || this.opts.refineV2 === true ||
+      this.opts.errDonors || this.opts.statMax));
+    this.renderFeat = { camGrad: this.camGrads, stats: this.useStats, robust: !!this.opts.robustLoss };
     this.pipeRender = d.createComputePipeline({
       label: 'render', layout: 'auto',
-      compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg, 0, 0.2, 2, this.dilate, this.opts.gradSpread ?? 1, this.opts.gradBatch ?? 16, this.opts.gradZeroSkip ?? false, this.opts.projVec ?? false), 'render'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
+      compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg, 0, 0.2, 2, this.dilate, this.opts.gradSpread ?? 1, this.opts.gradBatch ?? 16, this.opts.gradZeroSkip ?? false, this.opts.projVec ?? false, this.renderFeat), 'render'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
     });
     // D-SSIM loss (opts.ssimWeight > 0): split renderer + image passes.
     // The fused kernel stays untouched for the default path.
@@ -115,14 +123,14 @@ export class GSTrainer {
     if (this.ssimW > 0 || this.ssaa >= 2) {
       this.pipeRenderFwd = d.createComputePipeline({
         label: 'render-fwd', layout: 'auto',
-        compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg, 1, 0.2, 2, this.dilate, this.opts.gradSpread ?? 1, this.opts.gradBatch ?? 16, this.opts.gradZeroSkip ?? false, this.opts.projVec ?? false), 'render-fwd'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
+        compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg, 1, 0.2, 2, this.dilate, this.opts.gradSpread ?? 1, this.opts.gradBatch ?? 16, this.opts.gradZeroSkip ?? false, this.opts.projVec ?? false, this.renderFeat), 'render-fwd'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
       });
     }
     if (this.ssaa >= 2) {
       // supersampled training: raster at ssaa x, box-downsample + loss at 1x
       this.pipeRenderBwd3 = d.createComputePipeline({
         label: 'render-bwd-ssaa', layout: 'auto',
-        compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg, 3, 0, this.ssaa, this.dilate, this.opts.gradSpread ?? 1, this.opts.gradBatch ?? 16, this.opts.gradZeroSkip ?? false, this.opts.projVec ?? false), 'render-bwd-ssaa'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
+        compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg, 3, 0, this.ssaa, this.dilate, this.opts.gradSpread ?? 1, this.opts.gradBatch ?? 16, this.opts.gradZeroSkip ?? false, this.opts.projVec ?? false, this.renderFeat), 'render-bwd-ssaa'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
       });
       this.pipeSsaaLoss = d.createComputePipeline({
         label: 'ssaa-loss', layout: 'auto',
@@ -132,7 +140,7 @@ export class GSTrainer {
     if (this.ssimW > 0) {
       this.pipeRenderBwd = d.createComputePipeline({
         label: 'render-bwd', layout: 'auto',
-        compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg, 2, this.ssimW, 2, this.dilate, this.opts.gradSpread ?? 1, this.opts.gradBatch ?? 16, this.opts.gradZeroSkip ?? false, this.opts.projVec ?? false), 'render-bwd'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
+        compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg, 2, this.ssimW, 2, this.dilate, this.opts.gradSpread ?? 1, this.opts.gradBatch ?? 16, this.opts.gradZeroSkip ?? false, this.opts.projVec ?? false, this.renderFeat), 'render-bwd'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
       });
       const ssimMod = mk(SSIM_SRC, 'ssim');
       const sp = (entry, constants) => d.createComputePipeline({
@@ -151,7 +159,7 @@ export class GSTrainer {
       // anisoReg default 0.005 (was 0.02): with SIFT-grade poses the needle
       // pathology is gone (camping p99 ratio 42:1) and the stronger pull
       // toward isotropy measurably blurs edges (-0.8dB holdout on train-84)
-      compute: { module: mk(makeChainSrc(this.opts.anisoReg ?? 0, this.shDeg, this.dcMode, this.opts.statMax ?? false, this.dilate, this.mipComp), 'chain'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
+      compute: { module: mk(makeChainSrc(this.opts.anisoReg ?? 0, this.shDeg, this.dcMode, this.opts.statMax ?? false, this.dilate, this.mipComp, false, this.camGrads), 'chain'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
     });
     this.pipeAdam = d.createComputePipeline({
       label: 'adam', layout: 'auto',
@@ -168,7 +176,7 @@ export class GSTrainer {
       this.pipeVisCount = cp('vis-count', VIS_COUNT_SRC);
       this.pipeVisScan = cp('vis-scan', VIS_SCAN_SRC);
       this.pipeVisScatter = cp('vis-scatter', VIS_SCATTER_SRC);
-      this.pipeChainC = cp('chain-compact', makeChainSrc(this.opts.anisoReg ?? 0, this.shDeg, this.dcMode, this.opts.statMax ?? false, this.dilate, this.mipComp, true), { FIXED: this.gradFixed });
+      this.pipeChainC = cp('chain-compact', makeChainSrc(this.opts.anisoReg ?? 0, this.shDeg, this.dcMode, this.opts.statMax ?? false, this.dilate, this.mipComp, true, this.camGrads), { FIXED: this.gradFixed });
       this.pipeAdamC = cp('adam-compact', makeAdamSrc('compact'));
       this.pipeAdamI = cp('adam-invisible', makeAdamSrc('invis'));
       if (this.shK) this.pipeSHAdamC = cp('sh-adam-compact', makeSHAdamSrc('compact'));
@@ -321,12 +329,12 @@ export class GSTrainer {
       // wrote back ZEROED SH Adam moments every 2500 iters
       this.bufSHM = buf(shb, B.STORAGE | B.COPY_DST | B.COPY_SRC, 'sh-adam-m');
       this.bufSHV = buf(shb, B.STORAGE | B.COPY_DST | B.COPY_SRC, 'sh-adam-v');
-      this.uniSHAdam = buf(32, B.UNIFORM | B.COPY_DST, 'uniSHAdam');
+      this.uniSHAdam = buf(48, B.UNIFORM | B.COPY_DST, 'uniSHAdam');
     }
 
     this.uniTrain = buf(144, B.UNIFORM | B.COPY_DST, 'uniTrain');
     this.uniView = buf(144, B.UNIFORM | B.COPY_DST, 'uniView');
-    this.uniAdam = buf(128, B.UNIFORM | B.COPY_DST, 'uniAdam');
+    this.uniAdam = buf(144, B.UNIFORM | B.COPY_DST, 'uniAdam');
 
     // phase-2 refine: 16 bytes/splat gathered for the CPU decision, a plan of
     // 32-byte ops back, executed GPU-side (no params/moments round trip).
@@ -581,6 +589,7 @@ export class GSTrainer {
       this.shAdamData = new Float32Array([
         0.9, 0.999, 1e-15, 1,
         this.opts.shLr ?? 1.25e-4, this.n * this.shK * 3, this.shK * 3, 0,
+        1, 1, 0, 0,   // bc: 1/(1-b1^t), 1/(1-b2^t) — set per step by _adamBias()
       ]);
       new Uint32Array(this.shAdamData.buffer)[7] = this.cap * 16; // proj tail (compact list)
     }
@@ -621,7 +630,7 @@ export class GSTrainer {
     // training length (default matches main.js auto-stop) instead of a
     // hardcoded 30k that predates the longer default runs
     this.horizon = this.opts.maxIters ?? 60000;
-    this.adamData = new Float32Array(32);
+    this.adamData = new Float32Array(36);   // 8 vec4 + bc (bias corrections, _adamBias())
     const r = sceneRadius;
     // posLrScale: experiment knob — the reference implementations run their
     // position lr 20-60x LOWER relative to scene extent (median vs our P90,
@@ -801,6 +810,19 @@ export class GSTrainer {
    *  dispatches, so the production step (one pass) cannot be broken down.
    *  Returns per-kernel mean ms over k steps (also trains the model k steps).
    *  Needs the 'timestamp-query' device feature (requested when available). */
+  /** Adam bias corrections 1/(1-b^t) for the current step, written into the
+   *  uniforms so the kernels skip two pow() per parameter (speed plan #6). */
+  _adamBias() {
+    const t = Math.max(1, this.adamData[19]);
+    this.adamData[32] = 1 / (1 - Math.pow(this.adamData[16], t));
+    this.adamData[33] = 1 / (1 - Math.pow(this.adamData[17], t));
+  }
+  _shAdamBias() {
+    const t = Math.max(1, this.shAdamData[3]);
+    this.shAdamData[8] = 1 / (1 - Math.pow(this.shAdamData[0], t));
+    this.shAdamData[9] = 1 / (1 - Math.pow(this.shAdamData[1], t));
+  }
+
   async profileSteps(k = 100) {
     const d = this.device;
     if (!d.features.has('timestamp-query')) return { error: 'timestamp-query not available' };
@@ -818,8 +840,9 @@ export class GSTrainer {
       this._writeTrainUniforms(this.camUniforms[ci]);
       d.queue.writeBuffer(this.bufTileCnt, 0, this.tileZero);
       this.adamData[19] = (this.iter + 1) - (this.adamT0 || 0);
+      this._adamBias();
       d.queue.writeBuffer(this.uniAdam, 0, this.adamData);
-      if (this.shK) { this.shAdamData[3] = this.iter + 1; this.shAdamData[5] = this.n * this.shK * 3; d.queue.writeBuffer(this.uniSHAdam, 0, this.shAdamData); }
+      if (this.shK) { this.shAdamData[3] = this.iter + 1; this.shAdamData[5] = this.n * this.shK * 3; this._shAdamBias(); d.queue.writeBuffer(this.uniSHAdam, 0, this.shAdamData); }
       const gx = Math.ceil(meta.w / TILE), gy = Math.ceil(meta.h / TILE);
       const nGroups = Math.ceil(this.n / 256);
       const d1 = (pass, total) => { const g = Math.ceil(total / 256); if (g <= 65535) pass.dispatchWorkgroups(g); else pass.dispatchWorkgroups(65535, Math.ceil(g / 65535)); };
@@ -867,9 +890,37 @@ export class GSTrainer {
       steps++;
     }
     qs.destroy(); qbuf.destroy(); rb.destroy();
+    // msPerStep counts the production kernels only: renderFwd is a diagnostic
+    // extra pass (its time is reported on its own line; render - renderFwd
+    // approximates the backward's share, reported as renderBwd)
     const out = { steps, n: this.n, msPerStep: 0 };
-    names.forEach((nm, i) => { if (sum[i] > 0) { out[nm] = +(sum[i] / steps).toFixed(3); out.msPerStep += sum[i] / steps; } });
+    names.forEach((nm, i) => { if (sum[i] > 0) { out[nm] = +(sum[i] / steps).toFixed(3); if (nm !== 'renderFwd') out.msPerStep += sum[i] / steps; } });
     out.msPerStep = +out.msPerStep.toFixed(3);
+    if (out.render && out.renderFwd) out.renderBwd = +(out.render - out.renderFwd).toFixed(3);
+    // tile-entry histogram of the last profiled frame: how many tiles hold
+    // <=256 / 512 / 1024 / 2048 entries, and how many exceed the shared-memory
+    // sort (the global bitonic path)
+    try {
+      const nt = this.maxTiles;
+      const rbT = d.createBuffer({ size: (nt + 1) * 4 + nt * 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+      const enc = d.createCommandEncoder();
+      enc.copyBufferToBuffer(this.bufTileStart, 0, rbT, 0, (nt + 1) * 4);
+      enc.copyBufferToBuffer(this.bufTileCursor, 0, rbT, (nt + 1) * 4, nt * 4);
+      d.queue.submit([enc.finish()]);
+      await rbT.mapAsync(GPUMapMode.READ);
+      const a = new Uint32Array(rbT.getMappedRange().slice(0));
+      rbT.unmap(); rbT.destroy();
+      const start = a.subarray(0, nt + 1), cursor = a.subarray(nt + 1);
+      const hist = { le256: 0, le512: 0, le1024: 0, le2048: 0, gt2048: 0, entries: 0, maxTile: 0, tiles: 0 };
+      const ntUsed = Math.ceil(this.camMeta[0].w / TILE) * Math.ceil(this.camMeta[0].h / TILE);
+      for (let t = 0; t < Math.min(nt, ntUsed); t++) {
+        const c = cursor[t] >= start[t] ? cursor[t] - start[t] : 0;
+        if (start[t + 1] < start[t]) break;
+        hist.tiles++; hist.entries += c; if (c > hist.maxTile) hist.maxTile = c;
+        if (c <= 256) hist.le256++; else if (c <= 512) hist.le512++; else if (c <= 1024) hist.le1024++; else if (c <= 2048) hist.le2048++; else hist.gt2048++;
+      }
+      out.tileHist = hist;
+    } catch (e) { out.tileHist = { error: String(e && e.message || e) }; }
     return out;
   }
 
@@ -908,6 +959,7 @@ export class GSTrainer {
     // (1-b1^t ≈ 1 while m, v are still tiny) — the warm-restart kick the
     // resume e2e measured once the resumed trainer got its real config back
     this.adamData[19] = this.iter - (this.adamT0 || 0);
+    this._adamBias();
     // exponential position-lr decay to 1% at 75% of the horizon, then a
     // floor-lr polish phase. A/B'd vs INRIA-style full-length decay on
     // camping @40k: full-length gains +0.18 train but LOSES 0.15dB holdout
@@ -950,6 +1002,7 @@ export class GSTrainer {
     if (this.shK) {
       this.shAdamData[3] = this.iter;
       this.shAdamData[5] = this.n * this.shK * 3;
+      this._shAdamBias();
       d.queue.writeBuffer(this.uniSHAdam, 0, this.shAdamData);
     }
 

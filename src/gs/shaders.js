@@ -328,7 +328,11 @@ ${shDeg > 0 ? /* wgsl */ `
   proj[b + 9u]  = col.y;
   proj[b + 10u] = col.z;
   proj[b + 11u] = 1.0;
-  proj[b + 12u] = g.va;
+  // conic-gradient normaliser 1/(1 + lambda_max) of the dilated covariance:
+  // the render backward scales its three conic gradient slots by it (keeps
+  // the fixed-point accumulators O(1)), the chain pass divides it back out.
+  // Computed once here instead of per pixel-splat pair (speed plan #3).
+  proj[b + 12u] = 1.0 / (1.0 + mid + disc);
   proj[b + 13u] = g.vb;
   proj[b + 14u] = g.vc;
   proj[b + 15u] = rad;
@@ -467,8 +471,13 @@ fn main(@builtin(workgroup_id) wg: vec3u,
   let cnt = tileCursor[tile] - s;
 
   if (cnt <= SHSORT) {
-    // ---- shared-memory bitonic over SHSORT slots ----
-    for (var i = li; i < SHSORT; i += 256u) {
+    // ---- shared-memory bitonic over the next power of two >= cnt ----
+    // (speed plan #2: a 300-entry tile used to run the full 2048-slot
+    // network — 66 barrier stages where 45 suffice)
+    if (cnt < 2u) { return; }
+    var N = 2u;
+    while (N < cnt) { N = N << 1u; }
+    for (var i = li; i < N; i += 256u) {
       if (i < cnt) {
         sk[i] = entries[2u * (s + i)];
         sv[i] = entries[2u * (s + i) + 1u];
@@ -478,9 +487,9 @@ fn main(@builtin(workgroup_id) wg: vec3u,
       }
     }
     workgroupBarrier();
-    for (var k = 2u; k <= SHSORT; k = k << 1u) {
+    for (var k = 2u; k <= N; k = k << 1u) {
       for (var j = k >> 1u; j > 0u; j = j >> 1u) {
-        for (var i = li; i < SHSORT; i += 256u) {
+        for (var i = li; i < N; i += 256u) {
           let l = i ^ j;
           if (l > i) {
             let asc = (i & k) == 0u;
@@ -556,7 +565,18 @@ const makeRenderSrcRaw = (E = DEFAULT_E_CUT, A = DEFAULT_A_MIN, tileGrad = false
   // K splats per zero/flush barrier pair (batched flush); tile-grad, non-subgroup path only.
   // MEASURED 2026-09-06 (truck 1.04M, 979 px): render 10.8 (K=1) -> 8.86 (4) -> 8.32 (8) ->
   // 8.18 ms (16); 13*K flush threads cap K at 19. Trainer default 16; parity within noise.
-  K = (tileGrad && !subgroups) ? Math.max(1, batch | 0) : 1) =>
+  K = (tileGrad && !subgroups) ? Math.max(1, batch | 0) : 1,
+  // feature flags (speed plan #1): work for features that are off is compiled
+  // out instead of gated at runtime. camGrad: exposure gain/bias gradients (2
+  // global atomics per valid pixel); stats: the rendered-mass / error-mass /
+  // grad-stat slots 10-12 (3 shared atomics per pixel-splat pair, 3 flushes
+  // per splat) that only the v2/refineV2/errDonors refinement policies read;
+  // robust: the RobustNeRF tile vote (2 shared atomics + a barrier per pixel).
+  feat = {},
+  camGrad = feat.camGrad ?? true,
+  useStats = (feat.stats ?? true) || subgroups,
+  robust = feat.robust ?? true,
+  NS = useStats ? 13 : 10) =>
   (subgroups ? 'enable subgroups;\n' : '') + CAM_STRUCT + cutConsts(E, A, 1.0, D) + /* wgsl */ `
 @group(0) @binding(1) var<storage, read> proj: array<f32>;
 @group(0) @binding(2) var<storage, read> tileStart: array<u32>;
@@ -580,9 +600,9 @@ fn camAdd(idx: u32, v: f32) {
 ` + (tileGrad ? /* wgsl */ `
 var<workgroup> wgEnd: atomic<u32>;
 var<workgroup> wgEndU: u32;
-var<workgroup> sg: array<atomic<i32>, ${13 * P * K}>; // 0-9 grads, 10-11 error mass, 12 grad-stat (x P partials, x K batched splats)
+var<workgroup> sg: array<atomic<i32>, ${NS * P * K}>; // 0-9 grads, 10-11 error mass, 12 grad-stat (x P partials, x K batched splats; NS = 10 with the stats compiled out)
 var<private> sgPart: u32;
-${K > 1 ? 'var<private> sgBase: u32; // batched flush: the current splat’s 13*P block in sg' : ''}
+${K > 1 ? 'var<private> sgBase: u32; // batched flush: the current splat’s NS*P block in sg' : ''}
 ` + (mode === 0 ? /* wgsl */ `
 var<workgroup> wgErr: atomic<u32>;   // robust-loss tile vote: residual sum (x4096)
 var<workgroup> wgValid: atomic<u32>; // and its valid-pixel count
@@ -663,6 +683,9 @@ fn main(@builtin(global_invocation_id) g: vec3u,
 ${tileGrad ? `  sgPart = li % ${P}u;` : ''}${K > 1 ? '  sgBase = 0u;' : ''}
   let W = u32(cam.size.x);
   let H = u32(cam.size.y);
+${camGrad ? '' : `  // camera gradients compiled out: keep gradCam statically referenced so the
+  // 'auto' pipeline layout still has binding 8 (the bind groups pass it)
+  if (cam.size.x < 0.0) { camAdd(0u, 0.0); }`}
 ${tileGrad ? '  let pxOk = g.x < W && g.y < H;' : '  if (g.x >= W || g.y >= H) { return; }'}
   let px = vec2f(f32(g.x) + 0.5, f32(g.y) + 0.5);
   let tile = wid.y * u32(cam.size.z) + wid.x;
@@ -767,12 +790,12 @@ ${mode === 2 ? '' : /* wgsl */ `      atomicAdd(&stats[2], 1u); // valid-pixel c
       let dith = fract(sin(f32(pi) * 12.9898) * 43758.5453);
       atomicAdd(&stats[0], u32(dot(err, err) * 16.0 + dith));
       atomicAdd(&stats[1], u32(lossv * 32768.0)); // training loss (grad-check)
-      let ci8 = u32(cam.misc2.y) * 8u;
+${camGrad ? `      let ci8 = u32(cam.misc2.y) * 8u;
       camAdd(ci8 + 6u, dot(eg, C) * gain); // d/d(log gain)
-      camAdd(ci8 + 7u, eg.x + eg.y + eg.z); // d/d(bias)`}
+      camAdd(ci8 + 7u, eg.x + eg.y + eg.z); // d/d(bias)` : ''}`}
     }
   }
-`) + (tileGrad && mode === 0 ? /* wgsl */ `
+`) + (tileGrad && mode === 0 && robust ? /* wgsl */ `
   // RobustNeRF-style tile vote (misc3.y = threshold, 0 = off): a 16x16 tile
   // whose MEAN residual exceeds kappa x the running mean per-pixel loss
   // (CPU-fed each step) is treated as a transient — a mover, its shadow, a
@@ -817,16 +840,16 @@ ${K > 1 ? /* wgsl */ `
   // Each splat k accumulates into its own 13*P block of sg; the flush maps
   // 13*K threads onto (splat, slot). Underflow-safe stride on u32.
   for (var kk0 = endMax; kk0 > segS; kk0 = select(segS, kk0 - ${K}u, kk0 >= segS + ${K}u)) {
-    if (li < ${13 * P * K}u) { atomicStore(&sg[li], 0); }
+    if (li < ${NS * P * K}u) { atomicStore(&sg[li], 0); }
     workgroupBarrier();
     for (var k = 0u; k < ${K}u; k++) {
     if (kk0 > segS + k) {
     let kk = kk0 - k;
-    sgBase = k * ${13 * P}u;
+    sgBase = k * ${NS * P}u;
 ` : /* wgsl */ `
   for (var kk = endMax; kk > segS; kk--) {
 ${tileGrad ? /* wgsl */ `
-    if (li < ${13 * P}u) { atomicStore(&sg[li], 0); }
+    if (li < ${NS * P}u) { atomicStore(&sg[li], 0); }
     workgroupBarrier();
 ` : ''}`}${tileGrad && subgroups ? /* wgsl */ `
     // subgroup variant only: contributions land in locals so the aggregated
@@ -873,13 +896,9 @@ ${tileGrad ? (subgroups ? '    q0 = gmean.x;\n    q1 = gmean.y;'
     // FIXEDC 4096). Normalize per splat by (1 + lambda_max) of the dilated 2D
     // covariance — d^2/lambda_max is bounded by 2*E_CUT, so per-add values
     // stay O(1) without amplifying quantization noise (a radius^2 normalizer
-    // overshoots by (rad/sigma)^2 and BREAKS the FD gradcheck). The chain
-    // pass recomputes the identical factor from proj[12..14] and undoes it.
-    let cva = proj[b + 12u] + DILATE;
-    let cvc = proj[b + 14u] + DILATE;
-    let cmid = 0.5 * (cva + cvc);
-    let lmax = cmid + sqrt(max(cmid * cmid - (cva * cvc - proj[b + 13u] * proj[b + 13u]), 0.0));
-    let cnorm = 1.0 / (1.0 + lmax);
+    // overshoots by (rad/sigma)^2 and BREAKS the FD gradcheck). Projection
+    // stores the factor in slot 12; the chain pass divides it back out.
+    let cnorm = proj[b + 12u];
 ${tileGrad ? (subgroups ? /* wgsl */ `    q2 = -ga * 0.5 * d.x * d.x * cnorm;
     q3 = -ga * d.x * d.y * cnorm;
     q4 = -ga * 0.5 * d.y * d.y * cnorm;
@@ -897,20 +916,20 @@ ${tileGrad ? (subgroups ? /* wgsl */ `    q2 = -ga * 0.5 * d.x * d.x * cnorm;
     atomAdd(6u, ga * (1.0 - opa));          // d/dlogitOpacity
     atomAdd(7u, gcv.r);
     atomAdd(8u, gcv.g);
-    atomAdd(9u, gcv.b);
+    atomAdd(9u, gcv.b);${useStats ? `
     atomAddW(10u, alpha * Tb);              // rendered mass (refine sampling)
     atomAddW(11u, alpha * Tb * perr);       // error mass (refine sampling)
-    atomAddW(12u, abs(gmean.x) + abs(gmean.y)); // grad-stat (v2 growth)`) : /* wgsl */ `    atomAddC(b + 2u, -ga * 0.5 * d.x * d.x * cnorm);
+    atomAddW(12u, abs(gmean.x) + abs(gmean.y)); // grad-stat (v2 growth)` : ''}`) : /* wgsl */ `    atomAddC(b + 2u, -ga * 0.5 * d.x * d.x * cnorm);
     atomAddC(b + 3u, -ga * d.x * d.y * cnorm);
     atomAddC(b + 4u, -ga * 0.5 * d.y * d.y * cnorm);
     atomAdd(b + 5u, galpha * opa * G);          // d/dcomp
     atomAdd(b + 6u, ga * (1.0 - opa));          // d/dlogitOpacity
     atomAdd(b + 7u, gcv.r);
     atomAdd(b + 8u, gcv.g);
-    atomAdd(b + 9u, gcv.b);
+    atomAdd(b + 9u, gcv.b);${useStats ? `
     atomAddW(b + 10u, alpha * Tb);              // rendered mass (refine sampling)
     atomAddW(b + 11u, alpha * Tb * perr);       // error mass (refine sampling)
-    atomAddW(b + 12u, abs(gmean.x) + abs(gmean.y)); // grad-stat (v2 growth)`}
+    atomAddW(b + 12u, abs(gmean.x) + abs(gmean.y)); // grad-stat (v2 growth)` : ''}`}
 
     S += c * alpha * Tb;
     Ta = Tb;
@@ -934,17 +953,17 @@ ${K > 1 ? '    }\n    }\n' : ''}${tileGrad ? (subgroups ? /* wgsl */ `
 ` : '') + /* wgsl */ `
     workgroupBarrier();
 ${K > 1 ? /* wgsl */ `
-    if (li < ${13 * K}u) {
-      let k = li / 13u;
-      let slot = li - k * 13u;
+    if (li < ${NS * K}u) {
+      let k = li / ${NS}u;
+      let slot = li - k * ${NS}u;
       if (kk0 > segS + k) {
         var v = 0;
-        for (var pp = 0u; pp < ${P}u; pp++) { v += atomicLoad(&sg[k * ${13 * P}u + slot * ${P}u + pp]); }
+        for (var pp = 0u; pp < ${P}u; pp++) { v += atomicLoad(&sg[k * ${NS * P}u + slot * ${P}u + pp]); }
         if (v != 0) { atomicAdd(&gradP[entries[2u * (kk0 - k - 1u) + 1u] * 16u + slot], v); }
       }
     }
 ` : /* wgsl */ `
-    if (li < 13u) {
+    if (li < ${NS}u) {
       var v = 0;
       for (var pp = 0u; pp < ${P}u; pp++) { v += atomicLoad(&sg[li * ${P}u + pp]); }
       if (v != 0) { atomicAdd(&gradP[b + li], v); }
@@ -970,12 +989,12 @@ const projVec = (src) => {
   if (/proj\[b/.test(s)) throw new Error('projVec: unconverted proj[b access');
   return s;
 };
-export const makeRenderSrc = (E, A, tileGrad, subgroups, mode, ssimW, ssaa, D, spread, batch, zskip, pvec = false) => {
-  const s = makeRenderSrcRaw(E, A, tileGrad, subgroups, mode, ssimW, ssaa, D, spread, batch, zskip);
+export const makeRenderSrc = (E, A, tileGrad, subgroups, mode, ssimW, ssaa, D, spread, batch, zskip, pvec = false, feat = {}) => {
+  const s = makeRenderSrcRaw(E, A, tileGrad, subgroups, mode, ssimW, ssaa, D, spread, batch, zskip, undefined, undefined, feat);
   return pvec ? projVec(s) : s;
 };
 
-export const makeChainSrc = (AREG = 0.02, shDeg = 0, dc = 'sigmoid', statMax = false, D = 0.3, C = true, compact = false) => CAM_STRUCT + /* wgsl */ `
+export const makeChainSrc = (AREG = 0.02, shDeg = 0, dc = 'sigmoid', statMax = false, D = 0.3, C = true, compact = false, camGrad = true) => CAM_STRUCT + /* wgsl */ `
 const AREG = ${AREG.toExponential()};
 const DILATE = ${D.toExponential()};
 const MIPCOMP = ${C ? 'true' : 'false'};
@@ -1005,6 +1024,9 @@ ${compact ? /* wgsl */ `
   let i = gid.x;
   if (i >= u32(cam.size.w)) { return; }`}
   let b = i * 16u;
+${camGrad ? '' : `  // camera gradients compiled out: keep gradCam statically referenced so the
+  // 'auto' pipeline layout still has binding 5 (the bind groups pass it)
+  if (cam.size.x < 0.0) { camAdd(0u, 0.0); }`}
 
   var gp: array<f32, 10>;
   for (var k = 0u; k < 10u; k++) {
@@ -1012,14 +1034,12 @@ ${compact ? /* wgsl */ `
     gp[k] = f32(atomicLoad(&gradP[b + k])) / scale;
     atomicStore(&gradP[b + k], 0);
   }
-  // undo the render pass's per-splat conic range normalization (identical
-  // lambda_max formula from the same proj values)
+  // undo the render pass's per-splat conic range normalization (the factor
+  // projection stored in slot 12; stale or zero for culled splats, whose
+  // gradients are zero anyway)
   {
-    let cva = proj[b + 12u] + DILATE;
-    let cvc = proj[b + 14u] + DILATE;
-    let cmid = 0.5 * (cva + cvc);
-    let lmax = cmid + sqrt(max(cmid * cmid - (cva * cvc - proj[b + 13u] * proj[b + 13u]), 0.0));
-    let cdenorm = 1.0 + lmax;
+    let cn = proj[b + 12u];
+    let cdenorm = select(1.0, 1.0 / cn, cn > 0.0);
     gp[2] *= cdenorm;
     gp[3] *= cdenorm;
     gp[4] *= cdenorm;
@@ -1116,6 +1136,7 @@ ${shDeg > 0 ? /* wgsl */ `
   gradF[b + 1u] = cam.R0.y * dpc.x + cam.R1.y * dpc.y + cam.R2.y * dpc.z;
   gradF[b + 2u] = cam.R0.z * dpc.x + cam.R1.z * dpc.y + cam.R2.z * dpc.z;
 
+${camGrad ? /* wgsl */ `
   // ---- camera pose gradients (train mode): p_c = exp(w^) R p + t ----
   if (cam.misc2.x > 0.5) {
     let ci = u32(cam.misc2.y) * 8u;
@@ -1148,6 +1169,7 @@ ${shDeg > 0 ? /* wgsl */ `
     camAdd(u32(cam.misc2.z) * 8u + 1u, dlogfy);
   }
 
+` : ''}
   // ---- Sigma = M M^T backward: dL/dM = 2 dLdSigma M, M = R diag(s) ----
   let m0 = g.r0 * g.s;
   let m1 = g.r1 * g.s;
@@ -1257,6 +1279,7 @@ export const SH_ADAM_SRC = /* wgsl */ `
 struct SHA {
   hp: vec4f,   // beta1, beta2, eps, step t
   cfg: vec4f,  // x = lr, y = total coeffs (n * 3K)
+  bc: vec4f,   // x = 1/(1-beta1^t), y = 1/(1-beta2^t) — computed once per step on the CPU (speed plan #6)
 };
 @group(0) @binding(0) var<uniform> au: SHA;
 @group(0) @binding(1) var<storage, read_write> sh: array<f32>;
@@ -1278,9 +1301,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u,
   let v = b2 * vBuf[j] + (1.0 - b2) * gr * gr;
   mBuf[j] = m;
   vBuf[j] = v;
-  let t = au.hp.w;
-  let mh = m / (1.0 - pow(b1, t));
-  let vh = v / (1.0 - pow(b2, t));
+  let mh = m * au.bc.x;
+  let vh = v * au.bc.y;
   sh[j] = sh[j] - au.cfg.x * mh / (sqrt(vh) + au.hp.z);
 }
 `;
@@ -1296,7 +1318,8 @@ struct AdamU {
   reg: vec4f,   // x = opacity reg weight, y = scale reg weight,
                 // z = MCMC noise prefactor (0 = off; reference uses 5e5)
   flg: vec4f,   // x = regs only on splats that rendered this step (>0.5),
-                // y = opacity logit floor (0 = cl.z), z/w pad
+                // y = opacity logit floor (0 = cl.z), z = opacity decay, w = proj tail (compact)
+  bc: vec4f,    // x = 1/(1-beta1^t), y = 1/(1-beta2^t) — computed once per step on the CPU (speed plan #6)
 };
 @group(0) @binding(0) var<uniform> au: AdamU;
 @group(0) @binding(1) var<storage, read_write> params: array<f32>;
@@ -1342,8 +1365,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u,
   mBuf[j] = m;
   vBuf[j] = v;
   let t = au.hp.w;
-  let mh = m / (1.0 - pow(b1, t));
-  let vh = v / (1.0 - pow(b2, t));
+  let mh = m * au.bc.x;
+  let vh = v * au.bc.y;
   var p = params[j] - lr * mh / (sqrt(vh) + au.hp.z);
 
   // 3DGS-MCMC Langevin exploration (paper eq. 8 / reference NOISE_LR 5e5):

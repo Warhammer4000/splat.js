@@ -95,7 +95,7 @@ export async function gradCheckPose(opts = {}) {
 /** Shared tiny-rig construction (also used by gradCheckSmall). */
 async function makeRig(extraOpts = {}) {
   const { GSTrainer } = await import('./trainer.js');
-  const trainer = await GSTrainer.create({ eCut: 9, aMin: 1e-4, radClamp: 10, anisoReg: 0, ...extraOpts });
+  const trainer = await GSTrainer.create({ eCut: 9, aMin: 1e-4, radClamp: 10, anisoReg: 0, camGrads: true, ...extraOpts });
   const n = 160;
   const stride = 16;
   let s = 123456789 >>> 0;
@@ -146,7 +146,7 @@ export async function gradCheckSmall(opts = {}) {
   // differences measure the smooth gradient. opts.trainer forwards extra
   // trainer options (e.g. { tileGrad: true } to validate that shader variant)
   const trainer = await GSTrainer.create({
-    eCut: 9, aMin: 1e-4, radClamp: 10, anisoReg: 0, ...(opts.trainer || {}),
+    eCut: 9, aMin: 1e-4, radClamp: 10, anisoReg: 0, camGrads: true, ...(opts.trainer || {}),
   });
   const n = 160;
   const stride = 16;

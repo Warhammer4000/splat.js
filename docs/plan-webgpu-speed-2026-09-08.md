@@ -178,10 +178,48 @@ held-out quality. Postpone the CUDA trainer until these are measured.
 
 ## Status
 
-- [ ] 0 profiler accounting
-- [ ] 1 feature-specialised shaders
-- [ ] 2 count-dependent sort + histogram
-- [ ] 3 conic normalisation precompute
+- [x] 0 profiler accounting — `msPerStep` counts the production kernels only;
+      `renderFwd` stays its own line, `renderBwd = render − renderFwd` is derived
+      (2026-09-09).
+- [x] 1 feature-specialised shaders — `makeRenderSrc(..., feat)` and
+      `makeChainSrc(..., camGrad)`: camera/exposure gradients compile out unless
+      `camOpt`/`aspectOpt`/`expComp`/`camGrads`; the refinement statistics
+      (slots 10–12, the shared block shrinks 13 → 10 slots) compile out unless
+      `engine v2`/`refineV2`/`errDonors`/`statMax`; the robust vote compiles out
+      unless `robustLoss`. Lesson: a compiled-out buffer vanishes from the
+      `'auto'` pipeline layout, so the kernels keep one statically unreachable
+      reference to `gradCam` (the bind groups still pass it).
+- [x] 2 count-dependent sort + histogram — the shared path sorts the next power
+      of two ≥ count; `profileSteps()` reports `tileHist`.
+- [x] 3 conic normalisation precompute — projection stores `1/(1+λmax)` in
+      `proj[12]`; render and chain read it (slots 13/14 keep vb/vc, now unused).
 - [ ] 4 GPU-side refinement data movement
 - [ ] 5 anisotropic binning
-- [ ] 6 Adam constants / noise pass / race
+- [x] 6 Adam constants — bias corrections in a new `bc` vec4 of both Adam
+      uniforms, computed per step on the CPU. Noise pass / race: not done.
+
+### Measured 2026-09-09 (RTX 5080, frozen models, 200 profiled steps)
+
+| kernel (ms) | truck 1.04 M, before | after | bicycle 966 k, before | after |
+|---|---|---|---|---|
+| render (fused fwd+bwd) | 8.2 | **6.01** | 4.76 | **3.79** |
+| sort | 1.9 | 1.71 | 1.3 | **0.47** |
+| chain | 1.7 | 1.55 | — | 0.28 |
+| shAdam / adam / adamInvis | 1.0 / 0.4 / 0.4 | 0.97 / 0.35 / 0.33 | — | 0.25 / 0.15 / 0.42 |
+| scatter / project | 0.75 / 0.5 | 0.73 / 0.54 | — | 0.94 / 0.37 |
+| **step, production kernels** | ≈ 15.1 (18.5 − 3.4 diagnostic fwd) | **12.35** | ≈ 8.9 | **6.85** |
+
+Tile histogram (entries per 16 px tile, one frame): truck 5.07 M entries over
+2170 tiles — 974 tiles **above 2048** (max 20 k), 927 in 1025–2048, 255 in
+513–1024, 14 ≤ 512. Bicycle 2.9 M entries over 4056 tiles — 3 above 2048,
+1021 in 1025–2048, 1123 in 513–1024, 1909 ≤ 512. So on truck half the tiles
+take the global-memory bitonic path and #2 only touched the other half; the
+sort win there (−0.2 ms) is small, on bicycle (−0.8 ms) large. The next sort
+experiment is a large-segment sorter (radix, or a per-tile two-level merge),
+and #5 (tighter binning) attacks the 4.9 entries per splat directly.
+
+Correctness: gradcheck passes on all four rigs (params tile/global, pose,
+SH3). Parity at 30 k, same seeds back to back on the same day: truck seed 1
+old 25.89 / new 25.74, 25.77; seed 2 old 25.78 / new 25.82 — two-seed means
+25.83 (old) vs 25.79 (new); garden seed 1 26.88 (new) vs 26.75 (09-08
+reference). Inside the ±0.05 run noise: the changes are quality-neutral.

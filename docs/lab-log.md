@@ -4,6 +4,37 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-09 (speed plan #0–#3/#6 implemented; 30-minute row)
+
+- **30-minute row, first seed (needle default, 1.05 M, `evalmin=2`)**: 26.558 at
+  120k cycles in 30.1 min, dead 33.8 % — above every published Truck number
+  (SSS 26.41). The second seed loaded the freshly patched trainer mid-run and
+  produced garbage (160k "cycles" in 72 s, no test PSNR): **never patch `src/`
+  while a headless cell is running** — the bench page loads the working tree
+  live. Both seeds rerun on the new code once it is verified.
+- **Speed plan (docs/plan-webgpu-speed-2026-09-08.md) items 0, 1, 2, 3, 6
+  implemented**: profiler counts production kernels only; camera/exposure
+  gradients, refinement statistics (shared block 13 → 10 slots) and the robust
+  vote compile out when their features are off; the shared sort runs the next
+  power of two ≥ count and the profiler prints a tile-entry histogram; the
+  conic normaliser is computed once in projection (`proj[12]`); Adam bias
+  corrections come from the uniform. Bug on the way: a compiled-out buffer
+  disappears from the `'auto'` pipeline layout → "binding index 8 not present
+  in the bind group layout" → every dispatch dropped; fixed with a statically
+  unreachable reference. Headless Chrome with `--enable-logging=stderr` was
+  the tool that showed it.
+- **Measured** (frozen models, 200 steps): truck 15.1 → **12.35 ms/step**
+  (render 8.2 → 6.0, sort 1.9 → 1.7, chain 1.7 → 1.55); bicycle ≈ 8.9 →
+  **6.85** (render 4.76 → 3.79, sort 1.3 → 0.47). Tile histogram: on truck 974 of
+  2170 tiles exceed 2048 entries (max 20k) — the global bitonic path carries
+  half the frame, so the small-tile sort fix is a bicycle win, not a truck one;
+  a large-segment sorter and tighter binning (#5) are the next sort levers.
+  Gradcheck passes on all rigs (bench `?gradcheck=1` mode added). Parity 30k
+  same seed back to back: truck 25.74 new vs 25.89 old; garden 26.88 new vs
+  26.75 reference — opposite signs. Same-day old/new pairs: seed 1 25.89 vs
+  25.74 / 25.77, seed 2 25.78 vs 25.82 → two-seed means 25.83 vs 25.79.
+  Quality-neutral within ±0.05; the code ships. Bench gained `?usestats=1` /
+  `?camgrads=1` to compile the removed work back in for bisects.
 ## 2026-09-08 (video input v2: WebCodecs, sharp-frames metric, motion windows)
 
 - **State of the art surveyed** (`docs/plan-video-2026-09-08.md`): Reflct Sharp
