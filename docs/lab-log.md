@@ -39,7 +39,7 @@ about ±0.1 dB.
   forward walks need parallax, i.e. time/distance density. Baseline queued:
   the 502-frame server extraction (2/s) of the same walk — at the bench's
   1600 px it OOMs the tab (2.9 GB of frames), rerun at 1088. App: video intake
-  routed back to the extractor; e2e  (6 s clip from 180 truck
+  routed back to the extractor; e2e video-smoke (6 s clip from 180 truck
   photos → extract → solve → 500 cycles) passes with the full suite (8/8).
 
 ## 2026-09-08 (20-minute row; bar showcase night; statue set)
