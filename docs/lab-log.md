@@ -65,6 +65,24 @@ about ±0.1 dB.
   priority — phone captures are single takes. Registration retry: truck
   251/251 unchanged (no round triggered), statue 30/34 unchanged (one round,
   nothing new) — neutral and safe.
+- **First real phone clip — `LisaAvatar.mov`** (iPhone HEVC, 4K portrait,
+  rotation −90 metadata, 30 fps, 57 s, 1708 frames; an office, a person
+  standing, the camera orbiting at arm's length and tilting head-to-feet).
+  WebCodecs decoded HEVC in headless Chrome, rotation honoured, 1708 frames
+  scored in 31 s; the motion proxy reads ~1 %/frame (an orbit, unlike the
+  drone walk) so the 20 %-width budget paced picks at 0.57 s median → 96
+  frames. Solve: **27/96 registered**, 1817 features/image (dark clothing,
+  soft 30-fps frames, focus median 422 vs ~700 on charleston), 176 usable
+  pairs for 96 frames, neighbour pairs at 30–72 % inlier ratios — many just
+  under the 40 % gate (the probe ran with the relaxed retry OFF; the 30k
+  cell has it on). Probes queued: 2× density (`vidoverlap=0.9`), features at
+  1600 px, both. Chicago: 52 hard cuts detected, longest take 10 s → 17
+  frames → no initialisation (correct; needs an app message).
+- **Density is the lever on the phone orbit**: 2× frames (`vidoverlap=0.9`, 181
+  frames at 0.3 s) → **176/181 registered** (from 27/96), rms 0.74, 587
+  usable pairs. The relaxed-gate retry alone (176 → 224 pairs) changed
+  nothing; the 30k on 96 frames read 12.4 dB. Default overlap → 0.9 (motion
+  budget 10 % of the width); 30k training on the dense set queued.
 
 ## 2026-09-08 (20-minute row; bar showcase night; statue set)
 

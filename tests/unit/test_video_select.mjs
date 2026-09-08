@@ -31,13 +31,13 @@ const mk = (n, f) => Array.from({ length: n }, (_, i) => ({ t: i / 30, focus: 80
   check("shots:'all' picks from every shot", [0, 200, 420].every((s) => all.picks.some((p) => p >= s && p < s + 220)) && !spansCut);
 }
 
-// 2. a moving camera closes windows by displacement: 20 % of the width at 1 %/frame -> every ~20 frames
+// 2. a moving camera closes windows by displacement: 10 % of the width at 1 %/frame -> every ~10 frames
 {
   const frames = mk(300, () => ({ motion: 0.01 }));
   const r = selectFrames(frames, { maxFrames: 300, minFrames: 1 });
   const gaps = r.picks.slice(1).map((p, i) => p - r.picks[i]);
   const med = gaps.sort((a, b) => a - b)[gaps.length >> 1];
-  check('displacement pacing ~20 frames', med >= 15 && med <= 26, `median gap ${med} frames, ${r.picks.length} picks`);
+  check('displacement pacing ~10 frames', med >= 8 && med <= 14, `median gap ${med} frames, ${r.picks.length} picks`);
 }
 
 // 3. a static camera still yields frames, paced by the time cap (1.0 s = 30 frames)

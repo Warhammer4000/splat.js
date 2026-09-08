@@ -15,7 +15,8 @@
 //   select   local outlier removal (a frame that dips below its neighbours is
 //            motion blur — a global threshold would just prefer textured
 //            frames), then MOTION windows: a window closes when the camera has
-//            moved ~20 % of the frame width (~80 % overlap, the Reflct guide),
+//            moved ~10 % of the frame width (90 % overlap; the Reflct 80 % guide
+//            registered 27/96 on a close phone orbit, 90 % registered 176/181),
 //            bounded to [0.15 s, 1.0 s]; the sharpest survivor of each window
 //            is kept; a device cap widens windows rather than dropping the
 //            sharpest
@@ -32,7 +33,9 @@
  * @typedef {object} VideoExtractOptions
  * @property {number} [maxFrames]          device cap; default 300 desktop / 140 mobile
  * @property {number} [minFrames=24]
- * @property {number} [overlap=0.8]        target overlap between kept frames (motion budget = 1 - overlap of the width)
+ * @property {number} [overlap=0.9]        target overlap between kept frames (motion budget = 1 - overlap of the width).
+ *   MEASURED 2026-09-08 on a close-range phone orbit (LisaAvatar): 0.8 → 96 frames, 27 registered;
+ *   0.9 → 181 frames, 176 registered. Registration needs parallax density, not just overlap.
  * @property {number} [minGapSec=0.15]     a window never closes faster than this
  * @property {number} [maxGapSec=1.0]      nor later (a paused camera still yields frames, sparsely)
  * @property {number} [outlierWindow=15]   local window for blur-dip removal (frames)
@@ -281,7 +284,7 @@ function selectFramesContinuous(frames, opts = {}) {
   const minFrames = opts.minFrames ?? 24;
   const minGap = opts.minGapSec ?? 0.15, maxGap = opts.maxGapSec ?? 1.0;
   markOutliers(frames, opts.outlierWindow ?? 15, opts.outlierSensitivity ?? 0.6);
-  let budget = 1 - (opts.overlap ?? 0.8);
+  let budget = 1 - (opts.overlap ?? 0.9);
   let picks = selectByMotion(frames, { budget, minGap, maxGap });
   // too many: widen the motion budget (fewer, better-spread windows)
   for (let k = 0; k < 12 && picks.length > maxFrames; k++) {
