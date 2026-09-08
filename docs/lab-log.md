@@ -68,6 +68,18 @@ about ±0.1 dB.
   Rejected-neighbour log on the statue: the 0030↔0031 bridge has 29 raw
   matches and 0 inliers, 0039↔0040 218 raw / 0 inliers — pure-rotation or
   flare pairs no gate can rescue; the island stays.
+- **Registration depends on the training resolution (bug).** The statue showcase
+  run at `res=2400` registered 20/34 where the same solver settings at 1600
+  gave 30/34: the feature frame is downsampled from the decode-to-target
+  intermediate (2 × max(featMaxDim, trainMaxDim)), so a different training
+  resolution changes the feature pixels and the incremental path. The
+  showcase was rerun on the frozen 30-camera recon (`gtrecon`). Fix to make:
+  derive the feature frame from a resolution-independent intermediate.
+- **Statue showcase published**: frozen 30-camera recon, all 30 views trained,
+  2400 px, 60k iterations, 487k splats (dead 2 %), 36 min →
+  `statue_ka_2026-09-08` (8.6 MB SOG). Held-out numbers from the 30k probes:
+  18.17 (30 cams, 4 held out) / 17.03 (24 cams, 3 held out) — a 34-photo
+  walk-around is far from dense; the showcase is for looking, not for the table.
 
 - **Bar showcase night, findings so far.** The published `bar360_v5test` PLY
   (4 M rows, 372k iters, Aug trainer) has a median opacity of 3.3e-4: more
@@ -94,6 +106,12 @@ about ±0.1 dB.
   kills were worth +0.37 dB on held-out faces (fewer floaters seen from
   elsewhere). Density vs fidelity trade for the showcase; weaker opacity reg
   (0.005 / 0.0025) cells queued to find the middle.
+- **Relocate to the end on the bar** (4 M, 100k): 21.05 vs 21.11 (noise), dead
+  **17.6 %** vs 75 % — ≈3.3 M live at equal fidelity, because dead rows keep
+  being re-placed as jittered copies of well-supported splats (density near
+  real structure, not floaters). For a showcase that is the better trade than
+  regVisOnly (3.7 M live, −0.37). Bar recipe so far: 912 px (2 GB target
+  limit), 4 M via `capmult=20`, `relocuntil=all`; opacity-reg cells pending.
 
 ## 2026-09-07 (the same hour for LichtFeld and Brush; dB-over-time diagram)
 
