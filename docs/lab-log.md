@@ -4,6 +4,34 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-08 (video input v2: WebCodecs, sharp-frames metric, motion windows)
+
+- **State of the art surveyed** (`docs/plan-video-2026-09-08.md`): Reflct Sharp
+  Frames is the community standard — every frame via Mediabunny (WebCodecs),
+  score = `normalized_laplacian_tenengrad_v1` (512-px gray, Gaussian 5×5 σ1,
+  expm1(½ log1p LapVar + ½ log1p mean Sobel²)), selection best-N with a
+  distribution term / batched (sharpest of 5) / local outlier removal (window
+  15, sensitivity 60), iPhone HDR tone-mapped; capture guide: ≥ 10 fps, one
+  frame per 0.5 s, ~80 % overlap. SLAM keyframing adds motion-based selection
+  (covisibility / flow thresholds) — redundancy is the other half.
+- **v2 extractor** (`src/io/video.js`, Mediabunny 1.55.7 vendored, MPL-2.0,
+  660 KB ESM loaded lazily): decode every frame through `CanvasSink`, score
+  with the sharp-frames hybrid metric + exposure stats + a motion proxy
+  (median 4×4-block sub-pixel projection shift vs the previous frame, at
+  256 px), local blur-dip removal, motion windows (close at 20 % of the width
+  moved, bounded 0.15–1.0 s), sharpest survivor per window, device cap by
+  widening windows; winners re-decoded at full size via `canvasesAtTimestamps`
+  (no seeking) → JPEG q0.95. `<video>` path kept as fallback with the same
+  scorer/selector. Bench `?set=video&video=/data/...` (+ `vidmode`, `vidmax`,
+  `vidoverlap`, `postanalysis=`) runs extract → solve → train.
+- **First smoke** (charleston.webm, 4K VP9 30 fps, 251 s, 7517 frames): every
+  frame scored at ~90 fps, 1.9 min extraction; but the first motion proxy
+  (integer shift of whole-frame projections at 128 px) read 0 on 90 % of the
+  frames — a forward walk moves < 1 px/frame at that size — so windows closed
+  on the 1.5 s cap only: 170 frames, 1.5 s apart, **37/170 registered**.
+  Replaced by the block-flow proxy above; rerun queued behind a 502-frame
+  server-extracted baseline solve of the same walk.
+
 ## 2026-09-08 (20-minute row; bar showcase night; statue set)
 
 - **20-minute truck** (112k schedule, `minutes=20`, new defaults, idle GPU):
