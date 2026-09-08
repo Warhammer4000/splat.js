@@ -308,7 +308,7 @@ function extendTracks(feats, tracks, poses, K, regList, k1, k2, im0, vlog) {
  * sampleColor: (imgIdx, x, y) => [r, g, b]
  * Returns { cams, points }.
  */
-export async function runSfM(images, log, sampleColor, opts = {}) {
+async function runSfMOnce(images, log, sampleColor, opts = {}) {
   const n = images.length;
   if (n < 2) throw new Error('need at least 2 images');
   const signal = opts.signal;
@@ -336,8 +336,12 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
     opts = { ...opts, siftFeats: Math.max(3900, Math.min(8192, scaled)) };
     if (opts.siftFeats > 3900) log(`feature budget ${opts.siftFeats} (density-scaled for ${featDim}px)`);
   }
-  log(`detecting features in ${n} images ...`);
   const feats = [];
+  if (opts._feats) {
+    for (const f of opts._feats) feats.push(f);
+    log(`features: reused from the first pass (${n} images)`);
+  } else {
+  log(`detecting features in ${n} images ...`);
   if (useSift && typeof Worker !== 'undefined' && opts.workers !== false) {
     // SIFT extraction is ~1s/image of pure CPU — run it on a worker pool
     const t0f = performance.now();
@@ -481,6 +485,8 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
     }
   }
 
+  }   // end of feature extraction (skipped when opts._feats is cached)
+
   // ---- pairwise matching ----
   // Mutual matches build the track graph. When an essential matrix fits a
   // pair well, its inliers replace the raw matches (removes contamination on
@@ -506,6 +512,7 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
   // per-image diagnostics for the log: usable-pair degree, best raw match count,
   // best E-inlier count — the answer to "why did these frames not register"
   const diag = images.map(() => ({ deg: 0, raw: 0, inl: 0 }));
+  const adjFails = [];   // rejected neighbour pairs (|i-j| <= 2), logged for the connectivity verdict
   // SIFT matching runs on GPU when available (CPU 128-D L2 is the dominant
   // cost of a SIFT run: ~350s of 484s on train-84; the GPU does the whole
   // graph in ~1s of compute)
@@ -537,13 +544,32 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
       // pairs whose matches can't support an essential matrix are junk —
       // letting their raw matches into the track graph merges unrelated
       // tracks, which then get dropped as conflicted
-      if (res && res.inliers.length >= 25 && res.inliers.length >= 0.4 * matches.length) {
+      // Accept on the inlier RATIO (>= 40 %: the pair is trustworthy) OR on an absolute
+      // inlier count. MEASURED 2026-09-08 on a low-texture statue: raw matches inflate
+      // with false matches on repetitive surfaces, so a pair with 304 E-inliers of 2057
+      // raw (15 %) was thrown away and finer feature frames registered FEWER images
+      // (19/34 at 960 px -> 7/34 at 2400). opts.pairMinInliers (default 100) is the
+      // absolute gate; the E-filtered inliers are all that enter the track graph.
+      // Neighbours in capture order (|i-j| <= 2: photo sets arrive time-sorted, video
+      // frames sequential) get a lower absolute gate (opts.pairMinInliersAdj, default
+      // 15): a walk-around's consecutive photos overlap by construction, and one lost
+      // link there strands the rest of the arc.
+      // OPT-IN (opts.pairMinInliersAdj): a truck fresh solve with the neighbour gate at 15
+      // registered 250/251 at rms 0.62 yet trained to 22.67 dB (25.72 without it) — a
+      // low-inlier neighbour pair can be geometrically wrong and poison the graph. Never
+      // for faces of the same rig (zero baseline). Default off until the failure is understood.
+      const sameRig = opts.rigs && opts.rigs[i] && opts.rigs[j] && opts.rigs[i].id === opts.rigs[j].id;
+      const nb = !sameRig && Math.abs(i - j) <= 2;          // neighbours in capture order (logged when rejected)
+      const adj = nb && opts.pairMinInliersAdj > 0;
+      const absGate = res && res.inliers.length >= (adj ? opts.pairMinInliersAdj : (opts.pairMinInliers ?? Infinity));
+      if (res && res.inliers.length >= (adj ? 15 : 25) && (res.inliers.length >= 0.4 * matches.length || absGate)) {
         matches = res.inliers.map((idx) => matches[idx]);
         filtered++;
         diag[i].deg++; diag[j].deg++;
         pairInfo.push({ i, j, matches });
-      } else if (matches.length >= 60) {
-        failedRich.push({ i, j, matches });
+      } else {
+        if (nb) adjFails.push(`${i}-${j}: raw ${matches.length}, E-inl ${res ? res.inliers.length : 0}`);
+        if (matches.length >= 60) failedRich.push({ i, j, matches });
       }
     }
     const lastPair = pairInfo[pairInfo.length - 1];
@@ -560,6 +586,7 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
     // isolated / weakly connected frames, with what their best pair looked like
     const weak = diag.map((d, k) => ({ k, ...d })).filter((d) => d.deg <= 1);
     if (weak.length) log(`  weakly connected frames (usable pairs <= 1): ` + weak.map((d) => `#${d.k}[deg ${d.deg}, best raw ${d.raw}, best E-inl ${d.inl}, feats ${feats[d.k].n}]`).join(' '));
+    if (adjFails.length) log(`  rejected neighbour pairs: ` + adjFails.join(' | '));
   }
   if (pairInfo.length === 0) throw new Error('no image pair with enough matches');
   await tick();
@@ -1692,6 +1719,7 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
     if (final.cams.length < 2 || final.points.length < 50) {
       throw new Error('reconstruction too sparse');
     }
+    Object.defineProperty(final, '_feats', { value: feats, enumerable: false });
     return final;
   }
 
@@ -1740,5 +1768,32 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
       (final.rmsBA != null ? `BA rms ${final.rmsBA.toFixed(2)}px` : `median reproj ${final.medErr.toFixed(2)}px`));
   if (final.cams.length < 2 || final.points.length < 50)
     throw new Error('reconstruction too sparse to continue');
+  Object.defineProperty(final, '_feats', { value: feats, enumerable: false });
   return final;
+}
+
+/** The solve, with one automatic retry: when the strict pair gate (E-inliers >= 40 %
+ *  of raw matches) registers fewer than 70 % of the images, rerun the geometry
+ *  (features cached, matching is seconds on the GPU) with the absolute gates —
+ *  100 inliers for any pair, 15 for neighbours in capture order — and keep the
+ *  pass that registered more. MEASURED 2026-09-08: a low-texture 34-photo
+ *  statue goes 19 -> 24 registered; truck (251/251 on the first pass) never
+ *  retries — the absolute gates as a DEFAULT perturbed its reconstruction path
+ *  (250/251, 22.67 dB vs 25.72). opts.pairRelax = false disables the retry. */
+export async function runSfM(images, log, sampleColor, opts = {}) {
+  const first = await runSfMOnce(images, log, sampleColor, opts);
+  const n = images.length;
+  const relaxable = opts.pairRelax !== false && opts.pairMinInliers == null && opts.pairMinInliersAdj == null && !opts.rigs && n >= 6;
+  if (!relaxable || first.cams.length >= 0.7 * n) return first;
+  log(`registration ${first.cams.length}/${n} < 70 % — retrying with the absolute pair gate (100 / neighbours 15)`);
+  let second = null;
+  try {
+    second = await runSfMOnce(images, log, sampleColor, { ...opts, pairMinInliers: 100, pairMinInliersAdj: 15, _feats: first._feats });
+  } catch (e) { log(`retry failed: ${e.message}`); }
+  if (second && second.cams.length > first.cams.length) {
+    log(`retry registered ${second.cams.length}/${n} (first pass ${first.cams.length}) — keeping the retry`);
+    return second;
+  }
+  log(`retry registered ${second ? second.cams.length : 0}/${n} — keeping the first pass`);
+  return first;
 }

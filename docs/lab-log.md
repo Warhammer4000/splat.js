@@ -32,6 +32,42 @@ about ±0.1 dB.
   walk-around where 34 photos leave gaps no feature setting can bridge. Next:
   dump the registered subset (`postrecon`) to see whether the failures are one
   contiguous arc, and probe 1200 px.
+- **Statue, root cause and fix.** The solver log (new `?sfmlog=1`, plus per-frame
+  connectivity and rejected-neighbour lines in the log) showed the detector
+  finds only ~2.5k features per image (white marble, plinth, gravel, sky) and
+  the pair gate — E-inliers ≥ 40 % of raw matches — was throwing away real
+  pairs: a 2400 px probe had a pair with 304 inliers of 2057 raw (15 %) and
+  lost it; that is why finer feature frames registered FEWER images. Scaling
+  the fixed pixel tolerances (6 px triangulation, 4 px guided radius, 2.5 px LK,
+  1.5 px Huber) with the frame changed nothing (7/34 at 2400 either way) —
+  the tolerances were not the limiter. New gate: ratio ≥ 40 % OR ≥ 100
+  absolute inliers, and neighbours in capture order (|i−j| ≤ 2) pass at 15.
+
+  | rule | registered | rms |
+  |---|---|---|
+  | ratio only (old) | 19 / 34 | 0.71 |
+  | + absolute 100 | 19 (960) · 18 (1600, was 6) | 0.71 / 1.35 |
+  | + absolute 40 | 21 | 0.72 |
+  | + neighbour 15 (new default) | **24 / 34** | 0.70 |
+
+  The remaining 10 (0031–0040) form an island: connected among themselves,
+  no neighbour pair to the main component clears 15 inliers — the backlit,
+  flare-heavy side of the walk-around. Truck/garden fresh-solve guards for
+  the new gate are running; a per-pair dump of the rejected neighbour links
+  follows to see how far below 15 the bridge sits.
+- **Gate as a default: rejected; gate as a retry: shipped.** Truck fresh solves
+  under the absolute-100 default registered 250/251 at rms 0.62 (reproducible
+  in two solve-only reruns) and trained to 22.67 vs 25.72 (gate 40, 251/251)
+  and 25.71 (old rule, 251/251, 96k points vs 88k): the extra pairs re-route
+  the incremental reconstruction and cost a camera and 8 % of the points.
+  Garden with the same gate: 26.75, 185/185 — truck-specific path fragility.
+  New design (`runSfM` wraps `runSfMOnce`): first pass with the ratio rule;
+  if registration < 70 % and no rigs, retry with features cached and the
+  absolute gates (100 / neighbours 15, never same-rig faces), keep the pass
+  with more cameras. `sfm.pairRelax = false` (bench `?relax=0`) disables it.
+  Rejected-neighbour log on the statue: the 0030↔0031 bridge has 29 raw
+  matches and 0 inliers, 0039↔0040 218 raw / 0 inliers — pure-rotation or
+  flare pairs no gate can rescue; the island stays.
 
 - **Bar showcase night, findings so far.** The published `bar360_v5test` PLY
   (4 M rows, 372k iters, Aug trainer) has a median opacity of 3.3e-4: more
@@ -46,6 +82,18 @@ about ±0.1 dB.
   in the current face (`regVisOnly`), relocation to the end vs anneal-bound.
   Cells queued: 1024 px pair (res effect), then true-4M × {default, regVisOnly,
   relocate-to-end}; the showcase run (all views, 200k) follows the winner.
+- **Bar at a true 4 M cap** (`capmult=20`, 912 px, 100k, eval8): 21.11 vs 21.07 at
+  1.78 M — capacity buys +0.04. Dead at the end **75 %** (≈1 M live of 4 M);
+  late refines relocate the 1 M ceiling every round with 33 % survival. The 360
+  rig's economy kills splats that few faces see; more cap just makes more
+  corpses. The `regVisOnly` and relocate-to-end cells decide whether weaker
+  death pressure converts cap into live splats.
+- **regVisOnly on the bar** (regs only on rows visible in the current face):
+  20.74 vs 21.11, dead **6.6 %** vs 75 % (≈3.7 M live), 58 vs 45 min. The
+  invisible-row regs were what killed three quarters of the model — and those
+  kills were worth +0.37 dB on held-out faces (fewer floaters seen from
+  elsewhere). Density vs fidelity trade for the showcase; weaker opacity reg
+  (0.005 / 0.0025) cells queued to find the middle.
 
 ## 2026-09-07 (the same hour for LichtFeld and Brush; dB-over-time diagram)
 

@@ -30,7 +30,7 @@ const TAG = `${SET}_${ITERS}` + (Q.has('classic') ? '_classic' : '')
   + (Q.get('opadecay') ? `_od${Q.get('opadecay')}` : '') + (Q.get('ratiocap') ? `_rc${Q.get('ratiocap')}` : '')
   + (Q.get('econ') ? `_e${Q.get('econ')}` : '') + (Q.get('deadtiny') ? '_dtn' : '') + (Q.get('minutes') ? `_m${Q.get('minutes')}` : '') + (Q.get('evalmin') ? `_ev${Q.get('evalmin')}` : '')
   + (Q.has('classicsolve') ? '_cs' : '') + (Q.get('featres') ? `_fr${Q.get('featres')}` : '') + (Q.get('feats') ? `_nf${Q.get('feats')}` : '') + (Q.get('octave') ? `_oc${Q.get('octave')}` : '') + (Q.get('peak') ? `_pk${Q.get('peak')}` : '')
-  + (Q.get('compact') === '0' ? '_ncp' : '') + (Q.get('gspread') ? `_gs${Q.get('gspread')}` : '') + (Q.get('gbatch') ? `_gb${Q.get('gbatch')}` : '') + (Q.get('gzskip') ? '_gz' : '') + (Q.get('pvec') ? '_pv' : '') + (Q.get('sgagg') ? '_sg' : '') + (Q.get('tilegrad') === '0' ? '_ntg' : '') + (Q.get('frommodel') ? '_fm' : '') + (Q.get('aspect') ? '_asp' : '') + (Q.get('asplr') ? `_al${Q.get('asplr')}` : '') + (Q.get('sfmaspect') ? '_sa' : '') + (Q.get('lockk') ? '_lk' : '')
+  + (Q.get('compact') === '0' ? '_ncp' : '') + (Q.get('gspread') ? `_gs${Q.get('gspread')}` : '') + (Q.get('gbatch') ? `_gb${Q.get('gbatch')}` : '') + (Q.get('gzskip') ? '_gz' : '') + (Q.get('pvec') ? '_pv' : '') + (Q.get('sgagg') ? '_sg' : '') + (Q.get('tilegrad') === '0' ? '_ntg' : '') + (Q.get('frommodel') ? '_fm' : '') + (Q.get('aspect') ? '_asp' : '') + (Q.get('asplr') ? `_al${Q.get('asplr')}` : '') + (Q.get('sfmaspect') ? '_sa' : '') + (Q.get('lockk') ? '_lk' : '') + (Q.get('pairinl') ? `_pi${Q.get('pairinl')}` : '') + (Q.get('pairinladj') ? `_pa${Q.get('pairinladj')}` : '') + (Q.get('relax') === '0' ? '_nrx' : '')
   + (Q.get('dir') ? `_d${Q.get('dir')}` : '') + (Q.get('tag') ? `_${Q.get('tag')}` : '')   // free suffix: e.g. the recon source, which no flag names
   + (Q.get('seed') ? `_s${Q.get('seed')}` : '');
 const t0 = Date.now();
@@ -97,6 +97,9 @@ try {
       ...(Q.has('classicsolve') ? {} : { siftFeats: 8000, siftFirstOctave: -1, refineAspect: true }),
       ...(Q.get('sfmaspect') ? { refineAspect: true } : {}),
       ...(Q.get('lockk') ? { lockIntrinsics: true } : {}),   // rig faces: f, k1/k2, aspect fixed at their exact slice values
+      ...(Q.get('pairinl') ? { pairMinInliers: +Q.get('pairinl') } : {}),
+      ...(Q.get('pairinladj') ? { pairMinInliersAdj: +Q.get('pairinladj') } : {}),
+      ...(Q.get('relax') === '0' ? { pairRelax: false } : {}),   // disable the automatic relaxed-gate retry   // neighbour-pair (|i-j|<=2) absolute gate (default 15; 1e9 = off)   // absolute E-inlier gate for a pair (default 100; 1e9 = ratio only, the pre-09-08 rule)
       ...(Q.get('feats') ? { siftFeats: +Q.get('feats') } : {}),
       ...(Q.get('octave') ? { siftFirstOctave: +Q.get('octave') } : {}),
       ...(Q.get('peak') ? { siftPeak: +Q.get('peak') } : {}),   // SIFT contrast threshold scale (<1 = more, fainter keypoints)
