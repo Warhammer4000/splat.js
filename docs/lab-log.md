@@ -230,6 +230,20 @@ about ±0.1 dB.
   intrinsics lock), 912 px, 4 M cap, relocation to the last step, 200k
   iterations in 83 min, dead 11.8 % at export (vs > 50 % invisible in v5test).
   Not swapped on the wall — the user decides.
+- **Preset spaces re-stamped on live** (user: "if you have best in class also
+  update the preset scenes on live with the correct desc and stats"; the
+  09-08 approval lifts the 08-25 freeze for these three). Script
+  `scripts/restamp_space.mjs <spaceId> <modelKey>` points the splat entity
+  and the `splatjs` stamp (sog/recon/splats/iter/minutes/psnr) at a CDN model
+  and rewrites the description; stats default to the model's recon.json,
+  splats to the live SOG count. Truck `42485456_8883` → `truck_1h_v3_2026-09-06`
+  (1,041,874 live splats, 200k, 56 min, 26.645 held-out; was the Aug 2 M /
+  250k model at 26.30). Bar `42485456_4311` → `bar360_v6_2026-09-08`
+  (3,517,115 live, 200k, 83 min, 20.47 on 48 held-out faces; was v5test with
+  > 50 % invisible). Synthetic `42485456_9715` → `synthetic_needle_v2_2026-09-08`
+  (160,945 live, 30k, 52.4 train / 41.2 on the held-out view; was the
+  Aug 132.7k model at 49.5 train). Gallery feed verified. The cards now read
+  held-out dB where the run had one; the intro camera paths were not re-recorded.
 
 ## 2026-09-07 (the same hour for LichtFeld and Brush; dB-over-time diagram)
 
