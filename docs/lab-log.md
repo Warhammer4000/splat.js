@@ -250,6 +250,17 @@ about ±0.1 dB.
   read 25.68 / 24.79 at half pace and was discarded). Same wall time now buys
   fewer cycles than the 09-07 default (95 k) — the thin-splat set costs more per
   step — and +0.03 dB.
+- **Needle-default hour export on the idle GPU** (`sig5`, 200k, 1.05 M, our
+  poses, postply): 200k in **43.7 min → 26.487**; curve 22 min 26.42, 29 min
+  26.53, 33 min **26.58**, then 26.52 / 26.51 / 26.49 to the end. Below the
+  published truck_1h_v3 (26.645, old schedule, 56 min) and the README's shared-GPU
+  165 k reading (26.59) — inside the ±0.1 run noise, but the last 40 k cycles
+  lose ~0.1 consistently (also on 09-07: 26.44 at the end vs higher mid-curve).
+  Not published; the Truck space keeps v3. README 60-min row kept at 26.59 with
+  a note giving the idle full-schedule number and the 26.4–26.6 band. Open
+  question for the schedule: why the tail after the anneal end loses 0.1 —
+  candidates are the fixed floor LR (0.01×) still moving positions with the MCMC
+  noise on, or SH/opacity overfitting the train views once relocation stops.
 
 ## 2026-09-07 (the same hour for LichtFeld and Brush; dB-over-time diagram)
 

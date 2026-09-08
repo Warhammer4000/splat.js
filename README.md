@@ -104,7 +104,9 @@ degree-3 spherical harmonics on native CUDA. The 30 k and 40 k Splat.js
 rows are six- and ten-minute browser runs (mean of two seeds, 2026-09-08);
 the 20 min row is the same trainer stopped at twenty minutes (73 k cycles,
 mean of two seeds, 26.42 / 26.41 dB); the 60 min row is the same system given an hour on a shared GPU (165 k of
-its 200 k-cycle schedule) — a 1.05 M cap fits more cycles into the time than
+its 200 k-cycle schedule); on an idle GPU the full 200 k schedule finishes in
+44 minutes at 26.49 dB, peaking near 26.58 dB around 160 k cycles, so a single
+hour run lands anywhere in 26.4–26.6 — a 1.05 M cap fits more cycles into the time than
 2 M does and scores higher (2 M at 114 k cycles: 26.19 dB). Its poses come
 from the in-browser solve at its desktop defaults: 8000 SIFT features from
 the upsampled first octave and a pixel-aspect term in bundle adjustment
