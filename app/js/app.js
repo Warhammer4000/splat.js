@@ -1016,15 +1016,12 @@ function persistCapture(rec) {
 
 async function useOwnPhotos(list) {
   const all = [...list];
-  // video intake is OFF for now — the sharp-frame extraction is not good
-  // enough yet. The whole path (useOwnVideo, extractSharpFrames, the camera's
-  // video mode) is kept working; re-enable by routing the file again here.
+  // video intake is back on (2026-09-08): the v2 extractor decodes every frame
+  // through WebCodecs, scores it with the sharp-frames metric and picks by
+  // camera motion — a video without photos goes through useOwnVideo
   const video = all.find(isVideoFile);
   const files = all.filter((f) => f.type.startsWith('image/'));
-  if (video && files.length < 2) {
-    flash('Video input is off for now — take photos instead.', 6000);
-    return;
-  }
+  if (video && files.length < 2) { useOwnVideo(video); return; }
   if (files.length < 2) {
     flash('Pick at least a couple of overlapping photos of the same place.', 4500);
     return;

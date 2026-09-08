@@ -31,6 +31,16 @@ about ±0.1 dB.
   on the 1.5 s cap only: 170 frames, 1.5 s apart, **37/170 registered**.
   Replaced by the block-flow proxy above; rerun queued behind a 502-frame
   server-extracted baseline solve of the same walk.
+- **Rerun with block flow**: median measured motion 0.07 % of the width per frame
+  (2 %/s — a forward walk barely shifts the image), so the 20 %-width budget
+  never closes a window and the 1.0 s cap sets the pace: 249 frames, 1.0 s
+  apart, **114/249 registered** (the relaxed-gate retry made it worse, 53, and
+  was correctly discarded). Reading: the 80 %-overlap rule is an orbit rule;
+  forward walks need parallax, i.e. time/distance density. Baseline queued:
+  the 502-frame server extraction (2/s) of the same walk — at the bench's
+  1600 px it OOMs the tab (2.9 GB of frames), rerun at 1088. App: video intake
+  routed back to the extractor; e2e  (6 s clip from 180 truck
+  photos → extract → solve → 500 cycles) passes with the full suite (8/8).
 
 ## 2026-09-08 (20-minute row; bar showcase night; statue set)
 
