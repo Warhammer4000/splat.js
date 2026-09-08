@@ -112,6 +112,15 @@ about ±0.1 dB.
   real structure, not floaters). For a showcase that is the better trade than
   regVisOnly (3.7 M live, −0.37). Bar recipe so far: 912 px (2 GB target
   limit), 4 M via `capmult=20`, `relocuntil=all`; opacity-reg cells pending.
+- **Opacity reg ½ / ¼ on the bar**: 20.92 / 20.71 with dead 63 % / 50 % — worse
+  than relocate-to-end on both axes; the matrix closes on: 912 px, 4 M
+  (`capmult=20`), `relocuntil=all`. Showcase run (all 102 panos, 200k) launched
+  ~06:50 after a name-order false start.
+- **Bar showcase published** → `bar360_v6_2026-09-08` (44.9 MB SOG): all 102
+  panos (588/612 faces registered, rig solve with the 09-07 octave clamp +
+  intrinsics lock), 912 px, 4 M cap, relocation to the last step, 200k
+  iterations in 83 min, dead 11.8 % at export (vs > 50 % invisible in v5test).
+  Not swapped on the wall — the user decides.
 
 ## 2026-09-07 (the same hour for LichtFeld and Brush; dB-over-time diagram)
 
