@@ -1336,6 +1336,15 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
       let addedThisPass = 0;
       let sinceRefine = 0;
       let sinceBA = 0;
+      // A frame that fails registration is not lost for good: it failed against
+      // the model of THAT moment (few triangulated tracks, an early pose guess).
+      // When no candidate is left, frames whose triangulated support has grown
+      // 1.5x since they failed get another attempt (up to 3 rounds). Long forward
+      // walks (charleston: 114/249 registered, 306/502 on the dense set) stall
+      // exactly this way — the chain breaks once and everything beyond it is
+      // tried once, too early, then abandoned. 2026-09-08.
+      const failedAt = new Map();
+      let retryRounds = 0;
       while (registered.size + failed.size < n) {
         let bestImg = -1, bestCount = 0;
         for (let img = 0; img < n; img++) {
@@ -1348,17 +1357,31 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
           }
           if (c > bestCount) { bestCount = c; bestImg = img; }
         }
-        if (bestImg < 0 || bestCount < 8) break;
+        if (bestImg < 0 || bestCount < 8) {
+          let revived = 0;
+          if (retryRounds < 3 && failed.size) {
+            for (const img of [...failed]) {
+              let c = 0;
+              const ft = featTrack[img];
+              for (let f = 0; f < feats[img].n; f++) { const tid = ft[f]; if (tid >= 0 && tracks[tid].X) c++; }
+              if (c >= 8 && c >= 1.5 * (failedAt.get(img) || 0)) { failed.delete(img); revived++; }
+            }
+            retryRounds++;
+          }
+          if (!revived) break;
+          vlog(`retrying ${revived} failed frame(s) whose triangulated support grew (round ${retryRounds})`);
+          continue;
+        }
 
         const reg = registerImage(bestImg);
-        if (!reg) { failed.add(bestImg); continue; }
+        if (!reg) { failed.add(bestImg); failedAt.set(bestImg, bestCount); continue; }
         // rig entry: solve the RIG pose sphere-wide BEFORE committing —
         // a wrong narrow-cone pose must not triangulate junk points or
         // drag five siblings along with it (see solveRigPose)
         let rigPose = null;
         if (rigOf && rigOf[bestImg]) {
           rigPose = solveRigPose(bestImg, reg);
-          if (!rigPose) { failed.add(bestImg); continue; }
+          if (!rigPose) { failed.add(bestImg); failedAt.set(bestImg, bestCount); continue; }
           const Rb = mul3(rigOf[bestImg].R, rigPose.R);
           const C = rigPose.C;
           reg.R = Rb;

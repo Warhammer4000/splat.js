@@ -41,6 +41,23 @@ about ±0.1 dB.
   1600 px it OOMs the tab (2.9 GB of frames), rerun at 1088. App: video intake
   routed back to the extractor; e2e video-smoke (6 s clip from 180 truck
   photos → extract → solve → 500 cycles) passes with the full suite (8/8).
+- **Density baseline**: the server's 502 frames (2/s) of the same walk register
+  **306/502** (61 %) in a 50-min solve vs our 114/249 (46 %) at 1/s — density
+  helps, but the incremental solver loses 40 % of a dense forward walk on its
+  own. Two separate jobs: selection pace for walks (time/parallax, not
+  overlap) and the solver on long sequences (where does the chain break —
+  registered-run dump queued).
+- **Correction — charleston is a drone montage, not a walk.** The registered
+  runs (52–80, 85–99, 101–117, 182–208, 216–232, 240–248) are separate
+  shots; the seam frames show hard cuts (80|81, 117|118, 181|182) and the
+  neighbour pairs across them have hundreds of raw matches and 0 E-inliers.
+  Neither density nor the solver was the story. Added to the extractor:
+  shot-cut detection (frame difference > 0.12 and > 6× the rolling median),
+  windows never span a cut, default keeps the longest shot (shots: all
+  keeps every shot with a proportional cap; bench vidshots=all). Also added
+  a registration retry for frames that failed against an early model (3
+  rounds, support grown 1.5×) — no gain on charleston (montage), truck /
+  statue probes pending.
 
 ## 2026-09-08 (20-minute row; bar showcase night; statue set)
 

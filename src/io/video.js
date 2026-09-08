@@ -39,6 +39,7 @@
  * @property {number} [outlierSensitivity=0.6]  0 = off; a frame is dropped when its focus < (1 - s·0.5) × neighbour median
  * @property {number} [jpegQuality=0.95]
  * @property {'auto'|'webcodecs'|'element'} [engine='auto']
+ * @property {'longest'|'all'} [shots='longest'] edited clips: reconstruct one continuous take (default) or keep every shot
  * @property {(e: {stage: 'scan'|'capture', done: number, total: number}) => void} [onProgress]
  * @property {(msg: string) => void} [log]
  */
@@ -167,9 +168,13 @@ function makeAnalyzer(sw, sh) {
         small[y * mw + x] = den[sy * sw + sx];
       }
       const motion = prevSmall ? motionShift(prevSmall, small, mw, mh) : 0;
+      // frame difference (0..1) vs the previous frame — a hard cut is a spike far
+      // above the rolling level of a moving camera
+      let diff = 0;
+      if (prevSmall) { let d = 0; for (let i = 0; i < small.length; i++) d += Math.abs(small[i] - prevSmall[i]); diff = d / small.length / 255; }
       prevSmall = prevSmall || new Float32Array(mw * mh);
       prevSmall.set(small);
-      return { t, focus: f.focus, lapVar: f.lapVar, tenengrad: f.tenengrad, lum: e.lum, clip: e.clip, motion };
+      return { t, focus: f.focus, lapVar: f.lapVar, tenengrad: f.tenengrad, lum: e.lum, clip: e.clip, motion, diff };
     },
   };
 }
@@ -220,8 +225,58 @@ function selectByMotion(frames, { budget, minGap, maxGap }) {
   return picks;
 }
 
-/** Full selection with the device cap / floor applied by rescaling the budget. */
+/** Shot boundaries: a frame whose difference to its predecessor exceeds both an
+ *  absolute floor and k× the rolling median of the neighbourhood is a cut (an
+ *  edited clip, a drone montage, a phone that stopped and restarted). Returns
+ *  [{ start, end }] index ranges (inclusive). */
+export function detectShots(frames, { absMin = 0.12, ratio = 6, win = 30 } = {}) {
+  const n = frames.length;
+  const cuts = [];
+  for (let i = 1; i < n; i++) {
+    const d = frames[i].diff || 0;
+    if (d < absMin) continue;
+    const nb = [];
+    for (let j = Math.max(1, i - win); j <= Math.min(n - 1, i + win); j++) if (j !== i) nb.push(frames[j].diff || 0);
+    nb.sort((a, b) => a - b);
+    const med = nb.length ? nb[nb.length >> 1] : 0;
+    if (d > ratio * Math.max(med, 0.005)) cuts.push(i);
+  }
+  const shots = [];
+  let start = 0;
+  for (const c of cuts) { shots.push({ start, end: c - 1 }); start = c; }
+  shots.push({ start, end: n - 1 });
+  return shots.filter((sh) => sh.end >= sh.start);
+}
+
+/** Full selection with the device cap / floor applied by rescaling the budget.
+ *  opts.shots: 'longest' (default — one continuous take is what a
+ *  reconstruction needs) or 'all' (windows still never span a cut). */
 export function selectFrames(frames, opts = {}) {
+  const shots = detectShots(frames);
+  for (const f of frames) f.picked = false;
+  if (shots.length > 1 && (opts.shots ?? 'longest') === 'longest') {
+    let best = shots[0];
+    for (const sh of shots) if (frames[sh.end].t - frames[sh.start].t > frames[best.end].t - frames[best.start].t) best = sh;
+    const sub = frames.slice(best.start, best.end + 1);
+    const r = selectFramesContinuous(sub, opts);
+    return { picks: r.picks.map((i) => i + best.start), budget: r.budget, shots, shot: best };
+  }
+  if (shots.length > 1) {
+    let picks = [], budget = 0;
+    for (const sh of shots) {
+      const sub = frames.slice(sh.start, sh.end + 1);
+      if (sub.length < 3) continue;
+      const r = selectFramesContinuous(sub, { ...opts, maxFrames: Math.max(3, Math.round((opts.maxFrames ?? defaultMaxFrames()) * sub.length / frames.length)), minFrames: 3 });
+      picks = picks.concat(r.picks.map((i) => i + sh.start)); budget = r.budget;
+    }
+    return { picks, budget, shots, shot: null };
+  }
+  const r = selectFramesContinuous(frames, opts);
+  return { ...r, shots, shot: shots[0] };
+}
+
+/** Selection on one continuous take. */
+function selectFramesContinuous(frames, opts = {}) {
   const maxFrames = opts.maxFrames ?? defaultMaxFrames();
   const minFrames = opts.minFrames ?? 24;
   const minGap = opts.minGapSec ?? 0.15, maxGap = opts.maxGapSec ?? 1.0;
@@ -322,8 +377,9 @@ async function extractWebCodecs(file, opts, log, onProgress) {
   if (frames.length < 2) throw new Error('could not decode frames from this video');
 
   // ---- selection ----
-  const { picks, budget } = selectFrames(frames, opts);
+  const { picks, budget, shots, shot } = selectFrames(frames, opts);
   const blurred = frames.filter((f) => f.blur).length;
+  if (shots.length > 1) log(`${shots.length} shots (cuts at ${shots.slice(1).map((sh) => frames[sh.start].t.toFixed(1) + 's').join(', ')})${shot ? ` — keeping the longest: ${frames[shot.start].t.toFixed(1)}–${frames[shot.end].t.toFixed(1)} s` : ' — keeping all'}`);
   log(`scored ${frames.length} frames (${blurred} blur dips); kept ${picks.length} — motion budget ${(budget * 100).toFixed(0)} % of the width, focus median ${median(frames.map((f) => f.focus)).toFixed(0)}`);
 
   // ---- pass 2: full-resolution capture of the winners ----
@@ -338,7 +394,7 @@ async function extractWebCodecs(file, opts, log, onProgress) {
     k++;
     onProgress({ stage: 'capture', done: k, total: times.length });
   }
-  return { frames: out, duration, sampled: frames.length, videoW: W, videoH: H, fps, rotation, engine: 'webcodecs', analysis: frames };
+  return { frames: out, duration, sampled: frames.length, videoW: W, videoH: H, fps, rotation, engine: 'webcodecs', analysis: frames, shots, shot };
 }
 
 /** Fallback: <video> element scan at ~10 samples/s, same scorer/selector. */

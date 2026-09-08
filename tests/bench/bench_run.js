@@ -32,7 +32,7 @@ const TAG = `${SET}_${ITERS}` + (Q.has('classic') ? '_classic' : '')
   + (Q.get('econ') ? `_e${Q.get('econ')}` : '') + (Q.get('deadtiny') ? '_dtn' : '') + (Q.get('minutes') ? `_m${Q.get('minutes')}` : '') + (Q.get('evalmin') ? `_ev${Q.get('evalmin')}` : '')
   + (Q.has('classicsolve') ? '_cs' : '') + (Q.get('featres') ? `_fr${Q.get('featres')}` : '') + (Q.get('feats') ? `_nf${Q.get('feats')}` : '') + (Q.get('octave') ? `_oc${Q.get('octave')}` : '') + (Q.get('peak') ? `_pk${Q.get('peak')}` : '')
   + (Q.get('compact') === '0' ? '_ncp' : '') + (Q.get('gspread') ? `_gs${Q.get('gspread')}` : '') + (Q.get('gbatch') ? `_gb${Q.get('gbatch')}` : '') + (Q.get('gzskip') ? '_gz' : '') + (Q.get('pvec') ? '_pv' : '') + (Q.get('sgagg') ? '_sg' : '') + (Q.get('tilegrad') === '0' ? '_ntg' : '') + (Q.get('frommodel') ? '_fm' : '') + (Q.get('aspect') ? '_asp' : '') + (Q.get('asplr') ? `_al${Q.get('asplr')}` : '') + (Q.get('sfmaspect') === '0' ? '_nsa' : Q.get('sfmaspect') ? '_sa' : '') + (Q.get('lockk') ? '_lk' : '') + (Q.get('pairinl') ? `_pi${Q.get('pairinl')}` : '') + (Q.get('pairinladj') ? `_pa${Q.get('pairinladj')}` : '') + (Q.get('relax') === '0' ? '_nrx' : '')
-  + (Q.get('video') ? `_v${Q.get('video').split('/').pop().replace(/.[^.]+$/, '')}` : '') + (Q.get('vidmode') ? `_vm${Q.get('vidmode')}` : '') + (Q.get('vidmax') ? `_vx${Q.get('vidmax')}` : '') + (Q.get('vidoverlap') ? `_vo${Q.get('vidoverlap')}` : '')
+  + (Q.get('video') ? `_v${Q.get('video').split('/').pop().replace(/.[^.]+$/, '')}` : '') + (Q.get('vidmode') ? `_vm${Q.get('vidmode')}` : '') + (Q.get('vidmax') ? `_vx${Q.get('vidmax')}` : '') + (Q.get('vidoverlap') ? `_vo${Q.get('vidoverlap')}` : '') + (Q.get('vidshots') ? `_vs${Q.get('vidshots')}` : '')
   + (Q.get('dir') ? `_d${Q.get('dir')}` : '') + (Q.get('tag') ? `_${Q.get('tag')}` : '')   // free suffix: e.g. the recon source, which no flag names
   + (Q.get('seed') ? `_s${Q.get('seed')}` : '');
 const t0 = Date.now();
@@ -86,11 +86,12 @@ try {
       engine: Q.get('vidmode') || 'auto',
       ...(Q.get('vidmax') ? { maxFrames: +Q.get('vidmax') } : {}),
       ...(Q.get('vidoverlap') ? { overlap: +Q.get('vidoverlap') } : {}),
+      ...(Q.get('vidshots') ? { shots: Q.get('vidshots') } : {}),   // 'all' keeps every shot of an edited clip
       log: (m) => console.log('[video]', m),
       onProgress: (e) => { if (e.done % 50 === 0 || e.done === e.total) say('video-' + e.stage, { done: e.done, total: e.total }); },
     });
     const vidMin = +((Date.now() - vT) / 60000).toFixed(2);
-    await say('video-done', { engine: ex.engine, frames: ex.frames.length, scanned: ex.sampled, duration: +ex.duration.toFixed(1), videoW: ex.videoW, videoH: ex.videoH, fps: ex.fps && +ex.fps.toFixed(2), rotation: ex.rotation, vidMin });
+    await say('video-done', { engine: ex.engine, frames: ex.frames.length, scanned: ex.sampled, shots: ex.shots ? ex.shots.length : 1, shot: ex.shot ? [ex.shot.start, ex.shot.end] : null, duration: +ex.duration.toFixed(1), videoW: ex.videoW, videoH: ex.videoH, fps: ex.fps && +ex.fps.toFixed(2), rotation: ex.rotation, vidMin });
     if (Q.get('postanalysis')) await post(Q.get('postanalysis'), JSON.stringify({ engine: ex.engine, duration: ex.duration, fps: ex.fps, frames: ex.analysis, picked: ex.frames.map((f) => f.t) }));
     for (const f of ex.frames) files.push(new File([f.source], f.name));
     names = ex.frames.map((f) => f.name);
