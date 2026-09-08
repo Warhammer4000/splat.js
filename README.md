@@ -78,16 +78,16 @@ its native 979 px, on a desktop NVIDIA GPU, in one tab:
 | method | Truck test PSNR |
 |---|---|
 | 3DGS (SIGGRAPH 2023) | 25.18 dB |
-| **Splat.js — 30 k cycles (~6 min train, 1.05 M)** | **25.70 dB** |
+| **Splat.js — 6 min train · 30 k cycles · 1.05 M splats** | **25.70 dB** |
 | Mip-Splatting (CVPR 2024) | 25.74 dB |
 | Scaffold-GS (CVPR 2024) | 25.77 dB |
-| **Splat.js — 40 k cycles (~10½ min train, 1.4 M)** | **25.93 dB** |
-| Brush v0.3 — measured (30 k cycles, ~30 min train) | 26.10 dB |
+| **Splat.js — 10 min train · 40 k cycles · 1.4 M splats** | **25.93 dB** |
+| Brush v0.3 — 30 min train · 30 k cycles · 2 M splats (measured here) | 26.10 dB |
 | 3DGS-MCMC (NeurIPS 2024) | 26.11 dB |
-| LichtFeld Studio v0.5.3 — measured (~5½ min train) | 26.14 dB |
-| **Splat.js — 20 min train (~95 k cycles, 1.05 M)** | **26.38 dB** |
+| LichtFeld Studio v0.5.3 — 5½ min train · 30 k cycles · 2 M splats (measured here) | 26.14 dB |
+| **Splat.js — 20 min train · 95 k cycles · 1.05 M splats** | **26.38 dB** |
 | Student Splatting & Scooping (CVPR 2025) | 26.41 dB |
-| **Splat.js — 200 k cycles (36 min train, 1.05 M)** | **26.44 dB** |
+| **Splat.js — 36 min train · 200 k cycles · 1.05 M splats** | **26.44 dB** |
 
 Same images, same resolution, same held-out-every-8th protocol; all times
 are training only — the Splat.js in-browser camera solve adds ~12 minutes
