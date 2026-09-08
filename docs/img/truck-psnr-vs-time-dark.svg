@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 420" width="820" height="420" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12">
+<title>Truck: held-out PSNR against training time</title>
+<line x1="120" x2="590" y1="356.0" y2="356.0" stroke="#30363d" stroke-width="1"/>
+<text x="110" y="360.0" text-anchor="end" fill="#8b949e" font-variant-numeric="tabular-nums">25.0</text>
+<line x1="120" x2="590" y1="321.3" y2="321.3" stroke="#30363d" stroke-width="1"/>
+<text x="110" y="325.3" text-anchor="end" fill="#8b949e" font-variant-numeric="tabular-nums">25.2</text>
+<line x1="120" x2="590" y1="286.7" y2="286.7" stroke="#30363d" stroke-width="1"/>
+<text x="110" y="290.7" text-anchor="end" fill="#8b949e" font-variant-numeric="tabular-nums">25.4</text>
+<line x1="120" x2="590" y1="252.0" y2="252.0" stroke="#30363d" stroke-width="1"/>
+<text x="110" y="256.0" text-anchor="end" fill="#8b949e" font-variant-numeric="tabular-nums">25.6</text>
+<line x1="120" x2="590" y1="217.3" y2="217.3" stroke="#30363d" stroke-width="1"/>
+<text x="110" y="221.3" text-anchor="end" fill="#8b949e" font-variant-numeric="tabular-nums">25.8</text>
+<line x1="120" x2="590" y1="182.7" y2="182.7" stroke="#30363d" stroke-width="1"/>
+<text x="110" y="186.7" text-anchor="end" fill="#8b949e" font-variant-numeric="tabular-nums">26.0</text>
+<line x1="120" x2="590" y1="148.0" y2="148.0" stroke="#30363d" stroke-width="1"/>
+<text x="110" y="152.0" text-anchor="end" fill="#8b949e" font-variant-numeric="tabular-nums">26.2</text>
+<line x1="120" x2="590" y1="113.3" y2="113.3" stroke="#30363d" stroke-width="1"/>
+<text x="110" y="117.3" text-anchor="end" fill="#8b949e" font-variant-numeric="tabular-nums">26.4</text>
+<line x1="120" x2="590" y1="78.7" y2="78.7" stroke="#30363d" stroke-width="1"/>
+<text x="110" y="82.7" text-anchor="end" fill="#8b949e" font-variant-numeric="tabular-nums">26.6</text>
+<line x1="120" x2="590" y1="44.0" y2="44.0" stroke="#30363d" stroke-width="1"/>
+<text x="110" y="48.0" text-anchor="end" fill="#8b949e" font-variant-numeric="tabular-nums">26.8</text>
+<line x1="120.0" x2="120.0" y1="356" y2="361" stroke="#484f58"/>
+<text x="120.0" y="376" text-anchor="middle" fill="#8b949e">0</text>
+<line x1="191.2" x2="191.2" y1="356" y2="361" stroke="#484f58"/>
+<text x="191.2" y="376" text-anchor="middle" fill="#8b949e">10</text>
+<line x1="262.4" x2="262.4" y1="356" y2="361" stroke="#484f58"/>
+<text x="262.4" y="376" text-anchor="middle" fill="#8b949e">20</text>
+<line x1="333.6" x2="333.6" y1="356" y2="361" stroke="#484f58"/>
+<text x="333.6" y="376" text-anchor="middle" fill="#8b949e">30</text>
+<line x1="404.8" x2="404.8" y1="356" y2="361" stroke="#484f58"/>
+<text x="404.8" y="376" text-anchor="middle" fill="#8b949e">40</text>
+<line x1="476.1" x2="476.1" y1="356" y2="361" stroke="#484f58"/>
+<text x="476.1" y="376" text-anchor="middle" fill="#8b949e">50</text>
+<line x1="547.3" x2="547.3" y1="356" y2="361" stroke="#484f58"/>
+<text x="547.3" y="376" text-anchor="middle" fill="#8b949e">60</text>
+<line x1="120" x2="590" y1="356" y2="356" stroke="#484f58"/>
+<text x="355" y="398" text-anchor="middle" fill="#8b949e">training minutes on one RTX 5080 (camera solve not included)</text>
+<text transform="translate(28 200) rotate(-90)" text-anchor="middle" fill="#8b949e">test PSNR, dB (32 held-out photos)</text>
+<line x1="120" x2="590" y1="111.6" y2="111.6" stroke="#8b949e" stroke-dasharray="4 4" stroke-width="1"/>
+<text x="600" y="111.6" fill="#8b949e">Student Splatting &amp; Scooping <tspan font-variant-numeric="tabular-nums">26.41</tspan></text>
+<line x1="120" x2="590" y1="163.6" y2="163.6" stroke="#8b949e" stroke-dasharray="4 4" stroke-width="1"/>
+<text x="600" y="171.6" fill="#8b949e">3DGS-MCMC <tspan font-variant-numeric="tabular-nums">26.11</tspan></text>
+<line x1="120" x2="590" y1="222.5" y2="222.5" stroke="#8b949e" stroke-dasharray="4 4" stroke-width="1"/>
+<text x="600" y="223.5" fill="#8b949e">Scaffold-GS <tspan font-variant-numeric="tabular-nums">25.77</tspan></text>
+<line x1="120" x2="590" y1="227.7" y2="227.7" stroke="#8b949e" stroke-dasharray="4 4" stroke-width="1"/>
+<text x="600" y="241.7" fill="#8b949e">Mip-Splatting <tspan font-variant-numeric="tabular-nums">25.74</tspan></text>
+<line x1="120" x2="590" y1="324.8" y2="324.8" stroke="#8b949e" stroke-dasharray="4 4" stroke-width="1"/>
+<text x="600" y="332.8" fill="#8b949e">3DGS (2023) <tspan font-variant-numeric="tabular-nums">25.18</tspan></text>
+<polyline points="162.7,212.1 191.2,158.4 262.4,111.6 547.3,80.4" fill="none" stroke="#2dd4bf" stroke-width="2.5" stroke-linejoin="round"/>
+<circle cx="162.7" cy="212.1" r="5" fill="#0d1117" stroke="#2dd4bf" stroke-width="2.5"/>
+<text x="174.7" y="216.1" fill="#2dd4bf" font-weight="600">25.83 <tspan fill="#c9d1d9" font-weight="400" font-size="11">6 min · 30 k cycles</tspan></text>
+<circle cx="191.2" cy="158.4" r="5" fill="#0d1117" stroke="#2dd4bf" stroke-width="2.5"/>
+<text x="201.2" y="178.4" text-anchor="start" fill="#2dd4bf" font-weight="600">26.14</text>
+<text x="201.2" y="191.4" text-anchor="start" fill="#c9d1d9" font-size="11">10 min · 40 k</text>
+<circle cx="262.4" cy="111.6" r="5" fill="#0d1117" stroke="#2dd4bf" stroke-width="2.5"/>
+<text x="262.4" y="99.6" text-anchor="middle" fill="#2dd4bf" font-weight="600">26.41</text>
+<text x="262.4" y="86.6" text-anchor="middle" fill="#c9d1d9" font-size="11">20 min · 73 k</text>
+<circle cx="547.3" cy="80.4" r="5" fill="#0d1117" stroke="#2dd4bf" stroke-width="2.5"/>
+<text x="547.3" y="68.4" text-anchor="middle" fill="#2dd4bf" font-weight="600">26.59</text>
+<text x="547.3" y="55.4" text-anchor="middle" fill="#c9d1d9" font-size="11">60 min · 165 k</text>
+<text x="559.3" y="84.4" fill="#2dd4bf" font-weight="700" font-size="13">Splat.js</text>
+<path d="M 159.16666666666666 152.39999999999998 L 165.16666666666666 158.39999999999998 L 159.16666666666666 164.39999999999998 L 153.16666666666666 158.39999999999998 Z" fill="#d2a8ff"/>
+<text x="124.2" y="126.4" text-anchor="start" fill="#d2a8ff" font-weight="600" font-size="11">LichtFeld Studio</text>
+<text x="124.2" y="139.4" text-anchor="start" fill="#d2a8ff" font-size="11">5½ min · 26.14</text>
+<path d="M 333.6363636363636 159.33333333333317 L 339.6363636363636 165.33333333333317 L 333.6363636363636 171.33333333333317 L 327.6363636363636 165.33333333333317 Z" fill="#d2a8ff"/>
+<text x="333.6" y="183.3" text-anchor="middle" fill="#d2a8ff" font-weight="600" font-size="11">Brush v0.3</text>
+<text x="333.6" y="195.3" text-anchor="middle" fill="#d2a8ff" font-size="11">30 min · 26.10</text>
+<text x="120" y="22" fill="#c9d1d9" font-size="15" font-weight="700">Tanks &amp; Temples Truck — held-out PSNR against training time</text>
+<text x="120" y="36" fill="#8b949e" font-size="11">Splat.js in one browser tab, 1.05 M splats, schedule set to the budget · ◆ trainers measured on the same machine · dashed: published methods</text>
+</svg>

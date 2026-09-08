@@ -75,18 +75,21 @@ and scored at the end — photographs the model has never seen, the metric the
 research papers report. On the full 251-image Tanks & Temples *Truck* scene at
 its native 979 px, on a desktop NVIDIA GPU, in one tab:
 
+<p align="center"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/truck-psnr-vs-time-dark.svg">
+  <img src="docs/img/truck-psnr-vs-time-light.svg" width="820" alt="Truck held-out PSNR against training minutes. Splat.js: 25.83 dB at 6 min, 26.14 at 10, 26.41 at 20, 26.59 at 60. LichtFeld Studio 26.14 at 5½ min, Brush 26.10 at 30 min; published methods from 25.18 (3DGS) to 26.41 (Student Splatting & Scooping).">
+</picture></p>
+
 | method | Truck test PSNR |
 |---|---|
 | 3DGS (SIGGRAPH 2023) | 25.18 dB |
 | Mip-Splatting (CVPR 2024) | 25.74 dB |
 | Scaffold-GS (CVPR 2024) | 25.77 dB |
-| **Splat.js — 6 min train · 30 k cycles · 1.05 M splats** | **25.83 dB** |
 | Brush v0.3 — 30 min train · 30 k cycles · 2 M splats (measured here) | 26.10 dB |
 | 3DGS-MCMC (NeurIPS 2024) | 26.11 dB |
 | LichtFeld Studio v0.5.3 — 5½ min train · 30 k cycles · 2 M splats (measured here) | 26.14 dB |
 | **Splat.js — 10 min train · 40 k cycles · 1.4 M splats** | **26.14 dB** |
 | Student Splatting & Scooping (CVPR 2025) | 26.41 dB |
-| **Splat.js — 20 min train · 73 k cycles · 1.05 M splats** | **26.41 dB** |
 | **Splat.js — 60 min train · 165 k cycles · 1.05 M splats** | **26.59 dB** |
 
 Same images, same resolution, same held-out-every-8th protocol; all times
@@ -100,10 +103,11 @@ The [Brush](https://github.com/ArthurBrussee/brush) row was measured the
 same way: same machine, byte-identical images, the same every-8th holdout,
 SH degree 3, 2 M splat cap, from the COLMAP poses and sparse cloud.
 The published methods train 30 k iterations of 2–2.6 M Gaussians with
-degree-3 spherical harmonics on native CUDA. The 30 k and 40 k Splat.js
-rows are six- and ten-minute browser runs (mean of two seeds, 2026-09-08);
-the 20 min row is the same trainer stopped at twenty minutes (73 k cycles,
-mean of two seeds, 26.42 / 26.41 dB); the 60 min row is the same system given an hour on a shared GPU (165 k of
+degree-3 spherical harmonics on native CUDA. The chart plots Splat.js with
+its schedule set to the time budget: 6 minutes (30 k cycles, 25.83 dB),
+10 minutes (40 k, 26.14 — the table row), 20 minutes (73 k, 26.41) and the
+hour; the 6-, 10- and 20-minute points are means of two seeds (2026-09-08).
+The 60 min row is the same system given an hour on a shared GPU (165 k of
 its 200 k-cycle schedule); on an idle GPU the full 200 k schedule finishes in
 44 minutes at 26.49 dB, peaking near 26.58 dB around 160 k cycles, so a single
 hour run lands anywhere in 26.4–26.6 — a 1.05 M cap fits more cycles into the time than

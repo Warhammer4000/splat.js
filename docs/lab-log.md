@@ -261,6 +261,13 @@ about ±0.1 dB.
   question for the schedule: why the tail after the anneal end loses 0.1 —
   candidates are the fixed floor LR (0.01×) still moving positions with the MCMC
   noise on, or SH/opacity overfitting the train views once relocation stops.
+- **README chart** (user: "so many splat.js entries"): `scripts/readme_chart.mjs`
+  writes `docs/img/truck-psnr-vs-time-{light,dark}.svg` — held-out PSNR against
+  training minutes, Splat.js budget points (6/10/20/60 min) as one curve,
+  LichtFeld and Brush as marks at their measured times, the papers as dashed
+  levels; GitHub picks the variant via `<picture prefers-color-scheme>`. The
+  table keeps two Splat.js rows (10 min, 60 min); the 6- and 20-minute rows
+  moved into the chart. Numbers unchanged, so no deploy — README pushed.
 
 ## 2026-09-07 (the same hour for LichtFeld and Brush; dB-over-time diagram)
 
