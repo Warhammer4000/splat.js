@@ -99,6 +99,14 @@ about ±0.1 dB.
   curve, bicycle, playroom — if they hold, the needle set becomes the default.
   LichtFeld on the synthetic corner (MCMC 30k, GT cams, random init): needles
   everywhere per the user; rerun from our sparse cloud in progress.
+- **Export bug found through the needle model**: the PLY bake of the Mip opacity
+  compensation used a hardcoded 0.3 dilation and the mean of all three scales,
+  so a needle-set export (dilate 0.1, thin axis) came out nearly transparent —
+  "full of holes" in every viewer at 41 dB in the trainer. Bake now uses the
+  run's dilation and the two largest axes (the 2-D Mip factor of the ellipse
+  they span). Re-exports: synthetic needle 41.19, truck needle 25.88 vs 25.57
+  default — user: "MUCH better". LichtFeld from our sparse cloud + cams on the
+  12-view corner still shows needles/holes (its sparse-view behaviour).
 
 ## 2026-09-08 (20-minute row; bar showcase night; statue set)
 
