@@ -32,8 +32,9 @@ loads it back into the viewer, capture-path tour included:
 **[The Truck — Tanks & Temples](https://arrival.space/splat-js/index.html?model=https://ugc.arrival.space/splatjs/models/truck_1h_v3_2026-09-06.sog&recon=https://ugc.arrival.space/splatjs/models/truck_1h_v3_2026-09-06_recon.json)**
 — the benchmark model from the table below: 251 photographs at native
 979 px, poses solved in the browser, 1,050,000 Gaussians, degree-3
-spherical harmonics, 200 k cycles: **26.65 dB on the photographs it never
-saw** — the top of the table, 56 min of training in one tab.
+spherical harmonics, 200 k cycles: **26.44 dB on the photographs it never
+saw** — the top of the table, 36 min of training in one tab (the linked model
+is the 26.65 dB run of the previous schedule, which took the full hour).
 
 **[The Bar — a real bar from 102 handheld 360° panoramas](https://arrival.space/splat-js/index.html?model=https://ugc.arrival.space/splatjs/models/bar360_v5test.sog&recon=https://ugc.arrival.space/splatjs/models/bar360_v5test_recon.json)**
 — each panorama sliced into cube faces and solved as one camera rig
@@ -84,8 +85,9 @@ its native 979 px, on a desktop NVIDIA GPU, in one tab:
 | Brush v0.3 — measured (30 k cycles, ~30 min train) | 26.10 dB |
 | 3DGS-MCMC (NeurIPS 2024) | 26.11 dB |
 | LichtFeld Studio v0.5.3 — measured (~5½ min train) | 26.14 dB |
+| **Splat.js — 20 min train (~95 k cycles, 1.05 M)** | **26.38 dB** |
 | Student Splatting & Scooping (CVPR 2025) | 26.41 dB |
-| **Splat.js — 200 k cycles (56 min train, 1.05 M)** | **26.65 dB** |
+| **Splat.js — 200 k cycles (36 min train, 1.05 M)** | **26.44 dB** |
 
 Same images, same resolution, same held-out-every-8th protocol; all times
 are training only — the Splat.js in-browser camera solve adds ~12 minutes
@@ -100,9 +102,10 @@ SH degree 3, 2 M splat cap, from the COLMAP poses and sparse cloud.
 The published methods train 30 k iterations of 2–2.6 M Gaussians with
 degree-3 spherical harmonics on native CUDA. The 30 k and 40 k Splat.js
 rows are six- and ten-minute browser runs (mean of two seeds, 2026-09-06);
-the 200 k row is the same
-system given an hour — a 1.05 M cap fits more cycles into the hour than
-2 M does and scores higher (2 M at 114 k cycles: 26.19 dB). Its poses come
+the 20 min row is the same system with a 20-minute cap (two seeds), the
+200 k row the same system given the full schedule (36 min) — a 1.05 M cap
+fits more cycles into the time than 2 M does and scores higher (2 M at
+114 k cycles: 26.19 dB). Its poses come
 from the in-browser solve at its desktop defaults: 8000 SIFT features from
 the upsampled first octave and a pixel-aspect term in bundle adjustment
 (the Truck release images are 0.6 % non-square) — a 12-minute solve
