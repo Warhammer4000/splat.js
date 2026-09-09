@@ -54,6 +54,12 @@ about ±0.1 dB.
   Standard/High/Showcase presets solve with the precise recipe (7 min), Draft
   with quick (3.6 min); the gear row offers Quick / Standard. README solve
   claims updated (12 → 7 minutes).
+- **COLMAP result**: 4.1.1 CPU build (3.11.1's CPU matcher crashes) — features
+  6 s, exhaustive matching 501 s, mapper 147 s = **10.9 min**, 251/251, ATE
+  0.00 %. Splat.js Standard: 7.0 min at the same accuracy; our GPU matcher
+  23 s vs their CPU 501 s, their mapper 147 s vs our focal search + final
+  316 s. The focal search is the gap (COLMAP reads EXIF); CUDA COLMAP not
+  measured. Table in docs/bench-sfm-colmap-2026-09-09.md.
 - **30-minute row, first seed (needle default, 1.05 M, `evalmin=2`)**: 26.558 at
   120k cycles in 30.1 min, dead 33.8 % — above every published Truck number
   (SSS 26.41). The second seed loaded the freshly patched trainer mid-run and

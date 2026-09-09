@@ -147,4 +147,19 @@ Showcase → *standard* = the precise recipe at 7.0 min (26.0 dB). The
 "8000 features at octave 0" middle tier is withdrawn (worse than quick);
 'precise' remains an alias of standard.
 
-COLMAP (CPU build): _pending — the first run's matcher stopped after 2 of 36 blocks; rerun in progress_.
+### COLMAP, same photographs, same reference
+
+| solver | features | matching | mapper / registration + BA | total | registered | ATE vs release |
+|---|---:|---:|---:|---:|---:|---:|
+| COLMAP 4.1.1, CPU build (no CUDA), 8000 feats, octave −1, exhaustive | 6 s | 501 s | 147 s | **10.9 min** | 251/251 | 0.00 % |
+| COLMAP 3.11.1, CPU build | 6 s | crashes (access violation, 0xC0000005) a few blocks into the exhaustive match, twice | — | — | — | — |
+| Splat.js Standard (this deploy) | 49 s | 65 s (GPU matching 23 s + worker RANSAC 42 s) | 316 s (focal search ~80 s + final 236 s) | **7.0 min** | 251/251 | 0.00 % |
+| Splat.js Quick | 13 s | 27 s | 176 s | 3.6 min | 251/251 | 0.00 % |
+
+Same accuracy against the release model (both 0.00 % ATE, all 251 cameras).
+On this machine the browser solve is faster than the CPU COLMAP build: the
+GPU matcher does in 23 s what COLMAP's CPU matcher does in 501 s, while
+COLMAP's mapper (147 s) beats our registration + BA (316 s) — the focal
+search accounts for most of that gap, since COLMAP takes the focal from
+EXIF / its prior and we evaluate four candidates. A CUDA COLMAP build would
+bring its matching down to seconds; not measured (needs a download).
