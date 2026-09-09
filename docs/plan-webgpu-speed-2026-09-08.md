@@ -222,4 +222,10 @@ Correctness: gradcheck passes on all four rigs (params tile/global, pose,
 SH3). Parity at 30 k, same seeds back to back on the same day: truck seed 1
 old 25.89 / new 25.74, 25.77; seed 2 old 25.78 / new 25.82 — two-seed means
 25.83 (old) vs 25.79 (new); garden seed 1 26.88 (new) vs 26.75 (09-08
-reference). Inside the ±0.05 run noise: the changes are quality-neutral.
+reference). Inside the ±0.05 run noise — and a deterministic ruler confirms it: with the
+per-frame batch pinned (bench `?ipf=15`) runs repeat bit-for-bit (same refine
+iterations, 25.845 twice), and on that ruler the old code reads 25.807 vs the
+new 25.845 (seed 1). The apparent seed-1 gap on free-running cells was
+batch-timing chaos: the refine trigger fires once per frame after an adaptive
+batch, so a faster kernel shifts refine iterations by tens of steps and the
+trajectories diverge at the ±0.1 level. Use `?ipf=` for every A/B from now on.

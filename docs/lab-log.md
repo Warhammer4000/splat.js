@@ -33,8 +33,15 @@ about ±0.1 dB.
   same seed back to back: truck 25.74 new vs 25.89 old; garden 26.88 new vs
   26.75 reference — opposite signs. Same-day old/new pairs: seed 1 25.89 vs
   25.74 / 25.77, seed 2 25.78 vs 25.82 → two-seed means 25.83 vs 25.79.
-  Quality-neutral within ±0.05; the code ships. Bench gained `?usestats=1` /
-  `?camgrads=1` to compile the removed work back in for bisects.
+  Then the seed-1 pattern persisted (lean 25.74/25.77 vs full 25.88/25.88;
+  single toggles +stats 25.85, +camgrads 25.83) — and the refine logs showed
+  why even same-code runs differ from the first refine: the refine trigger
+  fires once per FRAME after an adaptive batch (~120 ms of GPU work), so
+  kernel speed shifts refine iterations by tens of steps and the trajectories
+  are chaotic at ±0.1. **Deterministic ruler**: bench `?ipf=15` pins the batch
+  → runs repeat bit-for-bit (25.845 twice, identical refines); old code on the
+  same ruler 25.807. The speed code is quality-neutral (+0.04); every A/B from
+  now on pins the batch. Bench also gained `?usestats=1` / `?camgrads=1`.
 - **30-minute pair on the new code** (needle default, 1.05 M, `evalmin=2`, idle
   GPU): **26.468 / 26.638 at 126–127 k cycles in 30 min** → mean **26.55**, dead
   35 %. Curve (mean): 4 min 22.36, 8 24.54, 12 25.56, 16 26.22, 20 26.48, 24
