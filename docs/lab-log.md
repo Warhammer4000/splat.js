@@ -20,6 +20,33 @@ about ±0.1 dB.
   (scratch/sfm_bench/cells_sfm_bench.json: each tier solved fresh + 30k) and
   the COLMAP run decide the standard tier's values first — the GPU is busy
   with the user's own solve right now.
+- **Solve-tier benchmark run** (GPU idle, fresh solves + 30k, seed 1; table in
+  docs/bench-sfm-colmap-2026-09-09.md): quick 3.6 min → 25.51; "8000 at
+  octave 0" 3.5 min → **25.42 (worse than 3900)**; precise 10.8 min → 25.86;
+  precise without aspect 10.6 → 25.72; 5000 feats octave −1 11.1 → 25.84. The
+  quality is the upsampled octave (+ aspect 0.14), not the feature count; the
+  time is the final registration pass: 40 interim global BAs = 270 s of 430 s
+  (96 k points / 514 k obs at octave −1 vs 25 k / 124 k). The provisional
+  standard tier is withdrawn.
+- **Making precise cheaper, three levers tried.** (1) Geometric interim-BA
+  cadence (×1.15, COLMAP-style): 40 → 19 BAs, solve 10.8 → 6.9 min, but the
+  chain DIVED (rms 22.7 px before the last BA, ATE 1.77 %, 21.9 dB) — reverted
+  to every 6 (`interimBARatio` stays opt-in). (2) Per-pair RANSAC in a worker
+  pool (`pairworker.js`): pair geometry 86 → 44 s; the fixed-cadence control
+  ALSO bent (ATE 1.36 %, 21.5 dB) — not the workers: the per-pair seeds gave
+  pair 6+199 (3.7° median parallax) 1126 inliers vs 1028 for 8+198 (11.7°),
+  and the init score capped the parallax bonus at 3.4°, so the low-parallax
+  pair won and everything after it was bent (rms 7.4 → 4.1 at 12 cams, half
+  the points). **Init fix**: cap raised to 0.2 rad, prefer ≥ 5° pairs when any
+  exist. The inline-RANSAC A/B on the same code reproduced 25.82. (3) Interim
+  BA on a 25 k-point subsample (`interimBAMaxPoints`): harmless in the A/B
+  (25.82), time effect being measured with the fix.
+- **COLMAP CPU run**: the exhaustive matcher exited after 2 of 36 blocks with no
+  error line (mapper then registered 50/251 in 17 s); matcher rerun pending
+  after the web cells (CPU contention). Script pitfalls fixed on the way:
+  `$args` as a parameter name (PowerShell's automatic variable → colmap ran
+  with no arguments), and `2>&1` on a native exe under `Stop` (colmap's
+  stderr warning became a terminating error).
 - **30-minute row, first seed (needle default, 1.05 M, `evalmin=2`)**: 26.558 at
   120k cycles in 30.1 min, dead 33.8 % — above every published Truck number
   (SSS 26.41). The second seed loaded the freshly patched trainer mid-run and

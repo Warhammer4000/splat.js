@@ -575,7 +575,7 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
   // Per-pair seeds keep the result independent of the batch split. Without
   // workers (tests, opts.workers === false) the loop runs inline as before.
   const inliersOf = new Array(pairs.length).fill(null);
-  const useWorkers = typeof Worker !== 'undefined' && opts.workers !== false && jobs.length > 32;
+  const useWorkers = typeof Worker !== 'undefined' && opts.workers !== false && opts.pairWorkers !== false && jobs.length > 32;
   if (useWorkers) {
     const nW = Math.min(opts.workers || 8, Math.max(2, (navigator.hardwareConcurrency || 4) - 2));
     const workers = Array.from({ length: nW },
@@ -1167,19 +1167,27 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
       const pose = selectPose(decomposeE(res.U, res.V), x1s, x2s, res.inliers);
       if (!pose || pose.goodFrac < 0.7 || pose.medianAngle < 0.015) continue;
       // cap the parallax bonus so a sparse wide-baseline pair can't beat a
-      // dense moderate one
+      // dense moderate one. The cap was 0.06 rad (3.4 deg) — MEASURED
+      // 2026-09-09 on truck-251: a 3.7-deg pair with 1126 inliers then
+      // outscored an 11.7-deg pair with 1028, the chain started bent
+      // (rms 7.4 -> 4.1 px at 12 cams instead of 5.4 -> 1.8) and finished at
+      // ATE 1.4 % / 21.5 dB instead of 0.00 % / 25.9. Parallax keeps counting
+      // up to 0.2 rad (11.5 deg); a 200-inlier 20-deg pair still loses to a
+      // 1000-inlier 8-deg one.
       scored.push({
         p, pose, nInl: res.inliers.length,
-        score: res.inliers.length * Math.min(pose.medianAngle, 0.06),
+        score: res.inliers.length * Math.min(pose.medianAngle, 0.2),
       });
     }
     // A near-degenerate init pair poisons EVERYTHING downstream: camping once
     // initialized from a 1.1-deg-parallax pair and the whole reconstruction
     // collapsed (path length 0.36 vs 44) while every internal check still
-    // passed (rms 0.67px!). Demand >= 1.4 deg median parallax when any such
-    // candidate exists; the low-parallax tier is only a last resort.
+    // passed (rms 0.67px!). Prefer >= 5 deg median parallax when such
+    // candidates exist, then >= 1.4 deg; the low-parallax tier is only a
+    // last resort.
     {
-      const strong = scored.filter((s) => s.pose.medianAngle >= 0.025);
+      const wide = scored.filter((s) => s.pose.medianAngle >= 0.087);
+      const strong = wide.length ? wide : scored.filter((s) => s.pose.medianAngle >= 0.025);
       if (strong.length) { scored.length = 0; scored.push(...strong); }
     }
     scored.sort((a, b) => b.score - a.score);
@@ -1272,8 +1280,19 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
       const camMap = new Map(regList.map((img, i) => [img, i]));
       const baCams = regList.map((img) => ({ R: Array.from(poses[img].R), t: poses[img].t.slice() }));
       const baPoints = [], baTracks = [], baObs = [];
+      // o.maxPoints: an interim BA only needs enough points to hold the
+      // chain straight — every stride-th triangulated track (deterministic),
+      // so a 96 k-point model adjusts on ~25 k. The final BAs use everything.
+      let stride = 1;
+      if (o.maxPoints > 0) {
+        let nTri = 0;
+        for (const tr of tracks) if (tr.X) nTri++;
+        if (nTri > o.maxPoints) stride = Math.ceil(nTri / o.maxPoints);
+      }
+      let ti = 0;
       for (const tr of tracks) {
         if (!tr.X) continue;
+        if (stride > 1 && (ti++ % stride) !== 0) continue;
         const pi = baPoints.length;
         let nOk = 0;
         for (const ob of tr.obs) {
@@ -1361,7 +1380,12 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
      *  minima at ~0.6px rms exist on the truck set; only one matches COLMAP).
      *  Frequent joint solves + filtering keep growth inside the right basin. */
     async function interimBA() {
-      const res = await runGlobalBA(`interim @${registered.size}`, { maxIters: 12, refineDistortion: false });
+      // interimBAMaxPoints (default 25000): subsample the tracks entering an
+      // interim BA — with the upsampled-octave features truck-251 carries
+      // 96 k points / 514 k observations and 40 interim BAs cost 270 s of a
+      // 430 s final pass; 0 = all points (the pre-2026-09-09 behaviour)
+      const res = await runGlobalBA(`interim @${registered.size}`,
+        { maxIters: 12, refineDistortion: false, maxPoints: sfmOpts.interimBAMaxPoints ?? 25000 });
       if (!res) return;
       for (const tr of tracks) triangulateTrack(tr);
       baFilterObs(res.k1, res.k2, `interim @${registered.size}`);
@@ -1558,15 +1582,15 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
         if (++sinceRefine >= 3) { globalRefine(1); sinceRefine = 0; }
         // periodic joint BA so the growing chain never drifts into a bent
         // basin (only on the final run — the focal search stays cheap).
-        // Cadence (2026-09-09): every 6 registrations while the model is
-        // small — that is where drift is caught — then geometric: the next
-        // BA when the camera count has grown by interimBARatio (COLMAP's
-        // ba_global_images_ratio is 1.1). A fixed every-6 cadence ran 40
-        // global BAs on truck-251, 270 s of a 430 s final pass at the precise
-        // tier; the big late ones dominate and change almost nothing.
-        // interimBARatio 0 restores the fixed cadence.
+        // Cadence: every 6 registrations (default). MEASURED 2026-09-09: a
+        // geometric cadence (interimBARatio 1.15, COLMAP-style) cut the 40
+        // interim BAs to 19 and the precise truck solve 10.8 -> 6.9 min, but
+        // the chain dived between the sparser adjustments (rms 22.7 px before
+        // the last one, ATE 1.77 % vs 0.00 %, 21.9 dB at 30k vs 25.9). The
+        // every-6 cadence stays; the interim BAs get cheaper instead
+        // (interimBAMaxPoints, see interimBA). interimBARatio > 0 opts in.
         ++sinceBA;
-        const baRatio = sfmOpts.interimBARatio ?? 1.15;
+        const baRatio = sfmOpts.interimBARatio ?? 0;
         const baDue = registered.size >= 12 && (baRatio > 0
           ? registered.size >= Math.max(lastBA + 6, Math.ceil(lastBA * baRatio))
           : sinceBA >= 6);
