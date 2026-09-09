@@ -67,7 +67,7 @@ export class GSTrainer {
     this.mipComp = this.opts.mipComp ?? true;
     this.pipeProject = d.createComputePipeline({
       label: 'project', layout: 'auto',
-      compute: { module: mk(makeProjectSrc(this.opts.eCut, this.opts.aMin, this.opts.radClamp, this.shDeg, this.dcMode, this.dilate, this.mipComp, this.opts.rectBin ?? false), 'project'), entryPoint: 'main' },
+      compute: { module: mk(makeProjectSrc(this.opts.eCut, this.opts.aMin, this.opts.radClamp, this.shDeg, this.dcMode, this.dilate, this.mipComp, this.opts.rectBin ?? true), 'project'), entryPoint: 'main' },
     });
     // the (key,id) entry budget scales with an explicit splat ceiling — the
     // fixed 12M cap silently dropped tiles at 800k splats (fast iterations,

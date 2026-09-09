@@ -299,7 +299,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   let by = select(rad, min(sqrt(2.0 * eMax * cd), rad), RECTBIN);
   let W = cam.size.x;
   let H = cam.size.y;
-  if (mx + bx < 0.0 || my + by < 0.0 || mx - bx > W || my - by > H) { return; }
+  // frustum test on the circle, as before: the rectangle only decides which
+  // tiles are walked, never whether a splat counts as visible (visibility
+  // feeds the Adam split and the telemetry) — keeps rectBin parity-exact
+  if (mx + rad < 0.0 || my + rad < 0.0 || mx - rad > W || my - rad > H) { return; }
 
   let inv = 1.0 / detVd;
   proj[b]       = mx;

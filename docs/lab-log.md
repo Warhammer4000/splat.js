@@ -52,8 +52,12 @@ about ±0.1 dB.
   (the desktop session was active — every timing from this chain is
   contaminated: truck read 14.9 ms with chain/Adam slower too). Pinned parity
   seed 1: 25.816 vs 25.845 — the rectangle also decides frustum visibility,
-  so a few edge splats change state and the trajectory diverges; seed 2
-  running. Gradcheck passes with both.
+  so a few edge splats change state and the trajectory diverges (seed 2:
+  25.879 vs 25.923). Frustum test back on the circle → **25.845 exactly,
+  refinement log byte-identical**: rectBin is a pure tile-list change and
+  became the default (0cb3d67 + follow-up). Gradcheck passes with both. Idle
+  GPU speed cells (truck/bicycle, and the per-refine wall time via
+  `?postperf=`) still owed — the daytime chain ran on a shared GPU.
 - **30-minute pair on the new code** (needle default, 1.05 M, `evalmin=2`, idle
   GPU): **26.468 / 26.638 at 126–127 k cycles in 30 min** → mean **26.55**, dead
   35 %. Curve (mean): 4 min 22.36, 8 24.54, 12 25.56, 16 26.22, 20 26.48, 24

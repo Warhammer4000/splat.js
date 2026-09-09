@@ -205,9 +205,12 @@ held-out quality. Postpone the CUDA trainer until these are measured.
       the same rectangle, the render keeps its circular cut. Truck: entries per
       frame 5.07 M → 3.01 M, tiles above 2048 entries 974 → 330; bicycle 2.90 M
       → 1.08 M, none above 2048, step 6.85 → 5.91 ms (shared GPU). Pinned-batch
-      parity seed 1: 25.816 vs 25.845 — not bit-identical (edge-of-frame
-      visibility changes, then chaos); seed 2 running. Speed on an idle GPU
-      and the default flip pending.
+      parity: the first cut also used the rectangle for the frustum test and
+      read 25.816 / 25.879 vs 25.845 / 25.923 (seeds 1, 2) — the rectangle
+      decided visibility for edge splats; with the frustum test back on the
+      circle it reproduces 25.845 with a byte-identical refinement log.
+      **Default ON since 2026-09-09** (`opts.rectBin`); idle-GPU speed cells
+      still to be re-measured (daytime numbers were on a shared GPU).
 - [x] 6 Adam constants — bias corrections in a new `bc` vec4 of both Adam
       uniforms, computed per step on the CPU. Noise pass / race: not done.
 
