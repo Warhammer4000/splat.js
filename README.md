@@ -81,21 +81,6 @@ its native 979 px, on a desktop NVIDIA GPU, in one tab:
   <img src="docs/img/truck-psnr-vs-time-light.svg" width="820" alt="Truck held-out PSNR against training minutes. Splat.js: 25.83 dB at 6 min, 26.14 at 10, 26.41 at 20, 26.59 at 60. LichtFeld Studio 26.14 at 5½ min, Brush 26.10 at 30 min; published methods from 25.18 (3DGS) to 26.41 (Student Splatting & Scooping).">
 </picture></p>
 
-How the held-out score builds up inside that run (mean of two seeds):
-
-| minutes | cycles | Truck test PSNR |
-|---:|---:|---:|
-| 4 | 23 k | 22.36 dB |
-| 8 | 37 k | 24.54 dB |
-| 12 | 50 k | 25.56 dB |
-| 16 | 64 k | 26.22 dB |
-| 20 | 77 k | 26.48 dB |
-| 24 | 94 k | 26.54 dB |
-| 28 | 115 k | 26.58 dB |
-| 30 | 127 k | 26.55 dB |
-
-And against the published methods on the same photographs:
-
 | method | Truck test PSNR |
 |---|---|
 | 3DGS (SIGGRAPH 2023) | 25.18 dB |
@@ -119,8 +104,8 @@ The [Brush](https://github.com/ArthurBrussee/brush) row was measured the
 same way: same machine, byte-identical images, the same every-8th holdout,
 SH degree 3, 2 M splat cap, from the COLMAP poses and sparse cloud.
 The published methods train 30 k iterations of 2–2.6 M Gaussians with
-degree-3 spherical harmonics on native CUDA. The chart and the small table
-follow one Splat.js run for thirty minutes, scored on the held-out photos
+degree-3 spherical harmonics on native CUDA. The chart follows one
+Splat.js run for thirty minutes, scored on the held-out photos
 every two minutes (mean of two seeds, 26.47 / 26.64 dB at the end,
 2026-09-09); the 30 min table row is that end point. With the schedule set
 to a shorter budget it reaches 25.83 dB in 6 minutes (30 k cycles), 26.14 in

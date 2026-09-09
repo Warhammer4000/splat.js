@@ -85,7 +85,7 @@ function svg(theme) {
   for (const p of PAPERS) {
     const yy = y(p.psnr).toFixed(1);
     s += `<line x1="${L}" x2="${R}" y1="${yy}" y2="${yy}" stroke="${c.paper}" stroke-dasharray="4 4" stroke-width="1"/>\n`;
-    s += `<text x="${R + 10}" y="${(y(p.psnr) + 4 + p.off).toFixed(1)}" fill="${c.paper}">${esc(p.name)} <tspan font-variant-numeric="tabular-nums">${f2(p.psnr)}</tspan></text>\n`;
+    s += `<text x="${R + 10}" y="${(y(p.psnr) + 4 + p.off).toFixed(1)}" fill="${c.paper}">${esc(p.name)}</text>\n`;
   }
   // Splat.js curve: mean of the seeds, seed spread as a faint band
   if (shown[0].seeds && shown[0].seeds.length > 1) {
@@ -97,18 +97,16 @@ function svg(theme) {
   s += `<polyline points="${pts}" fill="none" stroke="${c.splat}" stroke-width="2.5" stroke-linejoin="round"/>\n`;
   for (const d of shown) s += `<circle cx="${x(d.min).toFixed(1)}" cy="${y(d.psnr).toFixed(1)}" r="${d.final ? 5 : 2.5}" fill="${d.final ? c.splatFill : c.splat}" stroke="${c.splat}" stroke-width="2.5"/>\n`;
   // end label above the last point, right-aligned so it stays inside the plot
-  s += `<text x="${(x(last.min) + 6).toFixed(1)}" y="${(y(last.psnr) - 30).toFixed(1)}" text-anchor="end" fill="${c.splat}" font-weight="700" font-size="13">Splat.js <tspan font-weight="600" font-size="12">${f2(last.psnr)}</tspan></text>\n`;
-  s += `<text x="${(x(last.min) + 6).toFixed(1)}" y="${(y(last.psnr) - 16).toFixed(1)}" text-anchor="end" fill="${c.text}" font-size="11">${Math.round(last.min)} min · ${Math.round(last.iter / 1000)} k cycles</text>\n`;
+  s += `<text x="${(x(last.min) + 6).toFixed(1)}" y="${(y(last.psnr) - 14).toFixed(1)}" text-anchor="end" fill="${c.splat}" font-weight="700" font-size="13">Splat.js</text>\n`;
   for (const m of LOCAL) {
     const px = x(m.min), py = y(m.psnr);
     s += `<path d="M ${px} ${py - 6} L ${px + 6} ${py} L ${px} ${py + 6} L ${px - 6} ${py} Z" fill="${c.mark}"/>\n`;
     const ly = m.at ? y(m.at) : py + m.dy;
     if (m.at) s += `<line x1="${px}" x2="${px}" y1="${(py - 7).toFixed(1)}" y2="${(ly + 3).toFixed(1)}" stroke="${c.mark}" stroke-width="1" stroke-dasharray="2 3"/>
 `;
-    s += `<text x="${(px + m.dx).toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="${m.anchor}" fill="${c.mark}" font-size="11"><tspan font-weight="600">${m.name}</tspan> · ${m.sub}</text>\n`;
+    s += `<text x="${(px + m.dx).toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="${m.anchor}" fill="${c.mark}" font-size="11"><tspan font-weight="600">${m.name}</tspan></text>\n`;
   }
   s += `<text x="${L}" y="22" fill="${c.text}" font-size="15" font-weight="700">Tanks &amp; Temples Truck — held-out PSNR as training proceeds</text>\n`;
-  s += `<text x="${L}" y="${T - 8}" fill="${c.muted}" font-size="11">Splat.js in one browser tab, 1.05 M splats, mean of two seeds (band: seed spread) · ◆ trainers measured here · dashed: published methods</text>\n`;
   s += `</svg>\n`;
   return s;
 }
