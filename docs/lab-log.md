@@ -47,6 +47,13 @@ about ±0.1 dB.
   `$args` as a parameter name (PowerShell's automatic variable → colmap ran
   with no arguments), and `2>&1` on a native exe under `Stop` (colmap's
   stderr warning became a terminating error).
+- **Init fix verified, precise made cheap**: with the fix the worker path picks
+  8+198 (12.3°) again — 7.8 min / 25.93 on 25 k-point interim BAs, 10.1 min /
+  25.88 on all points, **7.0 min / 26.03 on 10 k points** (interim BA sum 268
+  → 129 → 78 s). Shipped: interimBAMaxPoints 10000, worker RANSAC, init fix;
+  Standard/High/Showcase presets solve with the precise recipe (7 min), Draft
+  with quick (3.6 min); the gear row offers Quick / Standard. README solve
+  claims updated (12 → 7 minutes).
 - **30-minute row, first seed (needle default, 1.05 M, `evalmin=2`)**: 26.558 at
   120k cycles in 30.1 min, dead 33.8 % — above every published Truck number
   (SSS 26.41). The second seed loaded the freshly patched trainer mid-run and

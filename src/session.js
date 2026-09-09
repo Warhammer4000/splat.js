@@ -411,6 +411,10 @@ export class Session {
     this.holdout = -1;
     this.trainer.holdout = -1;
     this.testCams = [];
+    // a resumed run must not refine on its first frame: the refine timer is
+    // not part of the saved state, and lastRefine 0 fired a growth refine
+    // (+5 % splats) right after every resume (e2e resume spec, 2026-09-09)
+    this.trainer.lastRefine = this.trainer.iter;
     this._log(`restored ${gaussians.n} Gaussians` +
       (opts.viewOnly ? ' (view only)' : ` at iteration ${opts.iter || 0}`));
     this._stage({ stage: 'seed', done: 1, total: 1, detail: { splats: gaussians.n } });

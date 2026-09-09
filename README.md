@@ -101,7 +101,7 @@ How to read the table:
 
 - **Same protocol everywhere.** Same images, same resolution, every 8th
   photo held out. Times are training only; the in-browser camera solve adds
-  about 12 minutes on Truck at the desktop defaults.
+  about 7 minutes on Truck at the desktop defaults (3½ with the Quick solve).
 - **The chart is one run.** Splat.js trained for thirty minutes and was
   scored on the held-out photos every two minutes (mean of two seeds,
   26.47 / 26.64 dB at the end, 2026-09-09). The 30 min table row is that
@@ -123,9 +123,9 @@ How to read the table:
 - **Splat.js uses its own poses.** They come from the in-browser solve at
   its desktop defaults: 8000 SIFT features from the upsampled first octave
   and a pixel-aspect term in bundle adjustment (the Truck release images are
-  0.6 % non-square). That solve takes 12 minutes instead of 4 and trains
-  0.15 dB higher than the coarser one, because a sharp model feels half a
-  pixel.
+  0.6 % non-square). That solve takes about 7 minutes instead of 3½ and
+  trains 0.4 dB higher at 30 k than the Quick solve's poses, because a sharp
+  model feels half a pixel.
 - **Benchmark mode pins the native resolution.** On big sets the app
   otherwise trades resolution for memory, and PSNR at reduced resolution is
   not comparable.
