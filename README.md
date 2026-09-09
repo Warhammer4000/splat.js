@@ -1,84 +1,88 @@
 # Splat.js
 
-**Gaussian-splat training that runs entirely in the browser.** Photographs in →
-camera poses solved → a 3D Gaussian splat trained against your photos → a
-standard `.ply` out. No server, no upload, no account, no build step — the whole
-pipeline is vanilla ES modules on WebGPU, running in a tab.
+**Gaussian-splat training that runs entirely in the browser.** Photographs go
+in, camera poses come out, a 3D Gaussian splat is trained against the photos,
+and a standard `.ply` comes back. No server, no upload, no account, no build
+step: the whole pipeline is vanilla ES modules on WebGPU, running in a tab.
 
 ![The Tanks & Temples Truck scene in Splat.js](docs/truck.jpg)
-*The Tanks & Temples **Truck** scene — features found, poses solved, and 600,000
-Gaussians trained, all live in one Chrome tab.*
+*The Tanks & Temples **Truck** scene: features found, poses solved, and
+600,000 Gaussians trained, all live in one Chrome tab.*
 
-- **Structure from motion in JavaScript**: scale-space SIFT (worker pool),
+## What is inside
+
+- **Structure from motion in JavaScript.** Scale-space SIFT on a worker pool,
   GPU brute-force matching, incremental registration with interim bundle
-  adjustment, sparse Schur BA with shared focal + radial distortion. On the
-  full Tanks & Temples *Truck* scene its poses are **pixel-identical to
-  COLMAP's** (0.00% of path length, table below).
-- **A WebGPU 3DGS trainer**: anisotropic Gaussians, global sorted binning,
+  adjustment, and a sparse Schur bundle adjustment with shared focal and
+  radial distortion. On the full Tanks & Temples *Truck* scene the poses are
+  pixel-identical to COLMAP's (0.00 % of path length, see below).
+- **A WebGPU 3DGS trainer.** Anisotropic Gaussians, global sorted binning,
   spherical harmonics (degree 3 by default), MCMC-style relocation and growth,
-  Mip-Splatting opacity compensation, FD-validated analytic gradients. Scales
-  past **4,000,000 splats**.
-- **A standard `.ply` export** (INRIA layout, SH included, opacity compensation
-  baked) that opens in any splat viewer.
+  Mip-Splatting opacity compensation, analytic gradients validated by finite
+  differences. Scales past 4,000,000 splats.
+- **A standard `.ply` export.** INRIA layout, spherical harmonics included,
+  opacity compensation baked in, so it opens in any splat viewer.
 
 ## Try it
 
-Live: **https://arrival.space/splat-js**
+**Live: https://arrival.space/splat-js**
 
-Or open a finished result straight away — every trained run can be saved and
-shared, and `?model=<url>` (+ `&recon=<url>` for the solved camera path)
-loads it back into the viewer, capture-path tour included:
+Drop 20 to 200 overlapping photos of one place into the app, or a video, or
+capture straight from the device camera, or start from one of the bundled
+test sets. The gear next to **Start training** holds one-knob presets
+(*Draft* for a fast first look, *Showcase* for a long high-detail run) and the
+knobs they drive: resolution, spherical harmonics, splat budget, cycles,
+optimizer. The splat budget sizes itself from the cycle budget and the device.
 
-**[The Truck — Tanks & Temples](https://arrival.space/splat-js/index.html?model=https://ugc.arrival.space/splatjs/models/truck_1h_v3_2026-09-06.sog&recon=https://ugc.arrival.space/splatjs/models/truck_1h_v3_2026-09-06_recon.json)**
-— the benchmark scene from the table below: 251 photographs at native
-979 px, poses solved in the browser, 1,050,000 Gaussians, degree-3
-spherical harmonics. Thirty minutes of training reach **26.55 dB on the
-photographs it never saw** — above every published Truck number — in one
-tab (the linked model is a 26.65 dB hour-long run of the previous schedule).
+### Finished results
 
-**[The Bar — a real bar from 102 handheld 360° panoramas](https://arrival.space/splat-js/index.html?model=https://ugc.arrival.space/splatjs/models/bar360_v6_2026-09-08.sog&recon=https://ugc.arrival.space/splatjs/models/bar360_v6_2026-09-08_recon.json)**
-— each panorama sliced into cube faces and solved as one camera rig
-(588 of 612 faces placed), 3.5 million live Gaussians out of a 4 M budget
-(relocation to the last step keeps them alive), trained at 912 px for
-200 k cycles across both capture walks, 83 minutes in one tab.
-(Scene from [360Roam](https://huajianup.github.io/research/360Roam/),
-CC BY-NC-SA.)
+Every trained run can be saved and shared. `?model=<url>` (plus
+`&recon=<url>` for the solved camera path) loads a result straight into the
+viewer, capture-path tour included.
 
-Or locally:
+- **[The Truck — Tanks & Temples](https://arrival.space/splat-js/index.html?model=https://ugc.arrival.space/splatjs/models/truck_1h_v3_2026-09-06.sog&recon=https://ugc.arrival.space/splatjs/models/truck_1h_v3_2026-09-06_recon.json)**
+  The benchmark scene from the table below: 251 photographs at native 979 px,
+  poses solved in the browser, 1,050,000 Gaussians with degree-3 spherical
+  harmonics. Thirty minutes of training reach 26.55 dB on photographs the
+  model never saw, above every published Truck number. The linked model is a
+  26.65 dB hour-long run of the previous schedule.
+- **[The Bar — 102 handheld 360° panoramas](https://arrival.space/splat-js/index.html?model=https://ugc.arrival.space/splatjs/models/bar360_v6_2026-09-08.sog&recon=https://ugc.arrival.space/splatjs/models/bar360_v6_2026-09-08_recon.json)**
+  Each panorama is sliced into cube faces and solved as one camera rig
+  (588 of 612 faces placed). 3.5 million live Gaussians out of a 4 M budget,
+  trained at 912 px for 200 k cycles across both capture walks, 83 minutes in
+  one tab. Scene from [360Roam](https://huajianup.github.io/research/360Roam/),
+  CC BY-NC-SA.
+
+### Run it locally
 
 ```
 node serve.mjs 8734
 # http://localhost:8734/app/
 ```
 
-Needs a browser with WebGPU — current Chrome, Edge, Firefox and Safari
-(iPhones included) all run it without flags or extensions. It installs as a PWA too: the
-browser's install button (or *Add to Home Screen* on iOS) gives the capture
-tool its own icon and window — same pipeline, nothing extra. Drop 20–200 overlapping
-photos of one place into the app — or capture them straight from the device
-camera — or start from a test set (a clone bundles the synthetic set; the
-photo sets are served on the hosted demo). Video input exists in the library
-(`extractSharpFrames`) but is switched off in the app until the frame
-selection is up to the quality bar.
+A clone bundles the synthetic test set; the photo sets are served on the
+hosted demo.
 
-The gear next to **Start training** holds one-knob quality presets — *Draft*
-for a fast first look, *Showcase* for a long high-detail run — plus the
-individual knobs (resolution, spherical harmonics, splat budget, cycles,
-optimizer) they drive. The splat budget auto-sizes from the cycle budget
-and device, and the MCMC-style optimizer is the default schedule.
+### Requirements
+
+- A browser with WebGPU: current Chrome, Edge, Firefox and Safari, iPhones
+  included, without flags or extensions.
+- Optional: install it as a PWA (the browser's install button, or *Add to
+  Home Screen* on iOS) to give the capture tool its own icon and window.
 
 ## Measured quality
 
-### Novel-view synthesis
+### Novel-view synthesis on Truck
 
-Append **`?eval`** to the app URL and every 8th photo is held out of training
-and scored at the end — photographs the model has never seen, the metric the
-research papers report. On the full 251-image Tanks & Temples *Truck* scene at
-its native 979 px, on a desktop NVIDIA GPU, in one tab:
+Append `?eval` to the app URL and every 8th photo is held out of training and
+scored at the end. Those are photographs the model has never seen, the metric
+the research papers report. Everything below is the full 251-image Tanks &
+Temples *Truck* scene at its native 979 px, trained on a desktop NVIDIA GPU
+(RTX 5080) in one tab.
 
 <p align="center"><picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/truck-psnr-vs-time-dark.svg">
-  <img src="docs/img/truck-psnr-vs-time-light.svg" width="820" alt="Truck held-out PSNR against training minutes. Splat.js: 25.83 dB at 6 min, 26.14 at 10, 26.41 at 20, 26.59 at 60. LichtFeld Studio 26.14 at 5½ min, Brush 26.10 at 30 min; published methods from 25.18 (3DGS) to 26.41 (Student Splatting & Scooping).">
+  <img src="docs/img/truck-psnr-vs-time-light.svg" width="820" alt="Held-out PSNR on Truck as one Splat.js run proceeds: past the published methods by minute 20 and flat near 26.5 dB from minute 24 to 30. LichtFeld Studio and Brush are marked at their measured times.">
 </picture></p>
 
 | method | Truck test PSNR |
@@ -93,57 +97,57 @@ its native 979 px, on a desktop NVIDIA GPU, in one tab:
 | Student Splatting & Scooping (CVPR 2025) | 26.41 dB |
 | **Splat.js — 30 min train · 127 k cycles · 1.05 M splats** | **26.55 dB** |
 
-Same images, same resolution, same held-out-every-8th protocol; all times
-are training only — the Splat.js in-browser camera solve adds ~12 minutes
-on Truck at the desktop defaults (about 4 with the previous, coarser
-feature settings).
-The [LichtFeld Studio](https://github.com/MrNeRF/LichtFeld-Studio) row is
-not a paper citation — it was measured on the same desktop (RTX 5080, MCMC
-strategy, 2 M Gaussians, 30 k iterations) from precomputed COLMAP poses.
-The [Brush](https://github.com/ArthurBrussee/brush) row was measured the
-same way: same machine, byte-identical images, the same every-8th holdout,
-SH degree 3, 2 M splat cap, from the COLMAP poses and sparse cloud.
-The published methods train 30 k iterations of 2–2.6 M Gaussians with
-degree-3 spherical harmonics on native CUDA. The chart follows one
-Splat.js run for thirty minutes, scored on the held-out photos
-every two minutes (mean of two seeds, 26.47 / 26.64 dB at the end,
-2026-09-09); the 30 min table row is that end point. With the schedule set
-to a shorter budget it reaches 25.83 dB in 6 minutes (30 k cycles), 26.14 in
-10 (40 k, the other table row) and 26.41 in 20 (73 k). Given an hour it lands
-in 26.4–26.6 — the curve is flat after minute 25 — and a 1.05 M cap fits
-more cycles into the time than 2 M does and scores higher (2 M at 114 k
-cycles: 26.19 dB). Its poses come
-from the in-browser solve at its desktop defaults: 8000 SIFT features from
-the upsampled first octave and a pixel-aspect term in bundle adjustment
-(the Truck release images are 0.6 % non-square) — a 12-minute solve
-instead of 4, and poses that train 0.15 dB higher than the earlier 4-minute
-solve, because at an hour the model is sharp enough to feel half a pixel. (Benchmark mode pins the native
-resolution: on big sets the app otherwise trades resolution for memory, and
-PSNR at reduced resolution is not comparable.)
+How to read the table:
+
+- **Same protocol everywhere.** Same images, same resolution, every 8th
+  photo held out. Times are training only; the in-browser camera solve adds
+  about 12 minutes on Truck at the desktop defaults.
+- **The chart is one run.** Splat.js trained for thirty minutes and was
+  scored on the held-out photos every two minutes (mean of two seeds,
+  26.47 / 26.64 dB at the end, 2026-09-09). The 30 min table row is that
+  end point. The curve is flat after minute 25; given an hour it lands
+  between 26.4 and 26.6.
+- **Shorter budgets.** With the schedule set to the budget it reaches
+  25.83 dB in 6 minutes (30 k cycles), 26.14 dB in 10 (40 k, the other table
+  row) and 26.41 dB in 20 (73 k).
+- **Fewer splats win the clock.** A 1.05 M cap fits more cycles into the
+  time than 2 M does and scores higher (2 M at 114 k cycles: 26.19 dB).
+- **The two "measured here" rows are not paper citations.**
+  [LichtFeld Studio](https://github.com/MrNeRF/LichtFeld-Studio) ran on the
+  same desktop with its MCMC strategy, 2 M Gaussians and 30 k iterations from
+  precomputed COLMAP poses. [Brush](https://github.com/ArthurBrussee/brush)
+  ran the same way: same machine, byte-identical images, the same holdout,
+  SH degree 3, 2 M splat cap, from the COLMAP poses and sparse cloud. The
+  published methods train 30 k iterations of 2 to 2.6 M Gaussians with
+  degree-3 spherical harmonics on native CUDA.
+- **Splat.js uses its own poses.** They come from the in-browser solve at
+  its desktop defaults: 8000 SIFT features from the upsampled first octave
+  and a pixel-aspect term in bundle adjustment (the Truck release images are
+  0.6 % non-square). That solve takes 12 minutes instead of 4 and trains
+  0.15 dB higher than the coarser one, because a sharp model feels half a
+  pixel.
+- **Benchmark mode pins the native resolution.** On big sets the app
+  otherwise trades resolution for memory, and PSNR at reduced resolution is
+  not comparable.
 
 ### Camera poses
 
-The solver is measured against COLMAP (and exact ground truth where it
-exists). ATE = absolute trajectory error as a fraction of the capture path
-length:
+The solver is measured against COLMAP, and against exact ground truth where
+it exists. ATE is the absolute trajectory error as a fraction of the capture
+path length.
 
 | scene | registered | vs reference |
 |---|---|---|
-| Synthetic (12 rendered views, exact GT) | 12/12 | focal within 0.33% of ground truth |
-| Truck (Tanks & Temples, 250 photos) | 250/250 | **0.00% ATE** vs COLMAP (max deviation 0.006%) |
-| Camping (handheld video, 113 frames) | 113/113 | 0.23% ATE vs COLMAP |
-| Playroom (Deep Blending, 225 DSLR photos) | **207/225** | 0.03% ATE vs COLMAP; 0.13% vs official GT |
+| Synthetic (12 rendered views, exact GT) | 12/12 | focal within 0.33 % of ground truth |
+| Truck (Tanks & Temples, 250 photos) | 250/250 | **0.00 % ATE** vs COLMAP (max deviation 0.006 %) |
+| Camping (handheld video, 113 frames) | 113/113 | 0.23 % ATE vs COLMAP |
+| Playroom (Deep Blending, 225 DSLR photos) | **207/225** | 0.03 % ATE vs COLMAP; 0.13 % vs official GT |
 | Bicycle (Mip-NeRF 360, 194 photos) | 192/194 | 0.63 px reprojection rms |
 
-Playroom is the interesting row: at the same image resolution, stock COLMAP
-3.11 registers only 154–157 of the 225 photos (blank painted walls starve the
-features); Splat.js places 207 — and where both place a camera, they agree to
-0.03% of the path.
-
-The synthetic, Truck and Camping rows are asserted by the test suite on every
-change (`npm test`, `npm run test:quality` — the quality gates drive the
-public API in headless Chrome). The remaining rows are measured with the same
-tooling (`tests/compare_colmap.mjs`).
+Playroom is the interesting row. At the same image resolution, stock COLMAP
+3.11 registers only 154 to 157 of the 225 photos, because blank painted walls
+starve the features. Splat.js places 207, and where both place a camera they
+agree to 0.03 % of the path.
 
 ## Use the library
 
@@ -167,7 +171,7 @@ const ply = await s.exportPlyBlob();
 
 Benchmark mode is one option away: `createSession({ evalSplit: 8 })` holds
 every 8th frame out of training, and `await s.evalTestPsnr()` returns the
-novel-view PSNR (mean + per-frame) after the run.
+novel-view PSNR (mean and per frame) after the run.
 
 Or compose the pieces yourself:
 
@@ -182,11 +186,11 @@ const trainer = await createTrainer({ gpu });
 // ... trainer.setup(...), trainer.stepOnce(), trainer.renderView(pose, ctx)
 ```
 
-The library reads no globals, touches no DOM (OffscreenCanvas for decoding),
-and shares one WebGPU device between the matcher and the trainer — a host that
-already owns a device can hand it in.
+The library reads no globals and touches no DOM (OffscreenCanvas for
+decoding). It shares one WebGPU device between the matcher and the trainer,
+and a host that already owns a device can hand it in.
 
-## Tree
+## Repository layout
 
 ```
 src/          the library — no UI, no globals
@@ -195,7 +199,7 @@ src/          the library — no UI, no globals
   sfm/        SIFT, matching (GPU), geometry, incremental SfM, bundle adjustment
   gs/         WebGPU trainer, WGSL shaders, gradcheck harness
   gpu/        one shared device
-  io/         frame decoding, PLY export
+  io/         frame decoding, video frame selection, PLY export
 app/          the Splat.js app (a Session consumer — the UI never touches internals)
 tests/unit/   node tests for the maths (geometry, BA, rotation averaging, SIFT)
 tests/quality/ end-to-end accuracy gates in headless Chrome
@@ -203,8 +207,16 @@ tests/e2e/    Playwright suite for the app's flows (train, pause/resume, restore
 data/synthetic/ the bundled test set (known ground-truth cameras)
 ```
 
-The Tanks & Temples / video datasets behind the other quality gates are not
-tracked; the gates skip automatically when they are absent.
+## Tests
+
+- `npm test` runs the node unit tests.
+- `npm run test:quality` drives the public API in headless Chrome and asserts
+  the synthetic, Truck and Camping rows of the pose table on every change.
+- `npm run test:e2e` runs the Playwright suite against the real app with real
+  WebGPU training (a GPU box, not CI).
+- The remaining pose rows are measured with the same tooling
+  (`tests/compare_colmap.mjs`). The Tanks & Temples and video datasets behind
+  the quality gates are not tracked; the gates skip when they are absent.
 
 ## License
 
