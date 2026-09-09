@@ -1870,6 +1870,27 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
     return final;
   }
 
+  // focal PRIOR (EXIF 35 mm-equivalent, session.solve): trust it the way
+  // COLMAP does — one registration at the prior, BA refines f — but keep the
+  // search as the fallback when the prior is off (digital zoom, a crop, a
+  // wrong tag): a prior that registers fewer than 60 % of the images is
+  // rejected. Saves the four search registrations (~80 s on truck-251 at the
+  // upsampled octave; the whole "Solving positions" beat on a phone).
+  if (opts.focalPrior > 0) {
+    const priorScale = opts.focalPrior / (1.2 * Math.max(images[0].fw, images[0].fh));
+    const t0p = performance.now();
+    log(`focal prior from EXIF: ${opts.focalPrior.toFixed(1)}px (${(priorScale * 1.2).toFixed(2)}x maxDim) — trying it before the search`);
+    const final = await runGeometry(priorScale, true, true);
+    if (final && final.cams.length >= 0.6 * n && final.points.length >= 50) {
+      log(`  prior accepted: ${final.cams.length}/${n} cameras in ${((performance.now() - t0p) / 1000).toFixed(1)}s (search skipped)`);
+      log(`SfM done: ${final.cams.length}/${n} cameras registered, ${final.points.length} points, ` +
+          (final.rmsBA != null ? `BA rms ${final.rmsBA.toFixed(2)}px` : `median reproj ${final.medErr.toFixed(2)}px`));
+      Object.defineProperty(final, '_feats', { value: feats, enumerable: false });
+      return final;
+    }
+    log(`  prior rejected (${final ? final.cams.length : 0}/${n} cameras) — falling back to the focal search`);
+  }
+
   const candidates = [];
   let fi = 0;
   const focalScales = opts.focalScales || FOCAL_SCALES;   // opts.focalScales: a narrower search (EXIF-informed, or a quick tier)

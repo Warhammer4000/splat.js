@@ -36,6 +36,7 @@
  */
 
 import { probeImageSize } from './pano.js';
+import { readExifFocal } from './exif.js';
 
 export const FEAT_MAX_DIM = 960;
 export const TRAIN_MAX_DIM = 1600; // hard ceiling; actual res = native, memory permitting
@@ -229,8 +230,13 @@ export async function decodeFrames(files, opts = {}) {
         trainCap = adaptiveTrainCap(files.length, bmp.width, bmp.height, opts);
         log(`training resolution: ${trainCap}px max dim (${files.length} images)`);
       }
-      out.push(processSource(bmp, bmp.width, bmp.height, name, trainCap, opts, resized));
+      const frame = processSource(bmp, bmp.width, bmp.height, name, trainCap, opts, resized);
       bmp.close();
+      // the photo's focal length, when the file carries it (JPEG / HEIC EXIF):
+      // the solver turns an agreeing set into a focal prior and skips its
+      // four-candidate focal search (session.solve)
+      if (source instanceof Blob && opts.exif !== false) frame.exif = await readExifFocal(source);
+      out.push(frame);
     } catch (e) {
       log(`skipped ${name}: ${e.message}`);
     }

@@ -60,6 +60,23 @@ about ±0.1 dB.
   23 s vs their CPU 501 s, their mapper 147 s vs our focal search + final
   316 s. The focal search is the gap (COLMAP reads EXIF); CUDA COLMAP not
   measured. Table in docs/bench-sfm-colmap-2026-09-09.md.
+
+## 2026-09-10 (EXIF focal prior)
+
+- **EXIF focal prior** (user: phone run "worked well"; next lever was the
+  four-candidate focal search). `src/io/exif.js` reads the 35 mm-equivalent
+  focal (JPEG APP1, HEIF/HEIC meta item), `decodeFrames` attaches it per frame,
+  `session.solve` turns an agreeing set (≥ 60 % of photos, spread ≤ 10 %) into
+  `focalPrior` = f35 · diagonal / 43.27 at the feature frame, and the solver
+  registers at the prior first, keeping the search as the fallback when the
+  prior registers < 60 % of the images. Statue (34 iPhone 14 Pro photos, 24 mm
+  → 665.6 px at 720 px): prior 23/34, **19.62 dB** at 30k vs the search's
+  23/34, **17.44** — the search's retry pass had picked 0.96× (24 % off the
+  true 0.77×). Solve time unchanged on 34 photos (0.3 min either way); on a
+  250-photo set the prior saves the ~80 s search. Truck (no EXIF) unaffected.
+  Unit test `tests/unit/test_exif.mjs` (synthetic JPEG + the statue files);
+  bench `?exiffocal=0` opts out. In-app camera captures carry no EXIF (canvas
+  JPEGs) — a focal from the camera track is not available; library picks do.
 - **30-minute row, first seed (needle default, 1.05 M, `evalmin=2`)**: 26.558 at
   120k cycles in 30.1 min, dead 33.8 % — above every published Truck number
   (SSS 26.41). The second seed loaded the freshly patched trainer mid-run and

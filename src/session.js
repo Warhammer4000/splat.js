@@ -21,6 +21,7 @@
 // conversion, and the hidden-tab watchdog.
 
 import { decodeFrames } from './io/frames.js';
+import { focalPxFrom35 } from './io/exif.js';
 import { isEquirect, sliceEquirect, faceSizeFor, probeImageSize, FACE_ROTS } from './io/pano.js';
 import { runSfM } from './sfm/sfm.js';
 import { initGaussians } from './gs/init.js';
@@ -219,6 +220,26 @@ export class Session {
       // them only fits noise. MEASURED bar360 30k: lock +0.29 (old solve 20.69 -> 20.98),
       // +0.22 on the octave -1 solve. sfm.lockIntrinsics: false opts out.
       opts.lockIntrinsics = opts.lockIntrinsics ?? true;
+    }
+    // EXIF focal prior: when most photos carry the same 35 mm-equivalent
+    // focal (one phone, one lens), the solver starts from it and skips the
+    // four-candidate focal search (sfm.js keeps the search as the fallback).
+    // sfm.exifFocal: false opts out; a rig's exact focal takes precedence.
+    if (opts.exifFocal !== false && !opts.focalPx && !opts.focalPrior) {
+      const f35s = this.frames.map((f) => f.exif && f.exif.f35).filter((v) => v > 0);
+      if (f35s.length >= Math.max(2, 0.6 * this.frames.length)) {
+        const sorted = [...f35s].sort((a, b) => a - b);
+        const med = sorted[sorted.length >> 1];
+        const spread = sorted[sorted.length - 1] / sorted[0];
+        if (spread <= 1.1) {
+          const fr = this.frames[0];
+          opts.focalPrior = focalPxFrom35(med, fr.fw, fr.fh);
+          this._log(`EXIF focal ${med} mm (35 mm-equivalent) on ${f35s.length}/${this.frames.length} photos → ` +
+            `prior ${opts.focalPrior.toFixed(1)} px at the ${fr.fw} px feature frame`);
+        } else {
+          this._log(`EXIF focal varies across the set (${sorted[0]}–${sorted[sorted.length - 1]} mm) — focal search kept`);
+        }
+      }
     }
     // the GPU matcher shares the session device (created here rather than at
     // seed) — it carries the raised buffer limits big feature sets need
