@@ -791,7 +791,7 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
   // Geometry stage, parameterized by focal scale. Fully self-contained so the
   // focal search can run it repeatedly on reset track state.
   // =========================================================================
-  async function runGeometry(fScale, verbose, withBA = false) {
+  async function runGeometry(fScale, verbose, withBA = false, initSkip = 0) {
     const vlog = verbose ? log : () => {};
     const rng = makeRng(1234567);
     const K = images.map((im) => ({
@@ -1051,11 +1051,22 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
     }
 
     // ---- initialization pair: ranked by shared tracks ----
-    const candPairs = [...sharedCount.entries()]
+    // The distance weight (1 + |j - i|) favours wide pairs, which suppresses
+    // capture-order neighbours entirely on a walk-around — yet those are the
+    // natural seeds (the statue registered 30/34 from pair 29+30 and 23/34
+    // from every wide pair, 2026-09-10). Keep the top wide pairs AND the top
+    // adjacent pairs by shared count; the parallax-weighted score below
+    // ranks them all the same way.
+    const allPairs = [...sharedCount.entries()]
       .map(([k, c]) => ({ i: (k / 10000) | 0, j: k % 10000, c }))
-      .filter((p) => p.c >= 30)
+      .filter((p) => p.c >= 30);
+    const wide = allPairs.slice()
       .sort((a, b) => b.c * (1 + Math.abs(b.j - b.i)) - a.c * (1 + Math.abs(a.j - a.i)))
       .slice(0, 30);
+    const near = allPairs.filter((p) => Math.abs(p.j - p.i) <= 2)
+      .sort((a, b) => b.c - a.c)
+      .slice(0, 10);
+    const candPairs = [...wide, ...near.filter((p) => !wide.includes(p))];
 
     const trackCorrs = (i, j) => {
       const x1s = [], x2s = [];
@@ -1200,10 +1211,19 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
       if (strong.length) { scored.length = 0; scored.push(...strong); }
     }
     scored.sort((a, b) => b.score - a.score);
+    // opts.initPair = [i, j]: seed from a named pair when it is a candidate
+    // (dev / bench tool — reproduces a registration that a lucky ranking gave)
+    if (Array.isArray(sfmOpts.initPair)) {
+      const [pi0, pj0] = sfmOpts.initPair;
+      const k = scored.findIndex((s) => (s.p.i === pi0 && s.p.j === pj0) || (s.p.i === pj0 && s.p.j === pi0));
+      if (k > 0) scored.unshift(...scored.splice(k, 1));
+      vlog(`init pair request ${pi0}+${pj0}: ${k >= 0 ? 'ranked first' : 'not a candidate'}`);
+    }
     if (!useGlobal && !scored.length) return null;
 
     let initDone = false;
-    for (const { p, pose, nInl } of scored) {
+    // initSkip: start from the k-th ranked pair (init trials, see initTrials)
+    for (const { p, pose, nInl } of scored.slice(Math.min(initSkip, Math.max(0, scored.length - 1)))) {
       poses[p.i] = { R: I3(), t: [0, 0, 0] };
       poses[p.j] = { R: pose.R, t: pose.t.slice() };
       registered.add(p.i); registered.add(p.j);
@@ -1862,13 +1882,36 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
   // (detector noise is in pixels; model misfit adds to it).
   const useGlobalSearch = !!opts.globalInit;
 
+  // Init trials (2026-09-10): on a small set the whole reconstruction hangs
+  // on the first init pair — the 34-photo statue registered 30/34 from pair
+  // 29+30 and 18/34 from pair 2+3 with identical everything else. For sets
+  // up to 60 images the top-ranked pairs are each tried with the cheap
+  // registration (no BA, a second or two each) and the one that places the
+  // most cameras (then the lower pixel median) seeds the final pass.
+  // opts.initTrials sets the count (default 3; 1 = off).
+  const finalRun = async (scale) => {
+    const trials = n <= 60 ? (opts.initTrials ?? 3) : 1;
+    if (trials <= 1) return runGeometry(scale, true, true);
+    let bestK = 0, bestRes = null;
+    for (let k = 0; k < trials; k++) {
+      checkAbort();
+      const r = await runGeometry(scale, false, false, k);
+      if (!r) { log(`  init trial ${k}: no reconstruction`); continue; }
+      log(`  init trial ${k}: ${r.cams.length}/${n} cams, median reproj ${r.medErr.toFixed(2)}px`);
+      if (!bestRes || r.cams.length > bestRes.cams.length ||
+          (r.cams.length === bestRes.cams.length && r.medErr < bestRes.medErr)) { bestRes = r; bestK = k; }
+    }
+    if (bestK) log(`  init trials: seeding the final pass from the rank-${bestK} pair`);
+    return runGeometry(scale, true, true, bestK);
+  };
+
   // known focal (sliced cubemap faces know f exactly; EXIF one day): skip
   // the search — it also only sweeps photo-like FOVs (0.78-1.56x maxDim),
   // which a 100-degree face (0.42x) sits far outside of.
   if (opts.focalPx) {
     const knownScale = opts.focalPx / (1.2 * Math.max(images[0].fw, images[0].fh));
     log(`focal known: ${opts.focalPx.toFixed(1)}px (${(knownScale * 1.2).toFixed(2)}x maxDim) — search skipped`);
-    const final = await runGeometry(knownScale, true, true);
+    const final = await finalRun(knownScale);
     if (!final) throw new Error('known-focal reconstruction failed — need more parallax/overlap');
     log(`SfM done: ${final.cams.length}/${n} cameras registered, ${final.points.length} points, ` +
         (final.rmsBA != null ? `BA rms ${final.rmsBA.toFixed(2)}px` : `median reproj ${final.medErr.toFixed(2)}px`));
@@ -1889,7 +1932,7 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
     const priorScale = opts.focalPrior / (1.2 * Math.max(images[0].fw, images[0].fh));
     const t0p = performance.now();
     log(`focal prior from EXIF: ${opts.focalPrior.toFixed(1)}px (${(priorScale * 1.2).toFixed(2)}x maxDim) — trying it before the search`);
-    const final = await runGeometry(priorScale, true, true);
+    const final = await finalRun(priorScale);
     if (final && final.cams.length >= 0.6 * n && final.points.length >= 50) {
       log(`  prior accepted: ${final.cams.length}/${n} cameras in ${((performance.now() - t0p) / 1000).toFixed(1)}s (search skipped)`);
       log(`SfM done: ${final.cams.length}/${n} cameras registered, ${final.points.length} points, ` +
@@ -1966,7 +2009,7 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
   // final reconstruction
   log(`focal search winner: ${(best.fScale * 1.2).toFixed(2)}x maxDim — rerunning with BA ...`);
   const t0w = performance.now();
-  const final = await runGeometry(best.fScale, true, true);
+  const final = await finalRun(best.fScale);
   if (!final) throw new Error('focal winner failed on rerun (unexpected)');
   log(`  final registration + BA in ${((performance.now() - t0w) / 1000).toFixed(1)}s`);
 

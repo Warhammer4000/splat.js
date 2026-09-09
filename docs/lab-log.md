@@ -92,6 +92,20 @@ about ±0.1 dB.
   0.02 % in all, k1 ≈ 0.10 — so the 17.4 / 19.6 / 17.9 dB spread is training
   and held-out noise on 3 held-out photos, not the focal; the statue is too
   small to grade focal choices by PSNR.
+- **Statue showcase re-solved** (user: "we had huge quality issues with sky
+  etc, could be explained with that"): Standard tier + EXIF focal (24 mm →
+  665.6 px at the 720 px feature frame, prior accepted), 23/34 cameras, BA
+  rms 0.72 px, 60k at 2400 px on all views in 10.7 min, 426 k splats →
+  published `statue_ka_2026-09-10`. The 09-08 showcase had 30/34: its retry
+  pass happened to seed from pair 29+30 (379 inliers, 11.5°); today that pair
+  is not even an init candidate (shared-track ranking differs with the
+  per-pair RANSAC seeds), and every candidate tried registers the same 23.
+  Tried and kept as tools: init trials on sets ≤ 60 images (top-3 ranked
+  pairs, cheap registration, best by camera count — `initTrials`), a named
+  init pair (`initPair`, bench `?initpair=`), capture-order neighbours
+  admitted to the init candidates (top-10 adjacent by shared tracks). None
+  moved the statue past 23; the 4 flare images (IMG_0031–34) never register,
+  the other 7 need a better track graph on this low-texture set — parked.
 - **30-minute row, first seed (needle default, 1.05 M, `evalmin=2`)**: 26.558 at
   120k cycles in 30.1 min, dead 33.8 % — above every published Truck number
   (SSS 26.41). The second seed loaded the freshly patched trainer mid-run and
