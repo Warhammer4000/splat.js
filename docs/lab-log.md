@@ -42,6 +42,18 @@ about ±0.1 dB.
   → runs repeat bit-for-bit (25.845 twice, identical refines); old code on the
   same ruler 25.807. The speed code is quality-neutral (+0.04); every A/B from
   now on pins the batch. Bench also gained `?usestats=1` / `?camgrads=1`.
+  Deployed live 11:5xZ (83db5f6, overlay c4de0590e), pushed.
+- **Plan #4 (refine data movement) and #5 (rectangular binning) in.** #4: the
+  legacy refine downloads only the live rows of params; a `refine-patch`
+  kernel applies the touched rows (params, moment reset, donor SH copy) —
+  pinned parity 25.845 → 25.845 with byte-identical refinement logs. #5
+  (opt-in `rectbin=1`): truck entries 5.07 M → 3.01 M per frame, big tiles
+  974 → 330; bicycle 2.90 M → 1.08 M, step 6.85 → 5.91 ms on a SHARED GPU
+  (the desktop session was active — every timing from this chain is
+  contaminated: truck read 14.9 ms with chain/Adam slower too). Pinned parity
+  seed 1: 25.816 vs 25.845 — the rectangle also decides frustum visibility,
+  so a few edge splats change state and the trajectory diverges; seed 2
+  running. Gradcheck passes with both.
 - **30-minute pair on the new code** (needle default, 1.05 M, `evalmin=2`, idle
   GPU): **26.468 / 26.638 at 126–127 k cycles in 30 min** → mean **26.55**, dead
   35 %. Curve (mean): 4 min 22.36, 8 24.54, 12 25.56, 16 26.22, 20 26.48, 24

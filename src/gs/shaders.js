@@ -253,8 +253,8 @@ fn computeGeom(pbase: u32) -> Geom {
 // Pass 1: project each splat and COUNT the tiles it touches.
 // dc: 'sigmoid' (legacy bounded DC) | 'sh' (v2: standard unbounded SH-DC,
 // col = C0*dc + 0.5 — matches the PLY convention directly)
-export const makeProjectSrc = (E = DEFAULT_E_CUT, A = DEFAULT_A_MIN, RC = 1.0, shDeg = 0, dc = 'sigmoid', D = 0.3, C = true) =>
-  CAM_STRUCT + cutConsts(E, A, RC, D, C) + /* wgsl */ `
+export const makeProjectSrc = (E = DEFAULT_E_CUT, A = DEFAULT_A_MIN, RC = 1.0, shDeg = 0, dc = 'sigmoid', D = 0.3, C = true, RB = false) =>
+  CAM_STRUCT + cutConsts(E, A, RC, D, C) + `const RECTBIN = ${RB ? 'true' : 'false'};\n` + /* wgsl */ `
 @group(0) @binding(1) var<storage, read> params: array<f32>;
 @group(0) @binding(2) var<storage, read_write> proj: array<f32>;
 @group(0) @binding(3) var<storage, read_write> tileCnt: array<atomic<u32>>;
@@ -290,9 +290,16 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   let disc = sqrt(max(mid * mid - detVd, 0.0));
   let eMax = min(E_CUT, log(max(opa * comp / A_MIN, 1.0001)));
   let rad = min(sqrt(2.0 * eMax) * sqrt(mid + disc), RADCL * cam.size.x);
+  // per-axis extents of the e <= eMax ellipse (speed plan #5, opts.rectBin):
+  // a thin splat at an angle fills far fewer tiles as a rectangle than as
+  // the circle of its long axis. Pixels inside the circle but outside the
+  // rectangle already fail the render's ellipse / A_MIN tests, so the image
+  // is unchanged; the circular cut on rad stays for the clamped case.
+  let bx = select(rad, min(sqrt(2.0 * eMax * ad), rad), RECTBIN);
+  let by = select(rad, min(sqrt(2.0 * eMax * cd), rad), RECTBIN);
   let W = cam.size.x;
   let H = cam.size.y;
-  if (mx + rad < 0.0 || my + rad < 0.0 || mx - rad > W || my - rad > H) { return; }
+  if (mx + bx < 0.0 || my + by < 0.0 || mx - bx > W || my - by > H) { return; }
 
   let inv = 1.0 / detVd;
   proj[b]       = mx;
@@ -333,16 +340,16 @@ ${shDeg > 0 ? /* wgsl */ `
   // the fixed-point accumulators O(1)), the chain pass divides it back out.
   // Computed once here instead of per pixel-splat pair (speed plan #3).
   proj[b + 12u] = 1.0 / (1.0 + mid + disc);
-  proj[b + 13u] = g.vb;
-  proj[b + 14u] = g.vc;
+  proj[b + 13u] = bx;   // binning half-extents (scatter walks the same tiles)
+  proj[b + 14u] = by;
   proj[b + 15u] = rad;
 
   let tilesX = u32(cam.size.z);
   let tilesY = u32(ceil(H / TILEF));
-  let tx0 = u32(clamp(floor((mx - rad) / TILEF), 0.0, f32(tilesX - 1u)));
-  let tx1 = u32(clamp(floor((mx + rad) / TILEF), 0.0, f32(tilesX - 1u)));
-  let ty0 = u32(clamp(floor((my - rad) / TILEF), 0.0, f32(tilesY - 1u)));
-  let ty1 = u32(clamp(floor((my + rad) / TILEF), 0.0, f32(tilesY - 1u)));
+  let tx0 = u32(clamp(floor((mx - bx) / TILEF), 0.0, f32(tilesX - 1u)));
+  let tx1 = u32(clamp(floor((mx + bx) / TILEF), 0.0, f32(tilesX - 1u)));
+  let ty0 = u32(clamp(floor((my - by) / TILEF), 0.0, f32(tilesY - 1u)));
+  let ty1 = u32(clamp(floor((my + by) / TILEF), 0.0, f32(tilesY - 1u)));
   for (var ty = ty0; ty <= ty1; ty++) {
     for (var tx = tx0; tx <= tx1; tx++) {
       atomicAdd(&tileCnt[ty * tilesX + tx], 1u);
@@ -426,15 +433,16 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   if (proj[b + 11u] <= 0.0) { return; }
   let mx = proj[b];
   let my = proj[b + 1u];
-  let rad = proj[b + 15u];
+  let bx = proj[b + 13u];   // binning half-extents written by projection
+  let by = proj[b + 14u];   // (= rad, or the per-axis ellipse extents with rectBin)
   let key = bitcast<u32>(proj[b + 2u]); // positive depth: bits are monotonic
 
   let tilesX = u32(cam.size.z);
   let tilesY = u32(ceil(cam.size.y / TILEF));
-  let tx0 = u32(clamp(floor((mx - rad) / TILEF), 0.0, f32(tilesX - 1u)));
-  let tx1 = u32(clamp(floor((mx + rad) / TILEF), 0.0, f32(tilesX - 1u)));
-  let ty0 = u32(clamp(floor((my - rad) / TILEF), 0.0, f32(tilesY - 1u)));
-  let ty1 = u32(clamp(floor((my + rad) / TILEF), 0.0, f32(tilesY - 1u)));
+  let tx0 = u32(clamp(floor((mx - bx) / TILEF), 0.0, f32(tilesX - 1u)));
+  let tx1 = u32(clamp(floor((mx + bx) / TILEF), 0.0, f32(tilesX - 1u)));
+  let ty0 = u32(clamp(floor((my - by) / TILEF), 0.0, f32(tilesY - 1u)));
+  let ty1 = u32(clamp(floor((my + by) / TILEF), 0.0, f32(tilesY - 1u)));
   let numTiles = tilesX * tilesY;
   for (var ty = ty0; ty <= ty1; ty++) {
     for (var tx = tx0; tx <= tx1; tx++) {
@@ -1271,6 +1279,51 @@ ${statMax ? /* wgsl */ `
   let stepStat = atomicExchange(&gradP[b + 12u], 0);
   atomicMax(&gradP[b + 13u], stepStat);
 ` : ''}
+}
+`;
+
+// Legacy-refine row patch (speed plan #4): the CPU keeps the policy (which
+// rows die, which donors they clone, the jitter draws) and ships only the
+// touched rows — params values, a moments-reset flag, and the donor row whose
+// SH the clone inherits. Replaces six full-capacity download+upload round
+// trips (1.5 GB per refine at 1.05 M, degree 3) with one live-rows download.
+// ops: 4 u32 per op [dst row, SH source row or 0xFFFFFFFF, flags (1 = zero
+// m/v, 2 = zero shM/shV), pad]; vals: 16 f32 per op (the row's new params).
+// Donor rows are never SH destinations, so the SH copy has no read/write race.
+export const REFINE_PATCH_SRC = /* wgsl */ `
+struct PU { n: u32, shr: u32, pad0: u32, pad1: u32 };
+@group(0) @binding(0) var<uniform> pu: PU;
+@group(0) @binding(1) var<storage, read> ops: array<u32>;
+@group(0) @binding(2) var<storage, read> vals: array<f32>;
+@group(0) @binding(3) var<storage, read_write> params: array<f32>;
+@group(0) @binding(4) var<storage, read_write> mBuf: array<f32>;
+@group(0) @binding(5) var<storage, read_write> vBuf: array<f32>;
+@group(0) @binding(6) var<storage, read_write> sh: array<f32>;
+@group(0) @binding(7) var<storage, read_write> shM: array<f32>;
+@group(0) @binding(8) var<storage, read_write> shV: array<f32>;
+
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nw: vec3u) {
+  let o = gid.x + gid.y * nw.x * 256u;
+  if (o >= pu.n) { return; }
+  let dst = ops[o * 4u];
+  let src = ops[o * 4u + 1u];
+  let flags = ops[o * 4u + 2u];
+  let b = dst * 16u;
+  for (var k = 0u; k < 16u; k++) { params[b + k] = vals[o * 16u + k]; }
+  if ((flags & 1u) != 0u) {
+    for (var k = 0u; k < 16u; k++) { mBuf[b + k] = 0.0; vBuf[b + k] = 0.0; }
+  }
+  if (pu.shr > 0u) {
+    let so = dst * pu.shr;
+    if (src != 0xFFFFFFFFu) {
+      let sd = src * pu.shr;
+      for (var k = 0u; k < pu.shr; k++) { sh[so + k] = sh[sd + k]; }
+    }
+    if ((flags & 2u) != 0u) {
+      for (var k = 0u; k < pu.shr; k++) { shM[so + k] = 0.0; shV[so + k] = 0.0; }
+    }
+  }
 }
 `;
 

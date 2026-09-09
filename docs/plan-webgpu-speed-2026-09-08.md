@@ -193,8 +193,21 @@ held-out quality. Postpone the CUDA trainer until these are measured.
       of two ≥ count; `profileSteps()` reports `tileHist`.
 - [x] 3 conic normalisation precompute — projection stores `1/(1+λmax)` in
       `proj[12]`; render and chain read it (slots 13/14 keep vb/vc, now unused).
-- [ ] 4 GPU-side refinement data movement
-- [ ] 5 anisotropic binning
+- [x] 4 GPU-side refinement data movement — the legacy policy is untouched
+      (same rng draws, same values); only the params of live rows come back
+      (one download instead of six at capacity) and a `refine-patch` kernel
+      writes the touched rows, zeroes their moments and copies the donor's SH
+      on the GPU. Pinned-batch parity: 25.845 → 25.845, refinement logs
+      identical line for line (2026-09-09). Wall time per refine still to be
+      measured on an idle GPU.
+- [x] 5 anisotropic binning — opt-in `opts.rectBin` (bench `?rectbin=1`):
+      projection stores per-axis half-extents in `proj[13..14]`, scatter walks
+      the same rectangle, the render keeps its circular cut. Truck: entries per
+      frame 5.07 M → 3.01 M, tiles above 2048 entries 974 → 330; bicycle 2.90 M
+      → 1.08 M, none above 2048, step 6.85 → 5.91 ms (shared GPU). Pinned-batch
+      parity seed 1: 25.816 vs 25.845 — not bit-identical (edge-of-frame
+      visibility changes, then chaos); seed 2 running. Speed on an idle GPU
+      and the default flip pending.
 - [x] 6 Adam constants — bias corrections in a new `bc` vec4 of both Adam
       uniforms, computed per step on the CPU. Noise pass / race: not done.
 

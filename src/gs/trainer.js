@@ -4,7 +4,7 @@ import {
   STRIDE, TILE, ENTRIES_CAP, makeProjectSrc, makeRenderSrc, makeChainSrc,
   SCAN_SRC, SCATTER_SRC, SORT_SRC, ADAM_SRC, SH_ADAM_SRC, BLIT_SRC, shRestCoefs,
   VIS_COUNT_SRC, VIS_SCAN_SRC, VIS_SCATTER_SRC, makeAdamSrc, makeSHAdamSrc,
-  GATHER_SRC, REFINE_APPLY_SRC, SSIM_SRC, makeSsaaLossSrc,
+  GATHER_SRC, REFINE_APPLY_SRC, REFINE_PATCH_SRC, SSIM_SRC, makeSsaaLossSrc,
 } from './shaders.js';
 import { rodrigues, m3mul, makeRng } from '../sfm/geometry.js';
 import { createGpu } from '../gpu/context.js';
@@ -67,7 +67,7 @@ export class GSTrainer {
     this.mipComp = this.opts.mipComp ?? true;
     this.pipeProject = d.createComputePipeline({
       label: 'project', layout: 'auto',
-      compute: { module: mk(makeProjectSrc(this.opts.eCut, this.opts.aMin, this.opts.radClamp, this.shDeg, this.dcMode, this.dilate, this.mipComp), 'project'), entryPoint: 'main' },
+      compute: { module: mk(makeProjectSrc(this.opts.eCut, this.opts.aMin, this.opts.radClamp, this.shDeg, this.dcMode, this.dilate, this.mipComp, this.opts.rectBin ?? false), 'project'), entryPoint: 'main' },
     });
     // the (key,id) entry budget scales with an explicit splat ceiling — the
     // fixed 12M cap silently dropped tiles at 800k splats (fast iterations,
@@ -184,6 +184,10 @@ export class GSTrainer {
     this.pipeGather = d.createComputePipeline({
       label: 'refine-gather', layout: 'auto',
       compute: { module: mk(GATHER_SRC, 'refine-gather'), entryPoint: 'main' },
+    });
+    this.pipeRefinePatch = d.createComputePipeline({
+      label: 'refine-patch', layout: 'auto',
+      compute: { module: mk(REFINE_PATCH_SRC, 'refine-patch'), entryPoint: 'main' },
     });
     this.pipeRefineApply = d.createComputePipeline({
       label: 'refine-apply', layout: 'auto',
@@ -1693,6 +1697,50 @@ export class GSTrainer {
    *  born at opacity 0.25 and half-trained clones would otherwise ship in
    *  the export); default Infinity = relocate for the whole run.
    *  Returns { moved, grown, n }. */
+  /** Apply the legacy refine's touched rows on the GPU (speed plan #4): new
+   *  params from the CPU copy, moments zeroed, SH copied from the donor row. */
+  _refinePatch(touched, params) {
+    const d = this.device;
+    const n = touched.size;
+    if (!n) return;
+    const ops = new Uint32Array(n * 4), vals = new Float32Array(n * 16);
+    let o = 0;
+    for (const [row, t] of touched) {
+      ops[o * 4] = row;
+      ops[o * 4 + 1] = t.shSrc == null ? 0xFFFFFFFF : t.shSrc;
+      ops[o * 4 + 2] = (t.zeroMV ? 1 : 0) | (t.zeroShMV ? 2 : 0);
+      vals.set(params.subarray(row * STRIDE, row * STRIDE + STRIDE), o * 16);
+      o++;
+    }
+    if (!this.bufPatchOps || this.patchCap < n) {
+      this.patchCap = Math.max(n, Math.ceil((this.patchCap || 0) * 1.5), 4096);
+      if (this.bufPatchOps) { this.bufPatchOps.destroy(); this.bufPatchVals.destroy(); }
+      const B = GPUBufferUsage;
+      this.bufPatchOps = d.createBuffer({ label: 'refine-patch-ops', size: this.patchCap * 16, usage: B.STORAGE | B.COPY_DST });
+      this.bufPatchVals = d.createBuffer({ label: 'refine-patch-vals', size: this.patchCap * 64, usage: B.STORAGE | B.COPY_DST });
+      if (!this.uniRefinePatch) this.uniRefinePatch = d.createBuffer({ label: 'uniRefinePatch', size: 16, usage: B.UNIFORM | B.COPY_DST });
+      if (!this.bufPatchDummy) this.bufPatchDummy = d.createBuffer({ label: 'refine-patch-dummy', size: 16, usage: B.STORAGE });
+      const shb = this.shK ? [this.bufSH, this.bufSHM, this.bufSHV] : [this.bufPatchDummy, this.bufPatchDummy, this.bufPatchDummy];
+      this.bgRefinePatch = d.createBindGroup({
+        layout: this.pipeRefinePatch.getBindGroupLayout(0),
+        entries: [this.uniRefinePatch, this.bufPatchOps, this.bufPatchVals, this.bufParams, this.bufM, this.bufV, ...shb]
+          .map((buffer, i) => ({ binding: i, resource: { buffer } })),
+      });
+    }
+    d.queue.writeBuffer(this.bufPatchOps, 0, ops);
+    d.queue.writeBuffer(this.bufPatchVals, 0, vals);
+    d.queue.writeBuffer(this.uniRefinePatch, 0, new Uint32Array([n, this.shK * 3, 0, 0]));
+    const enc = d.createCommandEncoder();
+    const p = enc.beginComputePass();
+    p.setPipeline(this.pipeRefinePatch);
+    p.setBindGroup(0, this.bgRefinePatch);
+    const groups = Math.ceil(n / 256);
+    if (groups <= 65535) p.dispatchWorkgroups(groups);
+    else p.dispatchWorkgroups(65535, Math.ceil(groups / 65535));
+    p.end();
+    d.queue.submit([enc.finish()]);
+  }
+
   async _refineLegacy(rng = this.rand) {
     const canReloc = this.iter < (this.opts.relocUntil ?? this._annealEnd());
     const canGrow = this.iter < (this.opts.growUntil ?? 0.75 * this.horizon) && this.n < Math.min(this.cap, this.growLimit || this.cap);
@@ -1709,13 +1757,21 @@ export class GSTrainer {
       rb.unmap(); rb.destroy();
       return out;
     };
-    const params = await readBuf(this.bufParams);
-    const m = await readBuf(this.bufM);
-    const v = await readBuf(this.bufV);
+    // speed plan #4: only the live rows of params come back; Adam moments and
+    // SH never leave the GPU — every row this call touches is recorded and
+    // applied by the refine-patch kernel at the end (same values as before).
+    const params = new Float32Array(this.cap * STRIDE);
+    params.set(await readBuf(this.bufParams, this.n * STRIDE * 4));
     const shr = this.shK * 3;
-    const sh = this.shK ? await readBuf(this.bufSH, this.cap * shr * 4) : null;
-    const shM = this.shK ? await readBuf(this.bufSHM, this.cap * shr * 4) : null;
-    const shV = this.shK ? await readBuf(this.bufSHV, this.cap * shr * 4) : null;
+    const sh = this.shK ? true : null;   // truthy: the SH inheritance branch below records ops
+    const touched = new Map();   // row -> { shSrc, zeroMV, zeroShMV }
+    const touch = (row, t = {}) => {
+      const cur = touched.get(row) || { shSrc: null, zeroMV: false, zeroShMV: false };
+      if (t.shSrc != null) cur.shSrc = t.shSrc;
+      if (t.zeroMV) cur.zeroMV = true;
+      if (t.zeroShMV) cur.zeroShMV = true;
+      touched.set(row, cur);
+    };
     const sig = (x) => 1 / (1 + Math.exp(-x));
 
     // opts.errDonors: read the per-splat error-mass window (gradP slot 11,
@@ -1839,6 +1895,7 @@ export class GSTrainer {
         const oNew = Math.min(0.9999, Math.max(1e-4, 1 - Math.sqrt(1 - o)));
         const lgt = Math.log(oNew / (1 - oNew));
         params[bi + 13] = lgt; params[bd + 13] = lgt;
+        touch(don);   // donor moved and shrank (moments kept, as before)
       } else {
         const s = Math.exp(meanLogScale(don));
         params[bi] = params[bd] + gauss() * s * 0.7;
@@ -1849,7 +1906,7 @@ export class GSTrainer {
           const shrink = Math.log(1 / 1.6);
           for (let k = 3; k <= 5; k++) { params[bi + k] += shrink; params[bd + k] += shrink; }
           params[bi + 13] = params[bd + 13]; // split keeps the donor's opacity
-          for (let k = 0; k < STRIDE; k++) { m[bd + k] = 0; v[bd + k] = 0; } // donor changed shape: reset its moments
+          touch(don, { zeroMV: true }); // donor changed shape: reset its moments
         } else {
           params[bi + 3] += Math.log(0.85);
           params[bi + 4] += Math.log(0.85);
@@ -1858,15 +1915,10 @@ export class GSTrainer {
         }
       }
       params[bi + 14] = 0; params[bi + 15] = 0;
-      for (let k = 0; k < STRIDE; k++) { m[bi + k] = 0; v[bi + k] = 0; }
+      touch(bi / STRIDE, { zeroMV: true });
       if (sh) { // clones/splits inherit the donor's view-dependence, fresh moments
-        const so = (bi / STRIDE) * shr;
-        const sd = don * shr;
-        for (let k = 0; k < shr; k++) {
-          sh[so + k] = sh[sd + k];
-          shM[so + k] = 0; shV[so + k] = 0;
-          if (doSplit && !splitV2) { shM[sd + k] = 0; shV[sd + k] = 0; }
-        }
+        touch(bi / STRIDE, { shSrc: don, zeroShMV: true });
+        if (doSplit && !splitV2) touch(don, { zeroShMV: true });
       }
     };
     for (const i of dead) spawnAt(i * STRIDE, false); // relocation: to mass, as before
@@ -1887,14 +1939,7 @@ export class GSTrainer {
       this.adamData[23] = this.n * STRIDE;
       this.camUniforms = this.camMeta.map((mm, i) => this._camUniform(mm, 1, mm.offset, i));
     }
-    d.queue.writeBuffer(this.bufParams, 0, params);
-    d.queue.writeBuffer(this.bufM, 0, m);
-    d.queue.writeBuffer(this.bufV, 0, v);
-    if (sh) {
-      d.queue.writeBuffer(this.bufSH, 0, sh);
-      d.queue.writeBuffer(this.bufSHM, 0, shM);
-      d.queue.writeBuffer(this.bufSHV, 0, shV);
-    }
+    this._refinePatch(touched, params);
 
     // tile-pressure telemetry (counts from the most recent render)
     const rbT = d.createBuffer({ size: this.maxTiles * 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
