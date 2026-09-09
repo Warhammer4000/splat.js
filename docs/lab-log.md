@@ -6,6 +6,20 @@ about ±0.1 dB.
 
 ## 2026-09-09 (speed plan #0–#3/#6 implemented; 30-minute row)
 
+- **Solve tiers** (user: training takes 2 min on default, the solve 10 — "more
+  settings for draft and standard, not just for training, also for sfm").
+  `SOLVE_TIERS` in src/sfm/sfm.js: quick = 3900 feats / octave 0 / no aspect
+  (the pre-09-04 defaults, ~4 min truck solve), standard = 8000 / octave 0 /
+  no aspect (provisional middle), precise = 8000 / octave −1 / aspect (the
+  09-04 desktop defaults, ~12 min, the README numbers). App: a "Camera solve"
+  row in the gear, settings key `solve`, quality macros Draft → quick,
+  Standard → the device default (desktop standard, phone quick), High and
+  Showcase → precise. Bench `?solve=` (tag `_sv<tier>`); the bench default
+  stays precise. `opts.focalScales` narrows the focal search (for an EXIF
+  prior later). Committed, NOT deployed: the tier benchmark
+  (scratch/sfm_bench/cells_sfm_bench.json: each tier solved fresh + 30k) and
+  the COLMAP run decide the standard tier's values first — the GPU is busy
+  with the user's own solve right now.
 - **30-minute row, first seed (needle default, 1.05 M, `evalmin=2`)**: 26.558 at
   120k cycles in 30.1 min, dead 33.8 % — above every published Truck number
   (SSS 26.41). The second seed loaded the freshly patched trainer mid-run and

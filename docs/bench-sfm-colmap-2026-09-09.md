@@ -39,17 +39,21 @@ CPU exhaustive matcher to be the slow step (31,375 pairs).
 
 ## Splat.js side
 
-Two headless cells, fresh solves (no `gtrecon`), the solver's full log and
-the solved cameras posted:
+Three headless cells, one per solve tier (`SOLVE_TIERS` in
+`src/sfm/sfm.js`, bench `?solve=`), fresh solves (no `gtrecon`), each
+followed by 30k training so the held-out PSNR shows what the poses buy; the
+solver's full log and the solved cameras are posted:
 
 ```
 node scratch/ab_cells.mjs scratch/sfm_bench/cells_sfm_bench.json
 ```
 
-- `truck_1_sfmb_s1` — today's desktop defaults (8000 features, octave −1,
-  aspect term).
-- `truck_1_nf3900_oc0_sfmb_s1` — the previous defaults (3900 features,
-  octave 0), to separate "slower" from "more precise".
+- `quick` — 3900 features, base octave, no aspect term (the pre-09-04
+  defaults; Draft preset, phones).
+- `standard` — 8000 features, base octave, no aspect term (the new desktop
+  Standard preset, provisional until this benchmark says otherwise).
+- `precise` — 8000 features from the upsampled octave + the aspect term
+  (the 09-04 desktop defaults; High and Showcase presets; the README numbers).
 
 The solver now logs a duration for every phase (commit after 22ba55d):
 SIFT extraction, the feature-poor rescue pass, GPU matching, matching + pair

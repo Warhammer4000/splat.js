@@ -33,6 +33,24 @@ const MAXF = 32768; // feature-id stride per image (must exceed per-image featur
                     // hit 'too many features per image' at 8192, 2026-09-04; only the union-find stride depends on it)
 const FOCAL_SCALES = [1.0, 0.8, 0.65, 1.3]; // relative to the 1.2*maxDim guess
 
+/** Solve-quality tiers — the camera solve's share of the quality presets
+ *  (2026-09-09: a two-minute draft training sat behind a ten-minute solve).
+ *  quick    = the pre-09-04 defaults: 3900 features, base octave, no aspect
+ *             term (truck solve ~4 min on an RTX 5080)
+ *  standard = the 8000-feature budget at the base octave, no aspect term
+ *  precise  = 8000 features from the upsampled first octave + the pixel-
+ *             aspect term in BA (the 09-04 desktop defaults: truck +0.38 dB
+ *             at 30k, ~12-minute solve). The aspect term belongs with the
+ *             fine features only (coarse + aspect drifted camping −0.6 dB).
+ *  Rigs (sliced panoramas) clamp the octave and lock intrinsics regardless
+ *  (session.solve). Explicit sfm options passed alongside always win. */
+export const SOLVE_TIERS = {
+  quick:    { siftFeats: 3900, siftFirstOctave: 0,  refineAspect: false },
+  standard: { siftFeats: 8000, siftFirstOctave: 0,  refineAspect: false },
+  precise:  { siftFeats: 8000, siftFirstOctave: -1, refineAspect: true },
+};
+export const solveTierOpts = (name) => ({ ...(SOLVE_TIERS[name] || SOLVE_TIERS.standard) });
+
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
 class UnionFind {
@@ -1750,8 +1768,9 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
 
   const candidates = [];
   let fi = 0;
-  for (const s of FOCAL_SCALES) {
-    ev({ stage: 'focal', done: fi++, total: FOCAL_SCALES.length, detail: { fScale: s * 1.2 } });
+  const focalScales = opts.focalScales || FOCAL_SCALES;   // opts.focalScales: a narrower search (EXIF-informed, or a quick tier)
+  for (const s of focalScales) {
+    ev({ stage: 'focal', done: fi++, total: focalScales.length, detail: { fScale: s * 1.2 } });
     checkAbort();
     const t0c = performance.now();
     const res = await runGeometry(s, false);

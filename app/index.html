@@ -110,6 +110,12 @@
           <option value="1280">1280 px</option>
           <option value="1600">1600 px</option>
         </select></div>
+      <div class="setrow" title="How hard the camera solver works. Quick: 3900 landmarks per photo at the base scale (minutes). Standard: 8000 landmarks at the base scale. Precise: 8000 landmarks from an upsampled scale plus a pixel-aspect term — the sharpest poses, about three times the solve time."><label for="set-solve">Camera solve</label>
+        <select id="set-solve">
+          <option value="quick">Quick</option>
+          <option value="standard">Standard</option>
+          <option value="precise">Precise</option>
+        </select></div>
       <div class="setrow" title="Render grid relative to the training resolution. 2× removes edge ringing at sharp viewing sizes (~1.7× slower); 0.5× quarters the raster work."><label for="set-buf">Working buffer</label>
         <select id="set-buf">
           <option value="0.5">0.5×</option>

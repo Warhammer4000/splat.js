@@ -8,7 +8,7 @@
 // PSNR, and Export writes a real .ply. The UI talks to ONE object — the
 // splat.js Session — plus the trainer's rendered canvas.
 
-import { createSession, gaussiansToPly, undistortFrames } from '../../src/index.js';
+import { createSession, gaussiansToPly, undistortFrames, solveTierOpts } from '../../src/index.js';
 import { extractSharpFrames, isVideoFile } from '../../src/io/video.js';
 import { recordCaptureVideo, cameraSupported } from './camera.js';
 import { saveLastCapture, loadLastCapture } from './store.js';
@@ -114,8 +114,12 @@ function deviceDefaults() {
   return phone
     // 8k cycles: a phone's first run should hit the magic moment in a few
     // minutes — the done screen offers more cycles for anyone who wants them
-    ? { v: 2, res: 480, feat: 0, buf: 1, sh: 0, iters: 8000, splats: 0, lod: false, mcmc: false }
-    : { v: 2, res: 0, feat: 0, buf: 1, sh: 3, iters: 0, splats: 0, lod: false, mcmc: false };
+    // solve: the camera-solve tier (SOLVE_TIERS in the library) — phones stay
+    // on the lean solve, desktops take the middle tier; the precise tier is
+    // the High/Showcase macro's (a ten-minute solve behind a two-minute
+    // draft training was the complaint, 2026-09-09)
+    ? { v: 2, res: 480, feat: 0, buf: 1, sh: 0, iters: 8000, splats: 0, lod: false, mcmc: false, solve: 'quick' }
+    : { v: 2, res: 0, feat: 0, buf: 1, sh: 3, iters: 0, splats: 0, lod: false, mcmc: false, solve: 'standard' };
 }
 function loadSettings() {
   const d = deviceDefaults();
@@ -144,14 +148,14 @@ function saveSettings() {
 // quality macros: the one-knob row that drives the individual rows below it.
 // Standard = this device's defaults; anything that matches no macro shows as
 // Custom. Macros never touch the 2× working buffer (an experiment flag).
-const QKEYS = ['res', 'buf', 'sh', 'iters', 'splats'];
+const QKEYS = ['res', 'buf', 'sh', 'iters', 'splats', 'solve'];
 function qualityMacros() {
   const d = deviceDefaults();
   return {
-    draft:    { res: 480,   buf: 1, sh: 0,    iters: 10000,  splats: 0 },
-    standard: { res: d.res, buf: 1, sh: d.sh, iters: 0,      splats: 0 },
-    high:     { res: 1280,  buf: 1, sh: 3,    iters: 40000,  splats: 0 },
-    showcase: { res: 1280,  buf: 1, sh: 3,    iters: 100000, splats: 0 },
+    draft:    { res: 480,   buf: 1, sh: 0,    iters: 10000,  splats: 0, solve: 'quick' },
+    standard: { res: d.res, buf: 1, sh: d.sh, iters: 0,      splats: 0, solve: d.solve },
+    high:     { res: 1280,  buf: 1, sh: 3,    iters: 40000,  splats: 0, solve: 'precise' },
+    showcase: { res: 1280,  buf: 1, sh: 3,    iters: 100000, splats: 0, solve: 'precise' },
   };
 }
 function qualityOf(st) {
@@ -318,6 +322,7 @@ function boot() {
   const showSettings = () => {
     $('set-res').value = st.res ? String(st.res) : '';
     $('set-feat').value = st.feat ? String(st.feat) : '';
+    $('set-solve').value = st.solve || 'standard';
     $('set-buf').value = String(st.buf);
     $('set-sh').value = String(st.sh);
     $('set-iters').value = st.iters ? String(st.iters) : '';
@@ -364,6 +369,7 @@ function boot() {
   const readSettings = () => {
     st.res = parseInt($('set-res').value, 10) || 0;
     st.feat = parseInt($('set-feat').value, 10) || 0;
+    st.solve = $('set-solve').value || 'standard';
     st.buf = parseFloat($('set-buf').value) || 1;
     st.sh = parseInt($('set-sh').value, 10);
     st.iters = parseInt($('set-iters').value, 10) || 0;
@@ -373,7 +379,7 @@ function boot() {
     showSettings();
     saveSettings();
   };
-  for (const id of ['set-res', 'set-feat', 'set-buf', 'set-sh', 'set-iters', 'set-splats', 'set-lod', 'set-mcmc']) {
+  for (const id of ['set-res', 'set-feat', 'set-solve', 'set-buf', 'set-sh', 'set-iters', 'set-splats', 'set-lod', 'set-mcmc']) {
     $(id).addEventListener('change', readSettings);
   }
   // count slider: live label while dragging, the (cheaper) photo-list rebuild
@@ -1306,7 +1312,7 @@ async function startPrep() {
         // solve (10s+ frozen UI on phones). Training is untouched: measured
         // fine on-device, and fenceRing/gpuChunkMs (library opts) would tax
         // throughput for nothing.
-        sfm: { workers: 3, uiYield: true },
+        sfm: { ...solveTierOpts(st.solve || 'quick'), workers: 3, uiYield: true },
       } : {
         // desktop solver default since 2026-09-04: 8000 SIFT features from the
         // upsampled first octave (COLMAP's default). Feature localisation is
@@ -1318,7 +1324,10 @@ async function startPrep() {
         // coarse features the aspect BA drifted (camping −0.6), with these it
         // is the best solve on all three sets (camping 25.5 → 27.2). Truck's
         // release images are 0.6 % non-square, camping's video frames 2 %.
-        sfm: { siftFeats: 8000, siftFirstOctave: -1, refineAspect: true },
+        // Since 2026-09-09 that is the 'precise' solve tier (High / Showcase);
+        // Standard takes the 8000 budget at the base octave, Draft the lean
+        // 3900 / octave-0 solve — see SOLVE_TIERS in the library.
+        sfm: solveTierOpts(st.solve || 'standard'),
       }),
       // phones solve at the desktop feature resolution again: 720 was part
       // of the OOM firefight, but the real culprit was the UI bitmap cache —
