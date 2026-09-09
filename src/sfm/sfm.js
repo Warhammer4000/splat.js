@@ -506,6 +506,7 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
   // 2.18% -> 0.00% vs COLMAP. GPU matching absorbs the extra pairs.
   const pairs = buildPairs(n, opts.graph || (useSift ? 'dense' : 'walk'));
   log(`matching ${pairs.length} image pairs ...`);
+  const t0m = performance.now();
   const pairInfo = []; // { i, j, matches: [[fa, fb], ...] }
   const failedRich = []; // many matches but failed the E-gate (rescue candidates)
   let done = 0, filtered = 0;
@@ -581,7 +582,8 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
     if (done % 40 === 0) { log(`  pairs: ${done}/${pairs.length} (${pairInfo.length} usable)`); await tick(); checkAbort(); }
   }
   checkAbort();
-  log(`  usable pairs: ${pairInfo.length} (${filtered} E-filtered, rest raw)`);
+  log(`  usable pairs: ${pairInfo.length} (${filtered} E-filtered, rest raw) — ` +
+      `matching + pair geometry ${((performance.now() - t0m) / 1000).toFixed(1)}s total`);
   {
     // isolated / weakly connected frames, with what their best pair looked like
     const weak = diag.map((d, k) => ({ k, ...d })).filter((d) => d.deg <= 1);
@@ -1751,16 +1753,18 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
   for (const s of FOCAL_SCALES) {
     ev({ stage: 'focal', done: fi++, total: FOCAL_SCALES.length, detail: { fScale: s * 1.2 } });
     checkAbort();
+    const t0c = performance.now();
     const res = await runGeometry(s, false);
     const fEff = (s * 1.2).toFixed(2);
+    const secs = ((performance.now() - t0c) / 1000).toFixed(1);
     if (!res) {
-      log(`focal ${fEff}x maxDim: no valid initialization`);
+      log(`focal ${fEff}x maxDim: no valid initialization (${secs}s)`);
       continue;
     }
     res.angErr = res.medErr / (s * 1.2 * 640); // relative units; constant factor irrelevant
     res.rankErr = useGlobalSearch ? res.medErr : res.angErr;
     log(`focal ${fEff}x maxDim: ${res.cams.length}/${n} cams, ${res.points.length} pts, ` +
-        `median reproj ${res.medErr.toFixed(2)}px (angular ${(res.angErr * 1e4).toFixed(2)}e-4)`);
+        `median reproj ${res.medErr.toFixed(2)}px (angular ${(res.angErr * 1e4).toFixed(2)}e-4) in ${secs}s`);
     candidates.push(res);
     await tick();
   }
@@ -1784,8 +1788,10 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
   // re-run the winner verbosely (with bundle adjustment) to produce the
   // final reconstruction
   log(`focal search winner: ${(best.fScale * 1.2).toFixed(2)}x maxDim — rerunning with BA ...`);
+  const t0w = performance.now();
   const final = await runGeometry(best.fScale, true, true);
   if (!final) throw new Error('focal winner failed on rerun (unexpected)');
+  log(`  final registration + BA in ${((performance.now() - t0w) / 1000).toFixed(1)}s`);
 
   log(`SfM done: ${final.cams.length}/${n} cameras registered, ${final.points.length} points, ` +
       (final.rmsBA != null ? `BA rms ${final.rmsBA.toFixed(2)}px` : `median reproj ${final.medErr.toFixed(2)}px`));
