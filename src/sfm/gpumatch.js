@@ -86,7 +86,7 @@ function getPipeline(device) {
  *  arrays [ia0, ib0, ia1, ib1, ...].
  *  extDevice: a caller-owned GPUDevice (recommended — share it with the
  *  trainer); when omitted a temporary device is created and destroyed. */
-export async function gpuMatchAll(feats, pairs, ratio = 0.8, log = () => {}, extDevice = null) {
+export async function gpuMatchAll(feats, pairs, ratio = 0.8, log = () => {}, extDevice = null, onProgress = null) {
   const t0 = performance.now();
   let device = extDevice, ownDevice = false;
   if (!device) {
@@ -200,6 +200,9 @@ export async function gpuMatchAll(feats, pairs, ratio = 0.8, log = () => {}, ext
       results[pairIdx] = m;
     }
     jStart = jEnd;
+    // the UI otherwise sits on the previous beat for the whole matcher (a
+    // 250-photo set is 18 k pairs; minutes on a phone GPU)
+    if (onProgress) { try { onProgress(jStart >> 1, pairs.length); } catch {} }
   }
   descBuf.destroy();
   if (ownDevice) device.destroy();

@@ -538,11 +538,15 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
   let gpuAll = null;
   if (useSift && typeof navigator !== 'undefined' && navigator.gpu) {
     try {
-      gpuAll = await gpuMatchAll(feats, pairs, 0.8, log, opts.gpu && opts.gpu.device);
+      gpuAll = await gpuMatchAll(feats, pairs, 0.8, log, opts.gpu && opts.gpu.device,
+        (d, t) => ev({ stage: 'matching', done: d, total: t, detail: { usable: 0, pair: null, gpu: true } }));
     } catch (e) {
       log(`  GPU matcher unavailable (${e.message}) — CPU fallback`);
     }
   }
+  // (1) mutual matches per pair + the normalised coordinates the E-check needs
+  const jobs = [];          // { pi, i, j, matches, x1, x2, thresh }
+  const rawMatches = new Array(pairs.length);
   for (let pi = 0; pi < pairs.length; pi++) {
     const [i, j] = pairs[pi];
     const m = gpuAll
@@ -550,15 +554,74 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
       : feats[i].sift
         ? matchSift(feats[i].desc, feats[i].n, feats[j].desc, feats[j].n)
         : matchDescriptors(feats[i].desc, feats[i].n, feats[j].desc, feats[j].n);
-    done++;
     diag[i].raw = Math.max(diag[i].raw, m.length / 2); diag[j].raw = Math.max(diag[j].raw, m.length / 2);
-    if (m.length / 2 >= 25) {
-      let matches = [];
-      for (let k = 0; k < m.length; k += 2) matches.push([m[k], m[k + 1]]);
-      const x1s = matches.map(([fa]) => [(feats[i].x[fa] - K0[i].cx) / K0[i].f, (feats[i].y[fa] - K0[i].cy) / K0[i].f]);
-      const x2s = matches.map(([, fb]) => [(feats[j].x[fb] - K0[j].cx) / K0[j].f, (feats[j].y[fb] - K0[j].cy) / K0[j].f]);
-      const favg = (K0[i].f + K0[j].f) / 2;
-      const res = ransacE(x1s, x2s, 2.5 / favg, matchRng, 600);
+    if (m.length / 2 < 25) continue;
+    const matches = [];
+    for (let k = 0; k < m.length; k += 2) matches.push([m[k], m[k + 1]]);
+    const x1 = new Float32Array(matches.length * 2), x2 = new Float32Array(matches.length * 2);
+    for (let k = 0; k < matches.length; k++) {
+      const [fa, fb] = matches[k];
+      x1[2 * k] = (feats[i].x[fa] - K0[i].cx) / K0[i].f; x1[2 * k + 1] = (feats[i].y[fa] - K0[i].cy) / K0[i].f;
+      x2[2 * k] = (feats[j].x[fb] - K0[j].cx) / K0[j].f; x2[2 * k + 1] = (feats[j].y[fb] - K0[j].cy) / K0[j].f;
+    }
+    const favg = (K0[i].f + K0[j].f) / 2;
+    jobs.push({ pi, i, j, matches, x1, x2, thresh: 2.5 / favg });
+    rawMatches[pi] = matches;
+    if (!gpuAll && pi % 40 === 39) { await tick(); checkAbort(); }
+  }
+
+  // (2) essential-matrix RANSAC per pair — independent work, so a worker pool
+  // (src/sfm/pairworker.js) does it in parallel; the main thread only gates.
+  // Per-pair seeds keep the result independent of the batch split. Without
+  // workers (tests, opts.workers === false) the loop runs inline as before.
+  const inliersOf = new Array(pairs.length).fill(null);
+  const useWorkers = typeof Worker !== 'undefined' && opts.workers !== false && jobs.length > 32;
+  if (useWorkers) {
+    const nW = Math.min(opts.workers || 8, Math.max(2, (navigator.hardwareConcurrency || 4) - 2));
+    const workers = Array.from({ length: nW },
+      () => new Worker(new URL('./pairworker.js', import.meta.url), { type: 'module' }));
+    const BATCH = 24;
+    let next = 0, doneJobs = 0;
+    const seedOf = (pi) => 24680 + pi * 7919;
+    await new Promise((resolve, reject) => {
+      const feed = (wk) => {
+        if (next >= jobs.length) return;
+        const slice = jobs.slice(next, next + BATCH);
+        next += slice.length;
+        wk.onmessage = (e) => {
+          for (const r of e.data.out) inliersOf[r.idx] = r.inliers;
+          doneJobs += e.data.out.length;
+          ev({ stage: 'matching', done: Math.round(pairs.length * doneJobs / jobs.length), total: pairs.length,
+               detail: { usable: 0, pair: null } });
+          if (doneJobs >= jobs.length) resolve();
+          else feed(wk);
+        };
+        wk.onerror = (err) => reject(new Error('pair worker: ' + (err.message || err)));
+        wk.postMessage({ batch: slice.map((jb) => ({ idx: jb.pi, x1: jb.x1, x2: jb.x2, thresh: jb.thresh, seed: seedOf(jb.pi), maxIters: 600 })) });
+      };
+      workers.forEach(feed);
+    });
+    workers.forEach((w) => w.terminate());
+  } else {
+    for (let q = 0; q < jobs.length; q++) {
+      const jb = jobs[q];
+      const m = jb.matches.length;
+      const x1s = new Array(m), x2s = new Array(m);
+      for (let k = 0; k < m; k++) { x1s[k] = [jb.x1[2 * k], jb.x1[2 * k + 1]]; x2s[k] = [jb.x2[2 * k], jb.x2[2 * k + 1]]; }
+      const res = ransacE(x1s, x2s, jb.thresh, matchRng, 600);
+      inliersOf[jb.pi] = res ? Int32Array.from(res.inliers) : null;
+      if (q % 40 === 39) { await tick(); checkAbort(); }
+    }
+  }
+
+  // (3) the gate, in pair order (deterministic bookkeeping)
+  for (let pi = 0; pi < pairs.length; pi++) {
+    const [i, j] = pairs[pi];
+    done++;
+    let matches = rawMatches[pi];
+    if (matches) {
+      const inl = inliersOf[pi];
+      const res = inl ? { inliers: inl } : null;
       if (res) { diag[i].inl = Math.max(diag[i].inl, res.inliers.length); diag[j].inl = Math.max(diag[j].inl, res.inliers.length); }
       // pairs whose matches can't support an essential matrix are junk —
       // letting their raw matches into the track graph merges unrelated
@@ -582,7 +645,7 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
       const adj = nb && opts.pairMinInliersAdj > 0;
       const absGate = res && res.inliers.length >= (adj ? opts.pairMinInliersAdj : (opts.pairMinInliers ?? Infinity));
       if (res && res.inliers.length >= (adj ? 15 : 25) && (res.inliers.length >= 0.4 * matches.length || absGate)) {
-        matches = res.inliers.map((idx) => matches[idx]);
+        matches = Array.from(res.inliers, (idx) => matches[idx]);
         filtered++;
         diag[i].deg++; diag[j].deg++;
         pairInfo.push({ i, j, matches });
@@ -591,13 +654,16 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
         if (matches.length >= 60) failedRich.push({ i, j, matches });
       }
     }
-    const lastPair = pairInfo[pairInfo.length - 1];
-    ev({ stage: 'matching', done, total: pairs.length, detail: {
-      usable: pairInfo.length,
-      // a drawable sample of the latest surviving pair (feature indices)
-      pair: lastPair ? { i: lastPair.i, j: lastPair.j, sample: lastPair.matches.slice(0, 70) } : null,
-    } });
-    if (done % 40 === 0) { log(`  pairs: ${done}/${pairs.length} (${pairInfo.length} usable)`); await tick(); checkAbort(); }
+    if (pi % 40 === 39 || pi === pairs.length - 1) {
+      const lastPair = pairInfo[pairInfo.length - 1];
+      ev({ stage: 'matching', done, total: pairs.length, detail: {
+        usable: pairInfo.length,
+        // a drawable sample of the latest surviving pair (feature indices)
+        pair: lastPair ? { i: lastPair.i, j: lastPair.j, sample: lastPair.matches.slice(0, 70) } : null,
+      } });
+      if (done % 200 === 0) log(`  pairs: ${done}/${pairs.length} (${pairInfo.length} usable)`);
+      await tick(); checkAbort();
+    }
   }
   checkAbort();
   log(`  usable pairs: ${pairInfo.length} (${filtered} E-filtered, rest raw) — ` +
@@ -1356,6 +1422,7 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
       let addedThisPass = 0;
       let sinceRefine = 0;
       let sinceBA = 0;
+      let lastBA = 0;   // camera count at the last interim BA (geometric cadence)
       // A frame that fails registration is not lost for good: it failed against
       // the model of THAT moment (few triangulated tracks, an early pose guess).
       // When no candidate is left, frames whose triangulated support has grown
@@ -1490,11 +1557,24 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
 
         if (++sinceRefine >= 3) { globalRefine(1); sinceRefine = 0; }
         // periodic joint BA so the growing chain never drifts into a bent
-        // basin (only on the final run — the focal search stays cheap)
-        if (withBA && sfmOpts.interimBA !== false && ++sinceBA >= 6 && registered.size >= 12) {
+        // basin (only on the final run — the focal search stays cheap).
+        // Cadence (2026-09-09): every 6 registrations while the model is
+        // small — that is where drift is caught — then geometric: the next
+        // BA when the camera count has grown by interimBARatio (COLMAP's
+        // ba_global_images_ratio is 1.1). A fixed every-6 cadence ran 40
+        // global BAs on truck-251, 270 s of a 430 s final pass at the precise
+        // tier; the big late ones dominate and change almost nothing.
+        // interimBARatio 0 restores the fixed cadence.
+        ++sinceBA;
+        const baRatio = sfmOpts.interimBARatio ?? 1.15;
+        const baDue = registered.size >= 12 && (baRatio > 0
+          ? registered.size >= Math.max(lastBA + 6, Math.ceil(lastBA * baRatio))
+          : sinceBA >= 6);
+        if (withBA && sfmOpts.interimBA !== false && baDue) {
           interimBA();
           sinceRefine = 0;
           sinceBA = 0;
+          lastBA = registered.size;
         }
         await tick();
         checkAbort();
