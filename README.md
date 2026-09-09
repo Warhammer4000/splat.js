@@ -30,16 +30,17 @@ shared, and `?model=<url>` (+ `&recon=<url>` for the solved camera path)
 loads it back into the viewer, capture-path tour included:
 
 **[The Truck — Tanks & Temples](https://arrival.space/splat-js/index.html?model=https://ugc.arrival.space/splatjs/models/truck_1h_v3_2026-09-06.sog&recon=https://ugc.arrival.space/splatjs/models/truck_1h_v3_2026-09-06_recon.json)**
-— the benchmark model from the table below: 251 photographs at native
+— the benchmark scene from the table below: 251 photographs at native
 979 px, poses solved in the browser, 1,050,000 Gaussians, degree-3
-spherical harmonics, one hour: **26.59 dB on the photographs it never saw**
-— the top of the table, in one tab (the linked model is the 26.65 dB run of
-the previous schedule, which also took the full hour).
+spherical harmonics. Thirty minutes of training reach **26.55 dB on the
+photographs it never saw** — above every published Truck number — in one
+tab (the linked model is a 26.65 dB hour-long run of the previous schedule).
 
-**[The Bar — a real bar from 102 handheld 360° panoramas](https://arrival.space/splat-js/index.html?model=https://ugc.arrival.space/splatjs/models/bar360_v5test.sog&recon=https://ugc.arrival.space/splatjs/models/bar360_v5test_recon.json)**
+**[The Bar — a real bar from 102 handheld 360° panoramas](https://arrival.space/splat-js/index.html?model=https://ugc.arrival.space/splatjs/models/bar360_v6_2026-09-08.sog&recon=https://ugc.arrival.space/splatjs/models/bar360_v6_2026-09-08_recon.json)**
 — each panorama sliced into cube faces and solved as one camera rig
-(600 of 612 faces placed at 0.76 px), 4,000,000 Gaussians trained at
-912 px for 372 k cycles across both capture walks, ~2.6 h in one tab.
+(588 of 612 faces placed), 3.5 million live Gaussians out of a 4 M budget
+(relocation to the last step keeps them alive), trained at 912 px for
+200 k cycles across both capture walks, 83 minutes in one tab.
 (Scene from [360Roam](https://huajianup.github.io/research/360Roam/),
 CC BY-NC-SA.)
 
@@ -80,6 +81,21 @@ its native 979 px, on a desktop NVIDIA GPU, in one tab:
   <img src="docs/img/truck-psnr-vs-time-light.svg" width="820" alt="Truck held-out PSNR against training minutes. Splat.js: 25.83 dB at 6 min, 26.14 at 10, 26.41 at 20, 26.59 at 60. LichtFeld Studio 26.14 at 5½ min, Brush 26.10 at 30 min; published methods from 25.18 (3DGS) to 26.41 (Student Splatting & Scooping).">
 </picture></p>
 
+How the held-out score builds up inside that run (mean of two seeds):
+
+| minutes | cycles | Truck test PSNR |
+|---:|---:|---:|
+| 4 | 23 k | 22.36 dB |
+| 8 | 37 k | 24.54 dB |
+| 12 | 50 k | 25.56 dB |
+| 16 | 64 k | 26.22 dB |
+| 20 | 77 k | 26.48 dB |
+| 24 | 94 k | 26.54 dB |
+| 28 | 115 k | 26.58 dB |
+| 30 | 127 k | 26.55 dB |
+
+And against the published methods on the same photographs:
+
 | method | Truck test PSNR |
 |---|---|
 | 3DGS (SIGGRAPH 2023) | 25.18 dB |
@@ -90,7 +106,7 @@ its native 979 px, on a desktop NVIDIA GPU, in one tab:
 | LichtFeld Studio v0.5.3 — 5½ min train · 30 k cycles · 2 M splats (measured here) | 26.14 dB |
 | **Splat.js — 10 min train · 40 k cycles · 1.4 M splats** | **26.14 dB** |
 | Student Splatting & Scooping (CVPR 2025) | 26.41 dB |
-| **Splat.js — 60 min train · 165 k cycles · 1.05 M splats** | **26.59 dB** |
+| **Splat.js — 30 min train · 127 k cycles · 1.05 M splats** | **26.55 dB** |
 
 Same images, same resolution, same held-out-every-8th protocol; all times
 are training only — the Splat.js in-browser camera solve adds ~12 minutes
@@ -103,15 +119,15 @@ The [Brush](https://github.com/ArthurBrussee/brush) row was measured the
 same way: same machine, byte-identical images, the same every-8th holdout,
 SH degree 3, 2 M splat cap, from the COLMAP poses and sparse cloud.
 The published methods train 30 k iterations of 2–2.6 M Gaussians with
-degree-3 spherical harmonics on native CUDA. The chart plots Splat.js with
-its schedule set to the time budget: 6 minutes (30 k cycles, 25.83 dB),
-10 minutes (40 k, 26.14 — the table row), 20 minutes (73 k, 26.41) and the
-hour; the 6-, 10- and 20-minute points are means of two seeds (2026-09-08).
-The 60 min row is the same system given an hour on a shared GPU (165 k of
-its 200 k-cycle schedule); on an idle GPU the full 200 k schedule finishes in
-44 minutes at 26.49 dB, peaking near 26.58 dB around 160 k cycles, so a single
-hour run lands anywhere in 26.4–26.6 — a 1.05 M cap fits more cycles into the time than
-2 M does and scores higher (2 M at 114 k cycles: 26.19 dB). Its poses come
+degree-3 spherical harmonics on native CUDA. The chart and the small table
+follow one Splat.js run for thirty minutes, scored on the held-out photos
+every two minutes (mean of two seeds, 26.47 / 26.64 dB at the end,
+2026-09-09); the 30 min table row is that end point. With the schedule set
+to a shorter budget it reaches 25.83 dB in 6 minutes (30 k cycles), 26.14 in
+10 (40 k, the other table row) and 26.41 in 20 (73 k). Given an hour it lands
+in 26.4–26.6 — the curve is flat after minute 25 — and a 1.05 M cap fits
+more cycles into the time than 2 M does and scores higher (2 M at 114 k
+cycles: 26.19 dB). Its poses come
 from the in-browser solve at its desktop defaults: 8000 SIFT features from
 the upsampled first octave and a pixel-aspect term in bundle adjustment
 (the Truck release images are 0.6 % non-square) — a 12-minute solve

@@ -35,6 +35,18 @@ about ±0.1 dB.
   25.74 / 25.77, seed 2 25.78 vs 25.82 → two-seed means 25.83 vs 25.79.
   Quality-neutral within ±0.05; the code ships. Bench gained `?usestats=1` /
   `?camgrads=1` to compile the removed work back in for bisects.
+- **30-minute pair on the new code** (needle default, 1.05 M, `evalmin=2`, idle
+  GPU): **26.468 / 26.638 at 126–127 k cycles in 30 min** → mean **26.55**, dead
+  35 %. Curve (mean): 4 min 22.36, 8 24.54, 12 25.56, 16 26.22, 20 26.48, 24
+  26.54, 28 26.58, 30 26.55 — flat from minute 24, above SSS (26.41) from
+  minute 20. The old-code seed 1 earlier tonight read 26.558 at 120 k; the
+  seed spread (0.17) is bigger than any code effect seen. README rebuilt
+  around this run (user: "only train to 30 min should be enough to beat the
+  papers", "a smoother table that shows how dB evolves"): the chart now
+  follows the run (mean of two seeds, seed band), an 8-row evolution table sits
+  under it, the comparison table keeps two Splat.js rows (10 min, 30 min); the
+  Bar showcase link moved to v6. `scripts/readme_chart.mjs` takes the cells'
+  status files and writes `docs/img/truck-curve.json` + both SVGs + the table.
 ## 2026-09-08 (video input v2: WebCodecs, sharp-frames metric, motion windows)
 
 - **State of the art surveyed** (`docs/plan-video-2026-09-08.md`): Reflct Sharp
