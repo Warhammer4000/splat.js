@@ -31,7 +31,16 @@ const MAXF = 32768; // feature-id stride per image (must exceed per-image featur
 // statue photos) tripped it. Only the union-find is sized n*MAXF (612 faces -> 20 M ids, fine on desktop).
                     // orientations/keypoint, so an 8000-keypoint budget from the upsampled octave needs > 8192 — garden
                     // hit 'too many features per image' at 8192, 2026-09-04; only the union-find stride depends on it)
-const FOCAL_SCALES = [1.0, 0.8, 0.65, 1.3]; // relative to the 1.2*maxDim guess
+// Focal-search candidates, relative to the 1.2*maxDim guess — anchored on
+// real lenses since 2026-09-10 (f / long side = 0.029 x the 35 mm-equivalent
+// focal for a 4:3 frame): 0.575 = 24 mm, the 1x main lens of every recent
+// phone; 0.65 = 28 mm (older phones, video crops); 0.8 = 33 mm; 1.0 = 40 mm;
+// 1.16 = 48 mm (phone 2x); 1.3 = 54 mm. The old grid started at 0.65 and a
+// phone set's true focal sat 12 % below it, where BA did not follow. Beyond
+// the edges (0.5x ultra-wide at 0.31, 3x tele at 1.85) the search brackets
+// outward step by step while the data keeps improving. Sets with EXIF skip
+// all of this (focalPrior).
+const FOCAL_SCALES = [1.0, 0.8, 0.65, 0.575, 1.16, 1.3];
 
 /** Solve-quality tiers — the camera solve's share of the quality presets
  *  (2026-09-09: a two-minute draft training sat behind a ten-minute solve).
@@ -1927,6 +1936,30 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
   let best = null;
   for (const res of eligible) {
     if (!best || res.medErr < best.medErr) best = res;
+  }
+
+  // Edge bracket (2026-09-10): a winner on the grid's edge says the truth may
+  // lie beyond it — step outward by 12 % while a candidate keeps at least
+  // 88 % of the cameras and lowers the pixel median (at most five steps:
+  // 0.69 -> 0.36 reaches a phone's 0.5x ultra-wide, 1.56 -> 2.7 its 3x tele).
+  // The float value itself is left to BA, which converges from within ~10 %.
+  if (opts.focalBracket !== false && best) {
+    const grid = focalScales.slice().sort((a, b) => a - b);
+    const dir = best.fScale <= grid[0] ? 1 / 1.12 : best.fScale >= grid[grid.length - 1] ? 1.12 : 0;
+    for (let step = 0; dir && step < 5; step++) {
+      const s = best.fScale * dir;
+      checkAbort();
+      const t0b = performance.now();
+      const res = await runGeometry(s, false);
+      const secs = ((performance.now() - t0b) / 1000).toFixed(1);
+      if (!res) { log(`focal bracket ${(s * 1.2).toFixed(2)}x maxDim: no valid initialization (${secs}s)`); break; }
+      res.angErr = res.medErr / (s * 1.2 * 640);
+      const better = res.cams.length >= Math.ceil(0.88 * best.cams.length) && res.medErr < best.medErr;
+      log(`focal bracket ${(s * 1.2).toFixed(2)}x maxDim: ${res.cams.length}/${n} cams, median reproj ${res.medErr.toFixed(2)}px in ${secs}s` +
+          (better ? ' — better, stepping on' : ' — stop'));
+      if (!better) break;
+      best = res;
+    }
   }
 
   // re-run the winner verbosely (with bundle adjustment) to produce the

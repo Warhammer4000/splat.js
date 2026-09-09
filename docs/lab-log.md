@@ -77,6 +77,21 @@ about ±0.1 dB.
   Unit test `tests/unit/test_exif.mjs` (synthetic JPEG + the statue files);
   bench `?exiffocal=0` opts out. In-app camera captures carry no EXIF (canvas
   JPEGs) — a focal from the camera track is not available; library picks do.
+- **Focal search anchored on lenses + edge bracket** (user: "why not have
+  typical focal lengths ready, iPhone 1x, 0.5x"). The statue logs showed the
+  true focal (0.69 × long side, a 24 mm phone lens) sat 12 % below the old
+  grid's lowest candidate and BA did not follow (f moved 0.02 %). Grid now
+  0.575 / 0.65 / 0.8 / 1.0 / 1.16 / 1.3 (24, 28, 33, 40, 48, 54 mm); when the
+  winner is an edge candidate the search steps outward by 12 % while the
+  camera count holds and the pixel median falls (≤ 5 steps: reaches 0.5×
+  ultra-wide and 3× tele). Truck quick: search 0.69x → bracket 0.62x
+  (251/251, median 0.48 px; truth 0.59x), solve 3.6 → 3.9 min, 25.38 dB vs
+  25.51 (noise). Statue without EXIF: grid picks 0.69x directly. Correction to
+  the EXIF entry: the three statue solves (search 0.78x, prior, grid 0.69x)
+  are geometrically the same — same 23 cameras, same init pair, f moved
+  0.02 % in all, k1 ≈ 0.10 — so the 17.4 / 19.6 / 17.9 dB spread is training
+  and held-out noise on 3 held-out photos, not the focal; the statue is too
+  small to grade focal choices by PSNR.
 - **30-minute row, first seed (needle default, 1.05 M, `evalmin=2`)**: 26.558 at
   120k cycles in 30.1 min, dead 33.8 % — above every published Truck number
   (SSS 26.41). The second seed loaded the freshly patched trainer mid-run and
