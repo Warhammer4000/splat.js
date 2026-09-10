@@ -115,6 +115,20 @@ about ±0.1 dB.
   **3.0 min**, 251/251, 25.49 dB. Camping (113 video frames, every 3rd):
   113/113 at 0.60 px, 1.2 min. Synthetic unchanged. `searchSubset: false`
   (bench `?searchsub=0`) opts out.
+- **Incident**: the tier-decision edits (Standard = precise recipe, interim BA
+  10 k, High/Showcase → standard, gear row without Precise) were made, then
+  wiped by the `git checkout c050cef -- src app` / `git checkout HEAD -- src app`
+  used to A/B the resume spec — HEAD did not hold them. Commit edee212 carried
+  only docs + the session fix while its message claimed the tiers; live
+  Standard therefore ran "8000 at octave 0" (the withdrawn tier) until the
+  Standard-tier re-measure showed quick-tier feature counts (1074/image,
+  13.8 s). Restored and committed (acab64b); rule in memory: commit or stash
+  before any checkout-based A/B, and write commit messages from the diff.
+- **Standard tier re-measured with the restored recipe + subsampled search**:
+  SIFT 52.5 s (4513 feats/image, octave −1), pair geometry 50 s, focal search
+  ~10 s on 42 images (bracket to 0.62x), final registration + BA 249 s →
+  **6.0 min** (was 7.0 this morning, 10.8 yesterday), 251/251, ATE 0.00 %.
+  README solve times: Standard 6 min, Quick 3 min.
 - **30-minute row, first seed (needle default, 1.05 M, `evalmin=2`)**: 26.558 at
   120k cycles in 30.1 min, dead 33.8 % — above every published Truck number
   (SSS 26.41). The second seed loaded the freshly patched trainer mid-run and
