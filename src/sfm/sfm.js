@@ -53,9 +53,17 @@ const FOCAL_SCALES = [1.0, 0.8, 0.65, 0.575, 1.16, 1.3];
  *             fine features only (coarse + aspect drifted camping −0.6 dB).
  *  Rigs (sliced panoramas) clamp the octave and lock intrinsics regardless
  *  (session.solve). Explicit sfm options passed alongside always win. */
+// MEASURED 2026-09-09 (truck-251, fresh solve + 30k, RTX 5080): quick 3.6 min
+// → 25.51 dB; "8000 features at octave 0" 3.5 min → 25.42 (worse than 3900:
+// the base octave has no 8000 good keypoints at 960 px) — withdrawn; the
+// upsampled-octave recipe 10.8 min → 25.86, and 7.0 min → 26.03 once the
+// init-pair fix, the worker RANSAC and the 10 k-point interim BA were in.
+// So "standard" IS the precise recipe made cheaper; 'precise' stays as an
+// alias for the bench and older links. (This block was lost once to a
+// `git checkout -- src` on 2026-09-10 and restored the same day.)
 export const SOLVE_TIERS = {
   quick:    { siftFeats: 3900, siftFirstOctave: 0,  refineAspect: false },
-  standard: { siftFeats: 8000, siftFirstOctave: 0,  refineAspect: false },
+  standard: { siftFeats: 8000, siftFirstOctave: -1, refineAspect: true },
   precise:  { siftFeats: 8000, siftFirstOctave: -1, refineAspect: true },
 };
 export const solveTierOpts = (name) => ({ ...(SOLVE_TIERS[name] || SOLVE_TIERS.standard) });
@@ -1418,7 +1426,9 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
       // 96 k points / 514 k observations and 40 interim BAs cost 270 s of a
       // 430 s final pass; 0 = all points (the pre-2026-09-09 behaviour)
       const res = await runGlobalBA(`interim @${registered.size}`,
-        { maxIters: 12, refineDistortion: false, maxPoints: sfmOpts.interimBAMaxPoints ?? 25000 });
+        // MEASURED 2026-09-09: all points 268 s / 25.88 dB, 25 k 129 s / 25.93,
+        // 10 k 78 s / 26.03 — the chain stays straight on ~40 points per camera
+        { maxIters: 12, refineDistortion: false, maxPoints: sfmOpts.interimBAMaxPoints ?? 10000 });
       if (!res) return;
       for (const tr of tracks) triangulateTrack(tr);
       baFilterObs(res.k1, res.k2, `interim @${registered.size}`);

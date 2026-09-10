@@ -154,8 +154,8 @@ function qualityMacros() {
   return {
     draft:    { res: 480,   buf: 1, sh: 0,    iters: 10000,  splats: 0, solve: 'quick' },
     standard: { res: d.res, buf: 1, sh: d.sh, iters: 0,      splats: 0, solve: d.solve },
-    high:     { res: 1280,  buf: 1, sh: 3,    iters: 40000,  splats: 0, solve: 'precise' },
-    showcase: { res: 1280,  buf: 1, sh: 3,    iters: 100000, splats: 0, solve: 'precise' },
+    high:     { res: 1280,  buf: 1, sh: 3,    iters: 40000,  splats: 0, solve: 'standard' },
+    showcase: { res: 1280,  buf: 1, sh: 3,    iters: 100000, splats: 0, solve: 'standard' },
   };
 }
 function qualityOf(st) {
@@ -322,7 +322,7 @@ function boot() {
   const showSettings = () => {
     $('set-res').value = st.res ? String(st.res) : '';
     $('set-feat').value = st.feat ? String(st.feat) : '';
-    $('set-solve').value = st.solve || 'standard';
+    $('set-solve').value = st.solve === 'quick' ? 'quick' : 'standard';   // 'precise' (an alias) shows as Standard
     $('set-buf').value = String(st.buf);
     $('set-sh').value = String(st.sh);
     $('set-iters').value = st.iters ? String(st.iters) : '';
