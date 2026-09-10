@@ -791,7 +791,10 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
   // Geometry stage, parameterized by focal scale. Fully self-contained so the
   // focal search can run it repeatedly on reset track state.
   // =========================================================================
-  async function runGeometry(fScale, verbose, withBA = false, initSkip = 0) {
+  // allowed: an optional Set of image indices — the focal search registers a
+  // subsample (every k-th photo, <= 48) since it only ranks focals; the final
+  // pass registers everything
+  async function runGeometry(fScale, verbose, withBA = false, initSkip = 0, allowed = null) {
     const vlog = verbose ? log : () => {};
     const rng = makeRng(1234567);
     const K = images.map((im) => ({
@@ -1066,7 +1069,8 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
     const near = allPairs.filter((p) => Math.abs(p.j - p.i) <= 2)
       .sort((a, b) => b.c - a.c)
       .slice(0, 10);
-    const candPairs = [...wide, ...near.filter((p) => !wide.includes(p))];
+    const candPairs = [...wide, ...near.filter((p) => !wide.includes(p))]
+      .filter((p) => !allowed || (allowed.has(p.i) && allowed.has(p.j)));
 
     const trackCorrs = (i, j) => {
       const x1s = [], x2s = [];
@@ -1489,6 +1493,7 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
         let bestImg = -1, bestCount = 0;
         for (let img = 0; img < n; img++) {
           if (registered.has(img) || failed.has(img)) continue;
+          if (allowed && !allowed.has(img)) continue;
           let c = 0;
           const ft = featTrack[img];
           for (let f = 0; f < feats[img].n; f++) {
@@ -1946,23 +1951,45 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
   const candidates = [];
   let fi = 0;
   const focalScales = opts.focalScales || FOCAL_SCALES;   // opts.focalScales: a narrower search (EXIF-informed, or a quick tier)
-  for (const s of focalScales) {
-    ev({ stage: 'focal', done: fi++, total: focalScales.length, detail: { fScale: s * 1.2 } });
-    checkAbort();
-    const t0c = performance.now();
-    const res = await runGeometry(s, false);
-    const fEff = (s * 1.2).toFixed(2);
-    const secs = ((performance.now() - t0c) / 1000).toFixed(1);
-    if (!res) {
-      log(`focal ${fEff}x maxDim: no valid initialization (${secs}s)`);
-      continue;
+  // The search only RANKS focals, so it registers a subsample: every k-th
+  // photo, at most 48 (2026-09-10: on truck-251 each candidate was a 5-25 s
+  // full registration; six candidates plus the edge bracket now cost less
+  // than the old four). Rigs and small sets use every image.
+  let searchSet = null;
+  if (opts.searchSubset !== false && !opts.rigs && n > 48) {
+    const stride = Math.ceil(n / 48);
+    searchSet = new Set();
+    for (let i = 0; i < n; i += stride) searchSet.add(i);
+    log(`focal search on ${searchSet.size} of ${n} images (every ${stride}th)`);
+  }
+  let nS = searchSet ? searchSet.size : n;
+  const searchPass = async () => {
+    for (const s of focalScales) {
+      ev({ stage: 'focal', done: fi++, total: focalScales.length, detail: { fScale: s * 1.2 } });
+      checkAbort();
+      const t0c = performance.now();
+      const res = await runGeometry(s, false, false, 0, searchSet);
+      const fEff = (s * 1.2).toFixed(2);
+      const secs = ((performance.now() - t0c) / 1000).toFixed(1);
+      if (!res) {
+        log(`focal ${fEff}x maxDim: no valid initialization (${secs}s)`);
+        continue;
+      }
+      res.angErr = res.medErr / (s * 1.2 * 640); // relative units; constant factor irrelevant
+      res.rankErr = useGlobalSearch ? res.medErr : res.angErr;
+      log(`focal ${fEff}x maxDim: ${res.cams.length}/${nS} cams, ${res.points.length} pts, ` +
+          `median reproj ${res.medErr.toFixed(2)}px (angular ${(res.angErr * 1e4).toFixed(2)}e-4) in ${secs}s`);
+      candidates.push(res);
+      await tick();
     }
-    res.angErr = res.medErr / (s * 1.2 * 640); // relative units; constant factor irrelevant
-    res.rankErr = useGlobalSearch ? res.medErr : res.angErr;
-    log(`focal ${fEff}x maxDim: ${res.cams.length}/${n} cams, ${res.points.length} pts, ` +
-        `median reproj ${res.medErr.toFixed(2)}px (angular ${(res.angErr * 1e4).toFixed(2)}e-4) in ${secs}s`);
-    candidates.push(res);
-    await tick();
+  };
+  await searchPass();
+  if (!candidates.length && searchSet) {
+    // a subsample too sparse to chain (a forward walk sampled every k-th
+    // frame): search on every image instead
+    log('focal search: no candidate initialized on the subsample — searching on every image');
+    searchSet = null; nS = n; fi = 0;
+    await searchPass();
   }
   if (!candidates.length) throw new Error('no focal candidate produced a valid initialization — need more parallax/overlap');
   // A candidate must register (nearly) the most cameras to compete, but among
@@ -1993,12 +2020,12 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
       const s = best.fScale * dir;
       checkAbort();
       const t0b = performance.now();
-      const res = await runGeometry(s, false);
+      const res = await runGeometry(s, false, false, 0, searchSet);
       const secs = ((performance.now() - t0b) / 1000).toFixed(1);
       if (!res) { log(`focal bracket ${(s * 1.2).toFixed(2)}x maxDim: no valid initialization (${secs}s)`); break; }
       res.angErr = res.medErr / (s * 1.2 * 640);
       const better = res.cams.length >= Math.ceil(0.88 * best.cams.length) && res.medErr < best.medErr;
-      log(`focal bracket ${(s * 1.2).toFixed(2)}x maxDim: ${res.cams.length}/${n} cams, median reproj ${res.medErr.toFixed(2)}px in ${secs}s` +
+      log(`focal bracket ${(s * 1.2).toFixed(2)}x maxDim: ${res.cams.length}/${nS} cams, median reproj ${res.medErr.toFixed(2)}px in ${secs}s` +
           (better ? ' — better, stepping on' : ' — stop'));
       if (!better) break;
       best = res;

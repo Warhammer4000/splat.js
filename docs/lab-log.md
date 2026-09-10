@@ -106,6 +106,15 @@ about ±0.1 dB.
   admitted to the init candidates (top-10 adjacent by shared tracks). None
   moved the statue past 23; the 4 flare images (IMG_0031–34) never register,
   the other 7 need a better track graph on this low-texture set — parked.
+- **Focal search on a subsample** (user: "20 s more solve is not good, why?").
+  Each candidate was a full no-BA registration of all images (5–25 s on
+  truck-251); the search only ranks focals, so it now registers every k-th
+  photo (≤ 48 images; rigs and sets ≤ 48 use all; falls back to all images if
+  no candidate initialises on the subsample). Truck quick: six candidates +
+  two bracket steps in ~3 s (was ~60 s), same winner 0.62x, solve 3.9 →
+  **3.0 min**, 251/251, 25.49 dB. Camping (113 video frames, every 3rd):
+  113/113 at 0.60 px, 1.2 min. Synthetic unchanged. `searchSubset: false`
+  (bench `?searchsub=0`) opts out.
 - **30-minute row, first seed (needle default, 1.05 M, `evalmin=2`)**: 26.558 at
   120k cycles in 30.1 min, dead 33.8 % — above every published Truck number
   (SSS 26.41). The second seed loaded the freshly patched trainer mid-run and
