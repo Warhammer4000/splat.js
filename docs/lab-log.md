@@ -61,6 +61,51 @@ about ±0.1 dB.
   316 s. The focal search is the gap (COLMAP reads EXIF); CUDA COLMAP not
   measured. Table in docs/bench-sfm-colmap-2026-09-09.md.
 
+## 2026-09-10 (video: camping.mov through the extractor; density beats sharpness)
+
+- **The ask**: run the original camping.mov (1920x1080, 29.97 fps, 1014 frames,
+  33.8 s, iPhone walk) through the current extractor and see what it picks.
+  Default extraction: **59 frames (1.7/s)**, 4 blur dips, motion proxy reads
+  ~10 %/s on this walk so the 10 % budget and the 1.0 s ceiling coincide;
+  picks cluster in the fast pans (4-6/s at 13-15 s and 27-29 s), 1/s
+  elsewhere. Solve 59/59, 0.57 px, 0.9 min. The server set (113 frames,
+  3.33/s) is every 9th video frame from frame 1 (matched by SAD at 96x54).
+- **First ruler was wrong twice.** eval8 on each extraction's own frames:
+  59 → 22.19, 77 (0.5 s ceiling) → 26.56, 95 (0.35 s) → 24.02, server 113 →
+  25.54. Not comparable — different held-out photos per set. Second ruler
+  (`?vidhold=` the server set's 15 held-out timestamps forced into every
+  extraction, `evalFrames` on the Session): 22.97 / 27.07 / 26.62 / uniform
+  3.33 fps 27.96 / 0.25 s 28.22 — inflated, the extractor puts a training
+  frame 1-4 video frames from each test frame (min 0.02 s, median 0.11-0.18 s)
+  where the server set's nearest neighbour is 0.3 s. Third ruler adds
+  `?vidholdexcl=0.3` (no pick within 0.3 s of a test frame; both neighbours
+  gone, so the hole is 0.6 s vs the server set's 0.3 s — our variants are
+  handicapped against the 25.54 reference, but comparable to each other):
+
+  | extraction (30k, standard solve, same 15 test photos) | train frames | solve | PSNR |
+  |---|---:|---:|---:|
+  | default (1.0 s ceiling) | 43 | 1.1 min | 22.76 |
+  | 0.5 s ceiling | 55 | 2.0 | 22.63 |
+  | uniform 3.33 fps, no scoring (control) | 76 | 2.4 | 23.87 |
+  | 0.35 s ceiling | 72 | 2.2 | 24.06 |
+  | 0.25 s ceiling | 88 | 2.0 | 25.30 |
+  | 0.2 s ceiling | 101 | 2.5 | 23.88 |
+  | 0.15 s ceiling (= the window floor) | 126 | 3.0 | 24.68 |
+  | server set (neighbours at 0.3 s, favoured) | 98 | 2.4 | 25.54 |
+
+  Every solve registered every frame (rms 0.52-0.59 px). The forward-walk
+  lesson from charleston holds on a real phone walk: the motion proxy under-
+  reads a walk (2-10 %/s), so the time ceiling paces it, and 1.0 s is far
+  too sparse. Sharpness selection at equal count is worth ~+0.2 dB over
+  uniform (noise band). Picks-per-second is the lever; single-seed cells on
+  15 test photos scatter ±0.7 dB (0.2 s < 0.35 s < 0.15 s < 0.25 s is not a
+  curve), so the read is "≥ 3/s on a walk", not a sharp optimum.
+- **Default changed**: `maxGapSec` 1.0 → 0.25 (a walk yields ≥ 4/s;
+  orbits already close windows by motion and are unaffected — LisaAvatar
+  closed at 3.2/s by motion). Device cap widens the budget as before.
+- Bench: `?vidmaxgap=`, `?vidpick=uniform&vidfps=`, `?vidhold=t,t,..&vidholdexcl=s`;
+  Session `evalFrames` (named test set). Unit test 7 covers forced/uniform.
+
 ## 2026-09-10 (EXIF focal prior)
 
 - **EXIF focal prior** (user: phone run "worked well"; next lever was the

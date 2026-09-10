@@ -4,7 +4,7 @@
 //   - motion windows pace a moving camera by displacement, a static camera by
 //     the time cap; blur dips lose to their neighbours; the device cap widens
 //     windows instead of dropping the sharpest
-import { selectFrames, detectShots } from '../../src/io/video.js';
+import { selectFrames, detectShots, applyForced } from '../../src/io/video.js';
 
 let failures = 0;
 const check = (name, cond, detail = '') => {
@@ -40,12 +40,12 @@ const mk = (n, f) => Array.from({ length: n }, (_, i) => ({ t: i / 30, focus: 80
   check('displacement pacing ~10 frames', med >= 8 && med <= 14, `median gap ${med} frames, ${r.picks.length} picks`);
 }
 
-// 3. a static camera still yields frames, paced by the time cap (1.0 s = 30 frames)
+// 3. a static camera still yields frames, paced by the time cap (0.25 s = 7-8 frames)
 {
   const frames = mk(300, () => ({ motion: 0 }));
   const r = selectFrames(frames, { maxFrames: 300, minFrames: 1 });
   const gaps = r.picks.slice(1).map((p, i) => p - r.picks[i]);
-  check('static camera paced by the time cap', gaps.length && gaps.every((g) => g >= 28 && g <= 33), `gaps ${[...new Set(gaps)].join(',')}`);
+  check('static camera paced by the time cap', gaps.length && gaps.every((g) => g >= 7 && g <= 9), `gaps ${[...new Set(gaps)].join(',')}`);
 }
 
 // 4. a blur dip inside a window loses to its neighbours
@@ -75,3 +75,20 @@ const mk = (n, f) => Array.from({ length: n }, (_, i) => ({ t: i / 30, focus: 80
 
 if (failures) { console.log(`${failures} failure(s)`); process.exit(1); }
 console.log('VIDEO SELECT TESTS PASSED');
+
+// 7. forced timestamps (a fixed evaluation set): nearest frames always kept,
+//    other picks inside the exclusion zone dropped; uniform pick mode is a
+//    fixed-rate control with no scoring
+{
+  const frames = mk(300, () => ({ motion: 0.01 }));
+  const r = selectFrames(frames, { maxFrames: 300, minFrames: 1 });
+  const picks = r.picks.slice();
+  applyForced(frames, picks, { forceTimes: [2.0, 5.0], forceExcludeSec: 0.3 });
+  check('forced frames present', picks.includes(60) && picks.includes(150), picks.join(','));
+  const near = picks.filter((p) => p !== 60 && p !== 150 && (Math.abs(frames[p].t - 2.0) < 0.3 || Math.abs(frames[p].t - 5.0) < 0.3));
+  check('exclusion zone empty', near.length === 0, `${near.length} picks inside 0.3 s`);
+  check('picks sorted and unique', picks.every((p, i) => !i || p > picks[i - 1]));
+  const u = selectFrames(frames, { pick: 'uniform', uniformFps: 3 });
+  const gaps = u.picks.slice(1).map((p, i) => p - u.picks[i]);
+  check('uniform 3 fps -> every 10 frames', u.picks.length === 30 && gaps.every((g) => g === 10), `${u.picks.length} picks, gaps ${[...new Set(gaps)].join(',')}`);
+}

@@ -17,7 +17,7 @@
 //            frames), then MOTION windows: a window closes when the camera has
 //            moved ~10 % of the frame width (90 % overlap; the Reflct 80 % guide
 //            registered 27/96 on a close phone orbit, 90 % registered 176/181),
-//            bounded to [0.15 s, 1.0 s]; the sharpest survivor of each window
+//            bounded to [0.15 s, 0.25 s]; the sharpest survivor of each window
 //            is kept; a device cap widens windows rather than dropping the
 //            sharpest
 //   capture  decode only the winners again at full resolution (no seeking,
@@ -37,12 +37,18 @@
  *   MEASURED 2026-09-08 on a close-range phone orbit (LisaAvatar): 0.8 → 96 frames, 27 registered;
  *   0.9 → 181 frames, 176 registered. Registration needs parallax density, not just overlap.
  * @property {number} [minGapSec=0.15]     a window never closes faster than this
- * @property {number} [maxGapSec=1.0]      nor later (a paused camera still yields frames, sparsely)
+ * @property {number} [maxGapSec=0.25]     nor later. MEASURED 2026-09-10 on a phone walk (camping.mov, 15 fixed test
+ *   photos, 30k): the motion proxy under-reads forward motion so this ceiling paces walks — 1.0 s gave 43 training
+ *   frames and 22.8 dB, 0.35 s 72 / 24.1, 0.25 s 88 / 25.3, 0.15 s 126 / 24.7. Orbits close windows by motion first.
  * @property {number} [outlierWindow=15]   local window for blur-dip removal (frames)
  * @property {number} [outlierSensitivity=0.6]  0 = off; a frame is dropped when its focus < (1 - s·0.5) × neighbour median
  * @property {number} [jpegQuality=0.95]
  * @property {'auto'|'webcodecs'|'element'} [engine='auto']
  * @property {'longest'|'all'} [shots='longest'] edited clips: reconstruct one continuous take (default) or keep every shot
+ * @property {'sharp'|'uniform'} [pick='sharp']  'uniform' takes frames at a fixed rate (`uniformFps`) with no sharpness selection — a control for the selector
+ * @property {number} [uniformFps=3]
+ * @property {number[]} [forceTimes]      timestamps (s) whose nearest frames are always kept (a fixed evaluation set across extraction variants)
+ * @property {number} [forceExcludeSec=0] no other pick within this distance of a forced time (keeps a near-duplicate training view out of the test)
  * @property {(e: {stage: 'scan'|'capture', done: number, total: number}) => void} [onProgress]
  * @property {(msg: string) => void} [log]
  */
@@ -278,11 +284,39 @@ export function selectFrames(frames, opts = {}) {
   return { ...r, shots, shot: shots[0] };
 }
 
+/** Forced timestamps (opts.forceTimes) join the picks: the nearest scored
+ *  frame to each, inserted in time order, never duplicated; other picks within
+ *  opts.forceExcludeSec of a forced time are dropped. */
+export function applyForced(frames, picks, opts) {
+  if (!opts.forceTimes || !opts.forceTimes.length) return;
+  const excl = opts.forceExcludeSec || 0;
+  const set = new Set(excl > 0 ? picks.filter((i) => opts.forceTimes.every((t) => Math.abs(frames[i].t - t) >= excl)) : picks);
+  for (const t of opts.forceTimes) {
+    let best = 0;
+    for (let i = 1; i < frames.length; i++) if (Math.abs(frames[i].t - t) < Math.abs(frames[best].t - t)) best = i;
+    set.add(best);
+  }
+  picks.length = 0;
+  for (const i of [...set].sort((a, b) => a - b)) picks.push(i);
+  for (let i = 0; i < frames.length; i++) frames[i].picked = set.has(i);
+}
+
 /** Selection on one continuous take. */
 function selectFramesContinuous(frames, opts = {}) {
+  if (opts.pick === 'uniform') {   // control: a fixed rate, no scoring
+    const step = 1 / (opts.uniformFps || 3);
+    const picks = [];
+    let next = frames[0].t;
+    for (let i = 0; i < frames.length; i++) {
+      if (frames[i].t + 1e-6 >= next) { picks.push(i); next = frames[i].t + step; }
+    }
+    const set = new Set(picks);
+    for (let i = 0; i < frames.length; i++) { frames[i].blur = false; frames[i].picked = set.has(i); }
+    return { picks, budget: 0 };
+  }
   const maxFrames = opts.maxFrames ?? defaultMaxFrames();
   const minFrames = opts.minFrames ?? 24;
-  const minGap = opts.minGapSec ?? 0.15, maxGap = opts.maxGapSec ?? 1.0;
+  const minGap = opts.minGapSec ?? 0.15, maxGap = opts.maxGapSec ?? 0.25;
   markOutliers(frames, opts.outlierWindow ?? 15, opts.outlierSensitivity ?? 0.6);
   let budget = 1 - (opts.overlap ?? 0.9);
   let picks = selectByMotion(frames, { budget, minGap, maxGap });
@@ -381,6 +415,7 @@ async function extractWebCodecs(file, opts, log, onProgress) {
 
   // ---- selection ----
   const { picks, budget, shots, shot } = selectFrames(frames, opts);
+  applyForced(frames, picks, opts);
   const blurred = frames.filter((f) => f.blur).length;
   if (shots.length > 1) log(`${shots.length} shots (cuts at ${shots.slice(1).map((sh) => frames[sh.start].t.toFixed(1) + 's').join(', ')})${shot ? ` — keeping the longest: ${frames[shot.start].t.toFixed(1)}–${frames[shot.end].t.toFixed(1)} s` : ' — keeping all'}`);
   log(`scored ${frames.length} frames (${blurred} blur dips); kept ${picks.length} — motion budget ${(budget * 100).toFixed(0)} % of the width, focus median ${median(frames.map((f) => f.focus)).toFixed(0)}`);
@@ -446,6 +481,7 @@ async function extractElement(file, opts, log, onProgress) {
     }
     if (frames.length < 2) throw new Error('could not decode frames from this video');
     const { picks, budget } = selectFrames(frames, opts);
+    applyForced(frames, picks, opts);
     log(`scored ${frames.length} samples; kept ${picks.length} (motion budget ${(budget * 100).toFixed(0)} %)`);
     const capCv = mkCanvas(vw, vh);
     const capCtx = capCv.getContext('2d');

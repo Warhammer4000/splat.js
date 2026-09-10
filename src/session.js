@@ -92,6 +92,8 @@ export function undistortFrames(frames, recon) {
  * @property {number} [evalSplit=0]  the standard benchmark protocol: every Nth
  *   frame of the input order is excluded from training and scored together via
  *   evalTestPsnr() (papers use N=8); 0 = off
+ * @property {string[]} [evalFrames]  explicit test set by frame name (overrides evalSplit;
+ *   a fixed ruler when the frame set itself is what varies, e.g. video extraction variants)
  * @property {object} [sfm]              SfmOptions passed to solve()
  * @property {object} [trainer]          extra GSTrainer options (shDeg, ...)
  * @property {object} [frames]           FrameOptions passed to load()
@@ -365,7 +367,19 @@ export class Session {
     // frame so live progress tracks the same distribution.
     const split = extra.evalSplit ?? this.opts.evalSplit ?? 0;
     this.testCams = [];
-    if (split >= 2) {
+    const evalNames = extra.evalFrames ?? this.opts.evalFrames;   // explicit test set by frame name (a fixed ruler across extractions of one video)
+    if (evalNames && evalNames.length) {
+      const want = new Set(evalNames);
+      this.trainer.camMeta.forEach((m, i) => {
+        const f = this.frames[m.imgIdx];
+        if (f && want.has(f.name)) { this.trainer.excluded.add(i); this.testCams.push(i); }
+      });
+      if (this.testCams.length && this.holdout < 0) {
+        this.holdout = this.testCams[this.testCams.length >> 1];
+        this.trainer.holdout = this.holdout;
+      }
+      this._log(`evaluation set: ${this.testCams.length} of ${this.trainer.camMeta.length} cameras (named) held out of training`);
+    } else if (split >= 2) {
       this.trainer.camMeta.forEach((m, i) => {
         if (m.imgIdx % split === 0) { this.trainer.excluded.add(i); this.testCams.push(i); }
       });

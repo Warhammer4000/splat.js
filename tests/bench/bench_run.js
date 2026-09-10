@@ -33,7 +33,7 @@ const TAG = `${SET}_${ITERS}` + (Q.has('classic') ? '_classic' : '')
   + (Q.get('econ') ? `_e${Q.get('econ')}` : '') + (Q.get('deadtiny') ? '_dtn' : '') + (Q.get('minutes') ? `_m${Q.get('minutes')}` : '') + (Q.get('evalmin') ? `_ev${Q.get('evalmin')}` : '')
   + (Q.has('classicsolve') ? '_cs' : '') + (Q.get('featres') ? `_fr${Q.get('featres')}` : '') + (Q.get('feats') ? `_nf${Q.get('feats')}` : '') + (Q.get('octave') ? `_oc${Q.get('octave')}` : '') + (Q.get('peak') ? `_pk${Q.get('peak')}` : '') + (Q.get('solve') ? `_sv${Q.get('solve')}` : '') + (Q.get('baratio') != null ? `_br${Q.get('baratio')}` : '') + (Q.get('bapts') != null ? `_bp${Q.get('bapts')}` : '') + (Q.get('pairworkers') === '0' ? '_npw' : '') + (Q.get('exiffocal') === '0' ? '_nxf' : '') + (Q.get('focals') ? `_fs${Q.get('focals').replace(/[^0-9]/g, '')}` : '') + (Q.get('bracket') === '0' ? '_nbk' : '') + (Q.get('inittrials') != null ? `_it${Q.get('inittrials')}` : '') + (Q.get('initpair') ? `_ip${Q.get('initpair').replace(',', '')}` : '') + (Q.get('searchsub') === '0' ? '_nss' : '')
   + (Q.get('compact') === '0' ? '_ncp' : '') + (Q.get('gspread') ? `_gs${Q.get('gspread')}` : '') + (Q.get('gbatch') ? `_gb${Q.get('gbatch')}` : '') + (Q.get('usestats') ? '_us' : '') + (Q.get('camgrads') ? '_cg' : '') + (Q.get('rectbin') ? '_rb' : '') + (Q.get('ipf') ? `_ipf${Q.get('ipf')}` : '') + (Q.get('gzskip') ? '_gz' : '') + (Q.get('pvec') ? '_pv' : '') + (Q.get('sgagg') ? '_sg' : '') + (Q.get('tilegrad') === '0' ? '_ntg' : '') + (Q.get('frommodel') ? '_fm' : '') + (Q.get('aspect') ? '_asp' : '') + (Q.get('asplr') ? `_al${Q.get('asplr')}` : '') + (Q.get('sfmaspect') === '0' ? '_nsa' : Q.get('sfmaspect') ? '_sa' : '') + (Q.get('lockk') ? '_lk' : '') + (Q.get('pairinl') ? `_pi${Q.get('pairinl')}` : '') + (Q.get('pairinladj') ? `_pa${Q.get('pairinladj')}` : '') + (Q.get('relax') === '0' ? '_nrx' : '')
-  + (Q.get('video') ? `_v${Q.get('video').split('/').pop().replace(/.[^.]+$/, '')}` : '') + (Q.get('vidmode') ? `_vm${Q.get('vidmode')}` : '') + (Q.get('vidmax') ? `_vx${Q.get('vidmax')}` : '') + (Q.get('vidoverlap') ? `_vo${Q.get('vidoverlap')}` : '') + (Q.get('vidshots') ? `_vs${Q.get('vidshots')}` : '')
+  + (Q.get('video') ? `_v${Q.get('video').split('/').pop().replace(/.[^.]+$/, '')}` : '') + (Q.get('vidmode') ? `_vm${Q.get('vidmode')}` : '') + (Q.get('vidmax') ? `_vx${Q.get('vidmax')}` : '') + (Q.get('vidoverlap') ? `_vo${Q.get('vidoverlap')}` : '') + (Q.get('vidshots') ? `_vs${Q.get('vidshots')}` : '') + (Q.get('vidmaxgap') ? `_vg${Q.get('vidmaxgap').replace('.', '')}` : '') + (Q.get('vidpick') ? `_vp${Q.get('vidpick')}${(Q.get('vidfps') || '').replace('.', '')}` : '') + (Q.get('vidhold') ? '_vh' : '') + (Q.get('vidholdexcl') ? `_hx${Q.get('vidholdexcl').replace('.', '')}` : '')
   + (Q.get('dir') ? `_d${Q.get('dir')}` : '') + (Q.get('tag') ? `_${Q.get('tag')}` : '')   // free suffix: e.g. the recon source, which no flag names
   + (Q.get('seed') ? `_s${Q.get('seed')}` : '');
 const t0 = Date.now();
@@ -96,7 +96,7 @@ try {
   const cfg = SETS[SET];
   if (Q.get('dir')) cfg.dir = Q.get('dir');   // a resampled copy of the set (e.g. truck_sq: square pixels for the COLMAP camera)
   if (!cfg) throw new Error(`unknown set ${SET}`);
-  let names;
+  let names, evalFrames = null;
   const files = [];
   if (cfg.video) {
     // ---- video input: fetch the file, run the sharp-frame extractor, treat the winners as photos ----
@@ -111,7 +111,12 @@ try {
       engine: Q.get('vidmode') || 'auto',
       ...(Q.get('vidmax') ? { maxFrames: +Q.get('vidmax') } : {}),
       ...(Q.get('vidoverlap') ? { overlap: +Q.get('vidoverlap') } : {}),
-      ...(Q.get('vidshots') ? { shots: Q.get('vidshots') } : {}),   // 'all' keeps every shot of an edited clip
+      ...(Q.get('vidshots') ? { shots: Q.get('vidshots') } : {}),
+      ...(Q.get('vidmaxgap') ? { maxGapSec: +Q.get('vidmaxgap') } : {}),
+      ...(Q.get('vidpick') ? { pick: Q.get('vidpick') } : {}),   // vidpick=uniform&vidfps=3: fixed-rate control with no sharpness selection
+      ...(Q.get('vidfps') ? { uniformFps: +Q.get('vidfps') } : {}),
+      ...(Q.get('vidhold') ? { forceTimes: Q.get('vidhold').split(',').map(Number) } : {}),
+      ...(Q.get('vidholdexcl') ? { forceExcludeSec: +Q.get('vidholdexcl') } : {}),   // no training pick within this many seconds of a held-out frame   // vidhold=t1,t2,...: these frames are always extracted and form the test set (evalFrames)   // window time ceiling (s): walks show little image shift, so this paces them   // 'all' keeps every shot of an edited clip
       log: (m) => console.log('[video]', m),
       onProgress: (e) => { if (e.done % 50 === 0 || e.done === e.total) say('video-' + e.stage, { done: e.done, total: e.total }); },
     });
@@ -120,6 +125,11 @@ try {
     if (Q.get('postanalysis')) await post(Q.get('postanalysis'), JSON.stringify({ engine: ex.engine, duration: ex.duration, fps: ex.fps, frames: ex.analysis, picked: ex.frames.map((f) => f.t) }));
     for (const f of ex.frames) files.push(new File([f.source], f.name));
     names = ex.frames.map((f) => f.name);
+    if (Q.get('vidhold')) {
+      const ht = Q.get('vidhold').split(',').map(Number);
+      evalFrames = ht.map((t) => ex.frames.reduce((b, f) => (Math.abs(f.t - t) < Math.abs(b.t - t) ? f : b)).name);
+      await say('video-hold', { evalFrames });
+    }
   } else {
     if (cfg.list) names = await (await fetch(`/data/${cfg.dir}/files.json`)).json();
     else names = cfg.names();
@@ -137,7 +147,8 @@ try {
     // frame, so the adaptive batch makes runs diverge with kernel speed
     ...(Q.get('ipf') ? { itersPerFrame: +Q.get('ipf') } : {}),
     maxIters: ITERS,
-    evalSplit: Q.has('evalsplit') ? +Q.get('evalsplit') : (cfg.holdout1 ? 0 : 8),   // ?evalsplit=0 trains on every view (showcase runs; no test PSNR)
+    evalSplit: Q.has('evalsplit') ? +Q.get('evalsplit') : (cfg.holdout1 ? 0 : 8),
+    ...(evalFrames ? { evalFrames } : {}),   // ?evalsplit=0 trains on every view (showcase runs; no test PSNR)
     ...(cfg.holdout1 ? { holdout: 'auto' } : {}),
     // benchmark mode pins resolution like ?eval (adaptive budget otherwise
     // shrinks big sets and PSNR at reduced res is not comparable run-to-run)
