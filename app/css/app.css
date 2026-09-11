@@ -1005,9 +1005,11 @@ a.cbtn { text-decoration: none; }
 .walltabs { display: flex; gap: 6px; justify-content: center; width: min(1100px, 100%); margin: 10px auto 0; padding: 8px 0; position: sticky; top: -58px; z-index: 5; background: var(--ink); scroll-margin-top: -58px; }
 /* the start card's sticky reference sits 58 px (its top padding) below the bar on wide screens: a -58 px offset parks the stuck row right under the bar */
 @media (max-width: 640px) { .walltabs { top: 52px; scroll-margin-top: 52px; } }
-.walltabs [role="tab"] { padding: 8px 18px; border-radius: 999px; border: 1px solid transparent; background: none; color: var(--muted); font: 600 14px var(--ui); cursor: pointer; }
+/* underline tabs: the selected one carries a 2 px accent line */
+.walltabs { gap: 22px; border-bottom: 1px solid var(--line); padding: 8px 0 0; }
+.walltabs [role="tab"] { padding: 8px 4px 11px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; border-radius: 0; background: none; color: var(--muted); font: 600 14px var(--ui); cursor: pointer; transition: color .15s, border-color .15s; }
 .walltabs [role="tab"]:hover { color: var(--paper); }
-.walltabs [role="tab"].on { color: var(--accent); background: var(--accent-14); border-color: var(--accent-30); }
+.walltabs [role="tab"].on { color: var(--accent); border-bottom-color: var(--accent); }
 .galgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 26px 18px; width: min(1100px, 100%); margin: 6px auto 0; padding: 10px 0 14px; }
 .galgrid .galtile { width: 100%; margin: 0; }
 .galgrid .galsep, .galgrid .orline { grid-column: 1 / -1; }
