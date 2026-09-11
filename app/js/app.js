@@ -3698,8 +3698,8 @@ async function mountWall() {
     for (const it of (myShares || [])) if (!presetIds.has(String(it.id))) own.push(creationTile(it, false));
     if ((!items || !items.length) && !own.length) return;
     const host = $('gallery');
-    const mineIds = new Set((myShares || []).filter((x) => !presetIds.has(String(x.id))).map((x) => String(x.id)));
-    const rest = (items || []).filter((x) => !mineIds.has(String(x.id)));   // no duplicate of an own share
+    // own public shares stay in Community too — that is how everyone else sees the wall
+    const rest = items || [];
     const pinOf = (x) => (x.splatjs && x.splatjs.pin) || 9e9;
     const newer = (a, b) => new Date(b.createdDate) - new Date(a.createdDate);
     const presets = rest.filter((x) => presetIds.has(String(x.id))).sort((a, b) => (pinOf(a) - pinOf(b)) || newer(a, b));
