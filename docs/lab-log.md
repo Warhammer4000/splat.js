@@ -4,6 +4,53 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-12b (overnight: a rigged body model as the binding surface)
+
+User: fit a surface model that is itself rigged, then align the bones to it -
+better than the bone-only way; no SMPL licence available; "what you can
+achieve over night".
+
+- **Alternatives to SMPL, verified**: Anny (Naver Labs Europe, 2025,
+  **Apache-2.0**, `pip install anny`): MakeHuman-based, differentiable in
+  PyTorch, all ages, 6 phenotypes (gender, age, muscle, weight, height,
+  proportions), a `game_engine` rig (53 bones, Unreal naming: pelvis,
+  spine_01..03, clavicle/upperarm/lowerarm/hand, thigh/calf/foot/ball, neck_01,
+  head) that maps one-to-one onto rpm_std, LBS weights, a COCO keypoint
+  regressor with heels and toes. Z-up, metres, 13,718 verts. Also MHR (Meta,
+  Nov 2025, Apache-2.0, 45 shape params, Momentum solvers; SAM 3D Body outputs
+  MHR params from one image) - not tried tonight. Both are what SMPL was for,
+  without the licence.
+- **Fitter** (`client_git/splat-rigger/tools/anny_fit.py`): stage 1 fits
+  shape + per-bone pose + global similarity to the triangulated landmarks
+  (Huber 5 cm, per-landmark confidence from view count; cosine lr); stage 2
+  a one-sided Chamfer from 4k model vertices to 12k opaque splat centres
+  pulls the surface onto her actual body. First run plateaued at 3.8 cm with
+  phenotypes stuck at 0.5 - my priors (pose 0.02, phenotype 0.05) were too
+  strong; at 0.003 each: landmark residual 2.6 cm, surface rms 2.8 cm,
+  height 0.60, gender 0.56. ~30 s on CPU.
+- **Two mapping traps, both caught by the numbers**: (1) markers by bone
+  NAME gave Spine 0.65x and Head 2.23x stretches - Anny's spine_03 and head
+  sit at different heights than rpm's Spine2/Head; torso and head markers now
+  by rpm proportion along the fitted chain, limbs one-to-one -> stretches
+  **0.94-1.08**, the tightest fit so far. (2) The first surface binding put 70 %
+  of the LEFT leg's splats on RIGHT-leg joints: not a mirror (arms were right)
+  but `autofit.mjs` symmetrising the markers while the fitted surface kept
+  her swayed pose - rig and surface one leg-width apart on one side. Body-model
+  markers run with `--asym`.
+- **`export-binding.mjs --surface`**: bind against the fitted surface; Anny
+  bones -> rpm_std joints by name (fingers fold into the hand), top-4 weights,
+  recomputed normals; sidecar format and runtime unchanged. Binding **2.2 cm
+  mean, 0 far** (rig mesh: 4.1 cm).
+- **Leakage ruler** (from the sidecar itself: for each leg's splats, the
+  weight carried by the OTHER leg's joints): rig mesh **3.34 % / 0.59 %**,
+  fitted body **0.31 % / 0.02 %**. On the Walk clip the trailing-leg smear is
+  gone (cmp_legs.jpg, same animation times via `?bin=`).
+- Owed: symmetry prior inside the fitter (instead of none/asym); hands
+  (Anny has finger bones; MediaPipe has hand landmarks); the arm-to-torso
+  weights where the arm hangs against the body (still the capture's A-pose
+  problem); export the fitted body as the avatar's shadow/collision mesh;
+  try MHR for comparison.
+
 ## 2026-09-12 (the rig fits itself: markers from the capture's cameras)
 
 User: "now the hard part" - automate the rigger fit (hands, feet, the lot); the
