@@ -3593,6 +3593,12 @@ function creationTile(it, mine, { shared = false } = {}) {
     by.innerHTML = `<i class="galav"></i><b></b>`;
     wrap.insertBefore(by, wrap.querySelector('img').nextSibling);
     const ownerId = String(it.id).split('_')[0];
+    // the chip opens the sharer's profile (a link cannot nest inside the tile's link)
+    const profile = `https://profile.arrival.space/${encodeURIComponent(ownerId)}`;
+    by.setAttribute('role', 'link'); by.tabIndex = 0; by.title = 'Open profile';
+    const go = (e) => { e.preventDefault(); e.stopPropagation(); window.open(profile, '_blank', 'noopener'); };
+    by.addEventListener('click', go);
+    by.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') go(e); });
     ownerInfo(ownerId).then((u) => {
       if (!u || !u.name) { by.remove(); return; }
       by.querySelector('b').textContent = u.name;

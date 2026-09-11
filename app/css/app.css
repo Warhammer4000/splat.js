@@ -956,7 +956,9 @@ a.cbtn { text-decoration: none; }
 }
 
 /* shared-scene tiles: who shared it, and when */
-.galby { position: absolute; top: 18px; left: 18px; z-index: 1; display: flex; align-items: center; gap: 7px; padding: 3px 11px 3px 3px; border-radius: 999px; background: rgba(7, 9, 9, .72); backdrop-filter: blur(6px); font: 500 12.5px var(--ui); color: var(--paper); }
+.galby { position: absolute; top: 18px; left: 18px; z-index: 1; display: flex; align-items: center; gap: 7px; padding: 3px 11px 3px 3px; border-radius: 999px; background: rgba(7, 9, 9, .72); backdrop-filter: blur(6px); font: 500 12.5px var(--ui); color: var(--paper); cursor: pointer; transition: background .15s, border-color .15s; border: 1px solid transparent; }
+.galby:hover, .galby:focus-visible { background: rgba(7, 9, 9, .9); border-color: var(--accent-30); outline: none; }
+.galby:hover b { color: var(--accent); }
 .galby b { font-weight: 500; color: var(--paper); }
 .galav { flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--panel-2) center / cover no-repeat; border: 1px solid var(--line-2); font: 600 11px/20px var(--ui); color: var(--muted); text-align: center; font-style: normal; }
 .galname { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
