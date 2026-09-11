@@ -17,6 +17,19 @@ const MAXW = Math.min(1600, Math.round((screen.width || 1280) * (devicePixelRati
 const CAP = MAXW > 1400 ? 24 : 10;
 const key = (url, w) => (w ? `${url}@${w}` : url);
 
+/** User uploads on the UGC CDN can be any size (an iPhone 48 MP photo is
+ *  8064 px and 10 MB); the platform's image transform resizes them on the
+ *  edge, cached. A viewer never needs more than the display cap, and a strip
+ *  card needs 320 px — so those URLs are rewritten to the transform at the
+ *  width that will be decoded. Preset data (already sized) stays direct. */
+const UGC_UPLOAD = /^https:\/\/(?:dzrmwng2ae8bq\.cloudfront\.net|ugc\.arrival\.space)\/(\d+\/api_uploads\/[^?#]+\.(?:jpe?g|png|webp|heic|heif))(?:[?#].*)?$/i;
+export function sizedUrl(url, w) {
+  const m = UGC_UPLOAD.exec(url || '');
+  if (!m) return url;
+  const width = Math.max(320, Math.min(2048, Math.round(w || MAXW)));
+  return `https://ugc-transform.arrival.space/${m[1]}?width=${width}&format=jpeg`;
+}
+
 const remember = (k, b) => {
   done.delete(k);
   done.set(k, b);
@@ -29,7 +42,7 @@ export function bmp(url, w) {
   const k = key(url, w);
   if (done.has(k)) return Promise.resolve(done.get(k));
   if (pending.has(k)) return pending.get(k);
-  const p = fetch(url).then((r) => r.blob())
+  const p = fetch(sizedUrl(url, w || MAXW)).then((r) => r.blob())
     .then(async (b) => {
       if (w) return createImageBitmap(b, { resizeWidth: w, resizeQuality: 'medium' });
       // display-res decode: cap the LONG side at MAXW without ever

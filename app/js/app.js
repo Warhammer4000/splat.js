@@ -21,7 +21,7 @@ const EXTRA_PRESET_SPACES = ['42485456_3427', '42485456_9670', '42485456_7518'];
 import { Viewport, camCentre } from './viewport.js';
 import { Developer, fitRect } from './develop.js';
 import { Chart } from './chart.js';
-import { bmp, readyBmp } from './img.js';
+import { bmp, readyBmp, sizedUrl } from './img.js';
 
 const $ = (id) => document.getElementById(id);
 const fmt = (n) => Math.round(n).toLocaleString('en-US');
@@ -1589,7 +1589,9 @@ async function startPrep() {
     } else {
       files = [];
       for (let i = 0; i < S.photos.length; i++) {
-        const r = await fetch(S.photos[i].url);
+        // uploads come through the edge transform at 2048 px: training caps the
+        // long side below that anyway, and an 8064 px original is 10 MB a photo
+        const r = await fetch(sizedUrl(S.photos[i].url, 2048));
         if (!r.ok) throw new Error(`could not fetch ${S.photos[i].name}`);
         // url rides along: the session export stores where each image lives
         files.push({ source: await r.blob(), name: S.photos[i].name, url: S.photos[i].url });
