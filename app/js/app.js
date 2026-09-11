@@ -3265,6 +3265,8 @@ function shareDialog(rec = null) {
       <option value="Open">Public — listed in the gallery</option>   <!-- stored value: the gallery lists "Open" only; PUT /spaces stores the raw value -->
       <option value="Link Only">Anyone with the link</option>
     </select></label>
+    <label class="upcard-opt" id="sh-inform-row"><input type="checkbox" id="sh-inform" checked>
+      Tell my followers about it</label>
     ${needsPhotos && (S.loadedFiles || []).length ? `
     <label class="upcard-opt"><input type="checkbox" id="sh-photos">
       Include the ${S.loadedFiles.length} photographs (${photoMb} MB) so viewers can compare</label>` : ''}
@@ -3280,6 +3282,11 @@ function shareDialog(rec = null) {
   input.select();
   const close = () => card.remove();
   card.querySelector('#sh-cancel').addEventListener('click', close);
+  // followers are only told about public scenes
+  const priv = card.querySelector('#sh-priv');
+  const syncInform = () => { card.querySelector('#sh-inform-row').hidden = priv.value !== 'Open'; };
+  priv.addEventListener('change', syncInform);
+  syncInform();
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') card.querySelector('#sh-go').click();
     if (e.key === 'Escape') close();
@@ -3288,6 +3295,7 @@ function shareDialog(rec = null) {
     const title = input.value.trim() || 'My splat';
     const privacy = card.querySelector('#sh-priv').value;
     const includePhotos = !!card.querySelector('#sh-photos')?.checked;
+    const informFollowers = privacy === 'Open' && !!card.querySelector('#sh-inform')?.checked;
     const popup = hasToken() ? null : window.open('', 'arrival-oauth', 'width=480,height=720');
     close();
     if (!hasToken() && !popup) {
@@ -3300,7 +3308,7 @@ function shareDialog(rec = null) {
       const sog = rec ? rec.sog : await getSogBlob();
       const thumb = rec ? (rec.thumb || null) : ((await photoThumb()) || (await renderShareThumb()));
       const { spaceId, spaceUrl, link } = await shareCreation(S, sog, {
-        title, privacy, includePhotos, thumbBlob: thumb, popup,
+        title, privacy, includePhotos, informFollowers, thumbBlob: thumb, popup,
         ...(rec ? { recon: rec.recon } : {}),
         onStatus: (m) => flash(m, 120000),
         onProgress: (pct) => flash(`Uploading … ${pct}%`, 120000),

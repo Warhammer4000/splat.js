@@ -8,6 +8,9 @@
 // gallery, honoring the space's privacy ("Open" and "Link Only" resolve,
 // only "Open" is listed).
 //
+//   Public scenes are also registered through the platform's publish route
+//   (feed order, and the creator's followers are told only when they chose so).
+//
 //   share link:  <app>/index.html?space=<spaceId>
 //   enter space: https://arrival.space/<spaceId>
 
@@ -20,7 +23,7 @@ const API = `${API_BASE}/api/v1`;
 /** Publish the current run as a shared arrival space.
  *  Returns { spaceId, spaceUrl, link }. */
 export async function shareCreation(S, sogBlob, {
-  title, privacy = 'Link Only', includePhotos = false, thumbBlob = null,
+  title, privacy = 'Link Only', includePhotos = false, informFollowers = false, thumbBlob = null,
   popup = null, onStatus = () => {}, onProgress = () => {}, recon: reconOverride = null,
 } = {}) {
   const token = await getToken(onStatus, popup);
@@ -117,6 +120,16 @@ export async function shareCreation(S, sogBlob, {
         psnrTest: S.psnrTest ? { psnr: S.psnrTest.psnr, frames: S.psnrTest.frames.length } : null,
       },
     }, 'PUT');
+
+    // 5) a public scene goes through the platform's publish route as well:
+    //    it registers the space as published (feed order) and tells the
+    //    creator's followers only when they asked for it. Best-effort — the
+    //    share itself is complete without it.
+    if (privacy === 'Open') {
+      try {
+        await api('/spaces/update-privacy', token, { spaceId, roomPrivacy: 'Public', informFollowers: !!informFollowers });
+      } catch (e) { console.warn('publish registration skipped:', e.message); }
+    }
 
     return { spaceId, spaceUrl, link: shareLink(spaceId) };
   } catch (e) {
