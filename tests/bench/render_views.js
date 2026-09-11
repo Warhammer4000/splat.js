@@ -3,6 +3,7 @@
 // posts the PNGs back to /scratch. Same pose as a real photograph, so a render
 // can be put straight beside the frame it is supposed to reproduce.
 //   ?ply=lisa_30000.ply&recon=lisa_30000_recon.json&views=0,40,80&w=540&out=shot
+// ?bg=1,1,1 renders on white; white minus black gives exact per-pixel coverage.
 import { createSession } from '/src/index.js';
 import { parsePlyGaussians } from '/app/js/session_io.js';
 
@@ -33,8 +34,9 @@ try {
     const H = Math.round(fr.fh * s);
     cv.width = W; cv.height = H;
     ses.view.attach(cv);
+    const bg = Q.get('bg') ? Q.get('bg').split(',').map(Number) : null;
     ses.view.setCamera({ R: c.R, t: c.t, f: c.f * s, fy: (c.fy ?? c.f) * s,
-                         cx: W / 2, cy: H / 2, w: W, h: H });
+                         cx: W / 2, cy: H / 2, w: W, h: H, ...(bg ? { bg } : {}) });
     ses.view.renderNow();
     await new Promise((r) => requestAnimationFrame(r));
     ses.view.renderNow();                       // second pass: sorted, settled

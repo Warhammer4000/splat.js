@@ -32,9 +32,12 @@
  *   blow the GPU target budget (see adaptiveTrainCap).
  * @property {number} [targetBudgetBytes=700e6]  GPU budget for the training
  *   target buffer (all images, RGB float32).
- * @property {number} [maskCut=0.9]  a mask value at or above this is subject.
+ * @property {number} [maskCut=0.75]  a mask value at or above this is subject.
  *   High on purpose — partial silhouette pixels are person/background blends.
  *   Masks come per file (`{source, name, mask}`), see decodeFrames.
+ * @property {number} [maskBgCut=0.25]  at or below this the pixel is known
+ *   EMPTY and is trained against black; between the two cuts it is excluded.
+ *   Raise the gap to trust the matte less (and get a softer silhouette).
  */
 
 import { probeImageSize } from './pano.js';
@@ -189,13 +192,38 @@ export function processSource(src, srcW, srcH, name, trainCap, opts = {}, preRes
     mdata = mctx.getImageData(0, 0, tw, th).data;
     releaseCanvas(mctx.canvas);
   }
-  const maskCut = Math.round(255 * (opts.maskCut ?? 0.9));
-  let masked = 0;
+  // A mask has THREE states, not two, and the third is what makes the
+  // silhouette sharp:
+  //
+  //   >= maskCut     subject   — train against the photograph
+  //   <= maskBgCut   empty     — no colour target at all: the trainer
+  //                             supervises this pixel's COVERAGE to zero
+  //                             (gs/shaders.js TGT_EMPTY). Matching a black
+  //                             colour instead does not work — an opaque
+  //                             black Gaussian scores as well as empty space
+  //                             and the model paints a curtain (measured).
+  //   in between     unknown   — the matte's own soft edge: excluded, because
+  //                             a half-hair half-wall pixel is neither.
+  //
+  // Ignoring ALL non-subject pixels (the obvious first version) leaves the ring
+  // just outside the subject unconstrained, and splats bulge into it for free —
+  // a fuzzy halo no prune can tell from real hair.
+  const maskCut = Math.round(255 * (opts.maskCut ?? 0.75));
+  const maskBgCut = Math.round(255 * (opts.maskBgCut ?? 0.25));
+  let masked = 0, empty = 0;
   for (let i = 0; i < tw * th; i++) {
-    if (mdata && mdata[i * 4] < maskCut) {
-      rgb[i * 3] = -1; // invalid sentinel (see gs/trainer.js target packing)
-      masked++;
-      continue;
+    if (mdata) {
+      const m = mdata[i * 4];
+      if (m < maskCut) {
+        if (m > maskBgCut) {            // unknown band: no loss either way
+          rgb[i * 3] = -1;              // invalid sentinel (gs/trainer.js)
+          masked++;
+        } else {                        // known empty: supervise coverage
+          rgb[i * 3] = -2;              // TGT_EMPTY sentinel
+          empty++;
+        }
+        continue;
+      }
     }
     rgb[i * 3] = tdata[i * 4] / 255;
     rgb[i * 3 + 1] = tdata[i * 4 + 1] / 255;
@@ -209,6 +237,7 @@ export function processSource(src, srcW, srcH, name, trainCap, opts = {}, preRes
   return {
     name, fw, fh, gray, tw, th, rgb, sharpness,
     maskedFrac: masked / (tw * th),
+    emptyFrac: empty / (tw * th),
     thumb: thumbCtx.canvas,
     /** sample training-res RGB at feature-scale pixel coords */
     sampleColor(x, y) {

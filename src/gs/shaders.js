@@ -566,6 +566,12 @@ fn main(@builtin(workgroup_id) wg: vec3u,
 // 2 = backward only (restores C/T/end, mixes the SSIM gradient into gC);
 // 3 = backward only for SSAA (this kernel runs at ssaa x the loss res; gC
 //     comes from the downsample-loss pass's per-1x-pixel gradient buffer).
+// Target alpha byte codes in the packed RGBA8 training targets:
+//   255  a real photograph pixel     0  invalid (no loss at all)
+//   TGT_EMPTY  the subject mask says this pixel is empty — coverage is
+//              supervised to zero and the colour is ignored
+export const TGT_EMPTY = 128;
+
 const makeRenderSrcRaw = (E = DEFAULT_E_CUT, A = DEFAULT_A_MIN, tileGrad = false, subgroups = false, mode = 0, ssimW = 0.2, ssaa = 2, D = 0.3, spread = 1, batch = 1, zskip = false,
   // P partial shared accumulators per gradient slot, lane-interleaved (li % P): 256 threads
   // adding to the SAME 13 shared addresses serialize; partials cut same-address collisions
@@ -587,8 +593,17 @@ const makeRenderSrcRaw = (E = DEFAULT_E_CUT, A = DEFAULT_A_MIN, tileGrad = false
   camGrad = feat.camGrad ?? true,
   useStats = (feat.stats ?? true) || subgroups,
   robust = feat.robust ?? true,
+  // covW/covS: supervise the rendered COVERAGE (accumulated opacity
+  // O = 1 - T) against a subject mask, the standard masked-3DGS / sky loss
+  // (Street Gaussians, UCNeRF): background pixels push O to 0, subject pixels
+  // push O to 1. Compiled out entirely at 0, which is the default.
+  covW = feat.covW ?? 0,
+  covS = feat.covSubjW ?? 0,
+  cov = covW > 0 || covS > 0,
   NS = useStats ? 13 : 10) =>
   (subgroups ? 'enable subgroups;\n' : '') + CAM_STRUCT + cutConsts(E, A, 1.0, D) + /* wgsl */ `
+${cov ? `const COVW: f32 = ${covW};
+const COVS: f32 = ${covS};` : ''}
 @group(0) @binding(1) var<storage, read> proj: array<f32>;
 @group(0) @binding(2) var<storage, read> tileStart: array<u32>;
 @group(0) @binding(3) var<storage, read> entries: array<u32>;
@@ -762,6 +777,7 @@ ${mode === 1 ? '  endBuf[pi] = end;' : ''}
 ${tileGrad ? '  var lossOk = pxOk;' : '  var lossOk = true;'}
   var gC = vec3f(0.0);
   var perr = 0.0; // this pixel's Charbonnier loss, for the error-mass accumulators
+${cov ? '  var gO = 0.0; // dL/dO, where O = 1 - T is accumulated coverage' : ''}
 ` + (mode === 3 ? /* wgsl */ `
   if (lossOk) {
     // SSAA: per-1x-pixel gradient from the downsample-loss pass, spread
@@ -775,9 +791,20 @@ ${tileGrad ? '  var lossOk = pxOk;' : '  var lossOk = true;'}
 ` : /* wgsl */ `
   if (lossOk) {
     let packed = tgtImg[off + pi];
-    if ((packed >> 24u) == 0u) {
+    let tcode = packed >> 24u;
+    if (tcode == 0u) {
       lossOk = false; // invalid pixel (undistortion out-of-frame sentinel)
-    } else {
+${cov ? /* wgsl */ `    } else if (tcode == ${TGT_EMPTY}u) {
+      // KNOWN EMPTY (a subject mask says nothing is here). There is no colour
+      // to match — matching one is the trap: with a black target and a black
+      // background an opaque BLACK Gaussian scores exactly as well as empty
+      // space, and the model paints a curtain. Supervise coverage instead:
+      //   L = -log(1 - O) = -log(T),  dL/dO = 1/T
+      // which, chained through dO/da_k = T/(1-a_k), is simply 1/(1-a_k) per
+      // splat — it cannot be satisfied by any colour, only by transparency.
+      gO = COVW / max(T, 1e-3);
+      lossOk = false; // no colour gradient, and not counted in the PSNR
+` : ''}    } else {
       let tcol = unpack4x8unorm(packed).rgb;
       // per-image exposure compensation (gain = cam.proj.w, bias = cam.misc2.w)
       let gain = cam.proj.w;
@@ -795,6 +822,7 @@ ${mode === 2 ? /* wgsl */ `      // mix in the D-SSIM gradient (computed by the 
       gC = gain * ((1.0 - SSIMW) * sign(err) - SSIMW * gs);` : /* wgsl */ `      gC = gain * eg;              // dL / d(rendered color)`}
       let lossv = (root.x + root.y + root.z) - 3.0 * DELTA;
       perr = lossv;
+${cov && covS > 0 ? '      gO = -COVS / max(1.0 - T, 1e-3); // L = -log(O) on subject pixels' : ''}
 ${mode === 2 ? '' : /* wgsl */ `      atomicAdd(&stats[2], 1u); // valid-pixel count (PSNR denominator)
       // squared error for the PSNR metric, DITHERED before quantization: plain
       // truncation zeroes sub-quantum pixels and inflates PSNR above ~40dB
@@ -895,6 +923,7 @@ ${tileGrad ? '    if (lossOk && kk <= end) {' : '    {'}
     // per-splat constant, so the chain pass applies it once after summation
     let gcv = gC * (alpha * Tb);
     var galpha = dot(gC, c * Tb - S / (1.0 - alpha));
+${cov ? '    galpha += gO * (T / (1.0 - alpha)); // dO/da_k = prod_{j!=k}(1-a_j)' : ''}
     if (araw > 0.99) { galpha = 0.0; } // alpha clamped: no gradient through it
 
     let ga = galpha * araw;

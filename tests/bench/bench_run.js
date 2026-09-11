@@ -34,7 +34,7 @@ const TAG = `${SET}_${ITERS}` + (Q.has('classic') ? '_classic' : '')
   + (Q.has('classicsolve') ? '_cs' : '') + (Q.get('featres') ? `_fr${Q.get('featres')}` : '') + (Q.get('feats') ? `_nf${Q.get('feats')}` : '') + (Q.get('octave') ? `_oc${Q.get('octave')}` : '') + (Q.get('peak') ? `_pk${Q.get('peak')}` : '') + (Q.get('solve') ? `_sv${Q.get('solve')}` : '') + (Q.get('baratio') != null ? `_br${Q.get('baratio')}` : '') + (Q.get('bapts') != null ? `_bp${Q.get('bapts')}` : '') + (Q.get('pairworkers') === '0' ? '_npw' : '') + (Q.get('exiffocal') === '0' ? '_nxf' : '') + (Q.get('focals') ? `_fs${Q.get('focals').replace(/[^0-9]/g, '')}` : '') + (Q.get('bracket') === '0' ? '_nbk' : '') + (Q.get('inittrials') != null ? `_it${Q.get('inittrials')}` : '') + (Q.get('initpair') ? `_ip${Q.get('initpair').replace(',', '')}` : '') + (Q.get('searchsub') === '0' ? '_nss' : '')
   + (Q.get('compact') === '0' ? '_ncp' : '') + (Q.get('gspread') ? `_gs${Q.get('gspread')}` : '') + (Q.get('gbatch') ? `_gb${Q.get('gbatch')}` : '') + (Q.get('usestats') ? '_us' : '') + (Q.get('camgrads') ? '_cg' : '') + (Q.get('rectbin') ? '_rb' : '') + (Q.get('ipf') ? `_ipf${Q.get('ipf')}` : '') + (Q.get('gzskip') ? '_gz' : '') + (Q.get('pvec') ? '_pv' : '') + (Q.get('sgagg') ? '_sg' : '') + (Q.get('tilegrad') === '0' ? '_ntg' : '') + (Q.get('frommodel') ? '_fm' : '') + (Q.get('aspect') ? '_asp' : '') + (Q.get('asplr') ? `_al${Q.get('asplr')}` : '') + (Q.get('sfmaspect') === '0' ? '_nsa' : Q.get('sfmaspect') ? '_sa' : '') + (Q.get('lockk') ? '_lk' : '') + (Q.get('pairinl') ? `_pi${Q.get('pairinl')}` : '') + (Q.get('pairinladj') ? `_pa${Q.get('pairinladj')}` : '') + (Q.get('relax') === '0' ? '_nrx' : '')
   + (Q.get('video') ? `_v${Q.get('video').split('/').pop().replace(/.[^.]+$/, '')}` : '') + (Q.get('vidmode') ? `_vm${Q.get('vidmode')}` : '') + (Q.get('vidmax') ? `_vx${Q.get('vidmax')}` : '') + (Q.get('vidoverlap') ? `_vo${Q.get('vidoverlap')}` : '') + (Q.get('vidshots') ? `_vs${Q.get('vidshots')}` : '') + (Q.get('vidmaxgap') ? `_vg${Q.get('vidmaxgap').replace('.', '')}` : '') + (Q.get('vidpick') ? `_vp${Q.get('vidpick')}${(Q.get('vidfps') || '').replace('.', '')}` : '') + (Q.get('vidhold') ? '_vh' : '') + (Q.get('vidholdexcl') ? `_hx${Q.get('vidholdexcl').replace('.', '')}` : '')
-  + (Q.get('masks') ? '_msk' : '')
+  + (Q.get('masks') ? '_msk' : '') + (Q.get('covw') ? `_cw${Q.get('covw')}` : '') + (Q.get('covs') ? `_cs${Q.get('covs')}` : '') + (Q.get('maskcut') ? `_mc${Q.get('maskcut')}` : '') + (Q.get('maskbg') ? `_mb${Q.get('maskbg')}` : '')
   + (Q.get('dir') ? `_d${Q.get('dir')}` : '') + (Q.get('tag') ? `_${Q.get('tag')}` : '')   // free suffix: e.g. the recon source, which no flag names
   + (Q.get('seed') ? `_s${Q.get('seed')}` : '');
 const t0 = Date.now();
@@ -166,7 +166,8 @@ try {
     ...(cfg.holdout1 ? { holdout: 'auto' } : {}),
     // benchmark mode pins resolution like ?eval (adaptive budget otherwise
     // shrinks big sets and PSNR at reduced res is not comparable run-to-run)
-    frames: { trainMaxDim: +(Q.get('res') || cfg.res || 1600), ...(Q.get('featres') ? { featMaxDim: +Q.get('featres') } : {}) },   // ?res= overrides the set's training resolution
+    frames: { trainMaxDim: +(Q.get('res') || cfg.res || 1600), ...(Q.get('featres') ? { featMaxDim: +Q.get('featres') } : {}),
+      ...(Q.get('maskcut') ? { maskCut: +Q.get('maskcut') } : {}), ...(Q.get('maskbg') ? { maskBgCut: +Q.get('maskbg') } : {}) },   // ?res= overrides the set's training resolution
     // ?classic=1: pre-MCMC defaults (A/B for small-set anomalies)
     // refine cadence is a SESSION option: the economy packages carry their
     // own (Brush 200, LichtFeld 100); ?refevery overrides either
@@ -261,6 +262,8 @@ try {
         // reg weights are per-splat constants (3DGS-MCMC's are mean()-scaled,
         // i.e. 1/n) — rung 4 tests whether they must shrink with capacity
         ...(Q.get('opareg') ? { opacityReg: +Q.get('opareg') } : {}),
+      ...(Q.get('covw') ? { covW: +Q.get('covw') } : {}),          // mask-supervised coverage (empty pixels -> O = 0)
+      ...(Q.get('covs') ? { covSubjW: +Q.get('covs') } : {}),      // and subject pixels -> O = 1
         ...(Q.get('scalereg') ? { scaleReg: +Q.get('scalereg') } : {}),
         // opacityReg ∝ 1/n above oregref splats (rung 4: capacity dilution)
         ...(Q.get('oregref') ? { opaRegRefN: +Q.get('oregref') } : {}),
@@ -286,8 +289,9 @@ try {
   ses.on('stage', (e) => { if (Date.now() - beat > 30000) { beat = Date.now(); say('solve-' + e.stage, { done: e.done, total: e.total }); } });
   await ses.load(files);
   const mf = ses.frames.map((f) => f.maskedFrac || 0);
-  await say('decoded', { frames: ses.frames.length,
-    maskedPct: +(100 * mf.reduce((a, b) => a + b, 0) / mf.length).toFixed(1) });
+  const ef = ses.frames.map((f) => f.emptyFrac || 0);
+  const mean = (a) => +(100 * a.reduce((x, y) => x + y, 0) / a.length).toFixed(1);
+  await say('decoded', { frames: ses.frames.length, maskedPct: mean(mf), emptyPct: mean(ef) });
 
   const solveT = Date.now();
   let recon;

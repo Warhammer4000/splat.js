@@ -4,6 +4,66 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-11b (sharper silhouette: what actually removes a background)
+
+User: the silhouette is fuzzy. It was, and the first two fixes were wrong in
+instructive ways. Researched the literature mid-session after the user pushed
+back — the standard is a BCE on the rendered ACCUMULATED OPACITY against the
+mask (Street Gaussians' sky loss, from UCNeRF; Object-Centric 2DGS calls it a
+background / alpha-polarisation loss), not anything done to colour.
+
+- **Why it was fuzzy**: masking only *excludes* background pixels, so the ring
+  just outside the subject is unconstrained and splats bulge into it for free.
+- **Trimap instead of a binary mask** (`frames.js`): >= 0.75 subject, <= 0.25
+  known-empty, the 2 px between excluded. Measured band width vs thresholds:
+  0.9/0.05 = 4.1 px, 0.75/0.25 = 2.1 px, 0.5/0.5 = 0. RVM's soft edge is ~4 px
+  and re-matting at the correct downsample ratio (short side -> 512, not long)
+  did NOT sharpen it (4.13 -> 4.42): the deep guided filter already refines at
+  full res. The threshold is the lever, not the inference resolution.
+- **FAILED, degenerate: targeting background to BLACK.** The renderer
+  composites onto black, so "black here" looked like "nothing here" — but an
+  opaque BLACK Gaussian scores exactly as well as empty space. The model
+  painted a black curtain: invisible on black, obvious on white. Caught with a
+  new trick worth keeping — render the same pose on black AND on white, then
+  `C_white - C_black = T` gives exact per-pixel coverage (`?bg=` on
+  render_views, `_camUniform` now takes a background). Silhouette IoU 0.37.
+- **Implemented the real loss** (`makeRenderSrc` covW/covSubjW, target code
+  `TGT_EMPTY = 128`): empty pixels get no colour target at all and contribute
+  `dL/dO = 1/T`, which chains through `dO/da_k = T/(1-a_k)` to `covW/(1-a_k)`
+  per splat. No colour satisfies it, only transparency. Compiled out entirely
+  at covW 0, so every existing bench path is unchanged.
+- **And it did not fix it, which is the real lesson.** Verified the targets
+  reach the kernel (79.5 % mask-empty) and the sign/slot match opacityReg —
+  yet covW 0.1, 3 and 10 all left the background fully opaque.
+  `dalpha/d(logit opacity) = o(1-o)(...)` **vanishes as o -> 1**: a splat that
+  has already saturated sits in the sigmoid's dead zone and NO opacity loss can
+  bring it back. The published method governs what GROWS; it cannot rescue a
+  converged opaque scene. covW 10 was worse than covW 1 (halo 0.76 vs 0.64).
+- **The actual root cause: we seed the thing we are deleting.** `maskPoints()`
+  in session.js drops sparse-cloud points the masks put in empty space —
+  **89 % of the Lisa cloud was room** (3,608 of 31,706 kept). Effects at 30k:
+  subject PSNR **29.80 -> 30.69 dB**, splats 1.05M -> 453k, train **5.4 ->
+  2.8 min**, black-render mean 0.23 -> 0.09. A small subject cloud also needs
+  the seed clone cap lifted (24 -> 200 below 5k points; 468 points seeded only
+  11.7k splats and cost ~2 dB).
+- **Prune is now footprint-aware** (`prune_silhouette.py`): sample the splat's
+  projected disc (centre + 8 rim points at 2 sigma), not just its centre — a
+  flare CENTRED on the subject passed the old point test.
+- **Silhouette ruler** (`tests/bench/silhouette_score.py`, 13 held-out views,
+  coverage from the black/white pair):
+
+  | pipeline | IoU | halo 3-25px | edge band | interior |
+  |---|---|---|---|---|
+  | ignore-bg + centre prune (09-11a) | 0.856 | 0.196 | 16.3 px | 0.983 |
+  | seed filter + covW 1 + footprint prune 8/9 | 0.871 | 0.052 | 9.7 px | 0.867 |
+  | **seed filter + covW 1 + footprint prune 6/9** | **0.886** | 0.124 | 9.96 px | 0.976 |
+
+  8/9 has the least halo but eats holes in the person (interior 0.867); 6/9 is
+  the balance. Halo down 37 %, edge 1.6x sharper, IoU up, interior kept.
+- Owed: mask-driven pruning INSIDE the refine loop — the density-control half
+  the papers pair with the loss, and the only thing that can remove a splat the
+  loss has already lost hold of. That should retire the offline prune entirely.
+
 ## 2026-09-11 (subject masking: person out of the room)
 
 Direction (user): a decent splat avatar from a single photo. One photo needs a

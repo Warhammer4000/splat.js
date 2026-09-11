@@ -29,6 +29,13 @@ frames = rc['frames']
 cams = rc['cams']
 print(f'{len(cams)} cams')
 
+# splat extent in world units (max axis), and the disc we sample per view
+idx0 = {k: j for j, k in enumerate(names)}
+smax = np.exp(body[:, [idx0['scale_0'], idx0['scale_1'], idx0['scale_2']]].astype(np.float64)).max(1)
+SIG = 2.0                       # sample out to 2 sigma
+RIM = [(0, 0)] + [(np.cos(a), np.sin(a)) for a in np.arange(8) * (np.pi / 4)]
+RIM_MIN = int(sys.argv[7]) if len(sys.argv) > 7 else 8   # of 9 disc samples that must be subject
+
 seen = np.zeros(n, np.int32)
 subj = np.zeros(n, np.int32)
 cache = {}
@@ -53,11 +60,22 @@ for ci, c in enumerate(cams):
         if len(cache) > 200: cache.pop(next(iter(cache)))
     m = cache[mn]
     mh, mw = m.shape
-    ui = np.clip((u[inf] / fw * mw).astype(np.int32), 0, mw - 1)
-    vi = np.clip((v[inf] / fh * mh).astype(np.int32), 0, mh - 1)
     seen += inf
     idx = np.where(inf)[0]
-    subj[idx] += (m[vi, ui] >= 230)
+    # FOOTPRINT test, not a point test. A Gaussian's centre can sit inside the
+    # silhouette while the splat itself spills metres past it — that is exactly
+    # what a flare or a background curtain is. Sample the projected disc: the
+    # centre plus 8 points on its rim, and call the splat subject only if
+    # nearly all of them land on the matte.
+    rpx = np.clip(c['f'] * SIG * smax[idx] / z[idx], 0.5, 80.0)
+    hits = np.zeros(idx.size, np.int32)
+    for du, dv in RIM:
+        su = (u[inf] + du * rpx) / fw * mw
+        sv = (v[inf] + dv * rpx) / fh * mh
+        ui = np.clip(su.astype(np.int32), 0, mw - 1)
+        vi = np.clip(sv.astype(np.int32), 0, mh - 1)
+        hits += (m[vi, ui] >= 230)
+    subj[idx] += (hits >= RIM_MIN)
 
 frac = np.where(seen > 0, subj / np.maximum(seen, 1), 0.0)
 keep = (seen > 0) & (frac >= KEEP)
@@ -67,8 +85,7 @@ print(f'silhouette test kept {keep.sum()} ({100*keep.mean():.1f}%)')
 # CENTRED on the subject but metres across still passes it. With the background
 # masked out nothing bounds a splat's extent into empty space, so cap it
 # against the subject's own size (the central 96% of the cloud IS the subject).
-idx = {k: j for j, k in enumerate(names)}
-sc = np.exp(body[:, [idx['scale_0'], idx['scale_1'], idx['scale_2']]].astype(np.float64)).max(1)
+sc = smax
 lo, hi = np.percentile(X[keep], [2, 98], axis=0)
 span = float(np.linalg.norm(hi - lo))
 cap = SIZE * span

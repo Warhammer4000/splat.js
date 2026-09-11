@@ -288,17 +288,68 @@ export class Session {
     return this.recon;
   }
 
+  /** Drop sparse-cloud points that the subject masks put in empty space.
+   *
+   *  Without this, a masked run SEEDS THE THING IT IS TRYING TO REMOVE: the
+   *  sparse cloud is mostly room, and a room Gaussian that reaches opacity ~1
+   *  can never come back down, because dalpha/d(logit opacity) = o(1-o)(...)
+   *  vanishes as o -> 1. Neither the coverage loss nor opacityReg can rescue a
+   *  saturated splat; both only govern what grows. So the cure is not to
+   *  create it. (Measured 2026-09-11: coverage loss alone, covW 3, left the
+   *  room fully opaque at 45% dead splats.)
+   *
+   *  The masks are already in the frames — a training pixel below -1.5 is the
+   *  TGT_EMPTY sentinel — so this needs no extra input. A point is kept when
+   *  it lands on the subject in at least `keep` of the views that see it.
+   */
+  maskPoints(keep = 0.5) {
+    const frames = this.frames;
+    if (!frames.some((f) => f.emptyFrac > 0)) return 0;
+    const pts = this.recon.points;
+    const seen = new Int32Array(pts.length);
+    const subj = new Int32Array(pts.length);
+    for (const c of this.recon.cams) {
+      const im = frames[c.imgIdx];
+      const sx = im.tw / im.fw, sy = im.th / im.fh;
+      const { R, t } = c;
+      for (let i = 0; i < pts.length; i++) {
+        const X = pts[i].X;
+        const z = R[6] * X[0] + R[7] * X[1] + R[8] * X[2] + t[2];
+        if (z <= 1e-6) continue;
+        const u = (c.f * (R[0] * X[0] + R[1] * X[1] + R[2] * X[2] + t[0]) / z + c.cx) * sx;
+        const v = ((c.fy ?? c.f) * (R[3] * X[0] + R[4] * X[1] + R[5] * X[2] + t[1]) / z + c.cy) * sy;
+        if (u < 0 || v < 0 || u >= im.tw || v >= im.th) continue;
+        seen[i]++;
+        if (im.rgb[((v | 0) * im.tw + (u | 0)) * 3] > -1.5) subj[i]++;
+      }
+    }
+    const before = pts.length;
+    this.recon.points = pts.filter((_, i) => seen[i] > 0 && subj[i] / seen[i] >= keep);
+    const dropped = before - this.recon.points.length;
+    this._log(`subject mask: seeding from ${this.recon.points.length} of ${before} points `
+      + `(${(100 * dropped / before).toFixed(0)}% of the sparse cloud was background)`);
+    return dropped;
+  }
+
   /** Seed Gaussians from the sparse cloud and set up the WebGPU trainer. */
   async seed(extra = {}) {
     if (!this.recon) throw new Error('solve() first');
     this._stage({ stage: 'seed', done: 0, total: 1 });
+    if (extra.maskPoints !== false) this.maskPoints(extra.maskKeep ?? 0.5);
     // default seed scales with the solve's point count: the flat 60k
     // default seed-bound capacity (cap = seed x capMult) on point-rich
     // scenes — garden measured +0.4 dB from lifting it. Explicit
     // initTarget (phones pass one) always wins.
     const target = extra.initTarget || this.opts.initTarget ||
       Math.min(250000, Math.max(60000, this.recon.points.length * 8));
-    const clones = Math.min(24, Math.max(2, Math.round(target / this.recon.points.length) - 1));
+    // The 24 cap suits a scene cloud, where points are plentiful and heavy
+    // cloning only duplicates. A masked SUBJECT cloud is the opposite case —
+    // a person in dark clothing gives few hundred points — and capping there
+    // starves the model (measured: 468 points -> 11.7k seed -> 15.7k splats
+    // at 6k cycles, 2 dB down). Lift the cap when the cloud is small so the
+    // seed still reaches the target.
+    const cloneCap = this.recon.points.length < 5000 ? 200 : 24;
+    const clones = Math.min(cloneCap, Math.max(2, Math.round(target / this.recon.points.length) - 1));
     const v2 = this.opts.trainer && this.opts.trainer.engine === 'v2';
     this.model = initGaussians(this.recon.points, clones, undefined,
       v2 ? { dc: 'sh', randRot: true } : {});

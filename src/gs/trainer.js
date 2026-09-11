@@ -1,7 +1,7 @@
 // trainer.js — WebGPU 3DGS optimizer (anisotropic, sorted; see shaders.js).
 
 import {
-  STRIDE, TILE, ENTRIES_CAP, makeProjectSrc, makeRenderSrc, makeChainSrc,
+  STRIDE, TILE, ENTRIES_CAP, TGT_EMPTY, makeProjectSrc, makeRenderSrc, makeChainSrc,
   SCAN_SRC, SCATTER_SRC, SORT_SRC, ADAM_SRC, SH_ADAM_SRC, BLIT_SRC, shRestCoefs,
   VIS_COUNT_SRC, VIS_SCAN_SRC, VIS_SCATTER_SRC, makeAdamSrc, makeSHAdamSrc,
   GATHER_SRC, REFINE_APPLY_SRC, REFINE_PATCH_SRC, SSIM_SRC, makeSsaaLossSrc,
@@ -111,7 +111,10 @@ export class GSTrainer {
     this.camGrads = !!(this.opts.camGrads ?? (this.opts.camOpt || this.opts.aspectOpt || this.opts.expComp));
     this.useStats = !!(this.opts.useStats ?? (this.opts.engine === 'v2' || this.opts.refineV2 === true ||
       this.opts.errDonors || this.opts.statMax));
-    this.renderFeat = { camGrad: this.camGrads, stats: this.useStats, robust: !!this.opts.robustLoss };
+    // covW: mask-supervised coverage (see makeRenderSrc). Off unless a masked
+    // set asks for it, and compiled out of the kernel entirely when 0.
+    this.renderFeat = { camGrad: this.camGrads, stats: this.useStats, robust: !!this.opts.robustLoss,
+      covW: this.opts.covW ?? 0, covSubjW: this.opts.covSubjW ?? 0 };
     this.pipeRender = d.createComputePipeline({
       label: 'render', layout: 'auto',
       compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg, 0, 0.2, 2, this.dilate, this.opts.gradSpread ?? 1, this.opts.gradBatch ?? 16, this.opts.gradZeroSkip ?? false, this.opts.projVec ?? false, this.renderFeat), 'render'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
@@ -265,17 +268,26 @@ export class GSTrainer {
         `binding limit (${(limit / 1e6).toFixed(0)}MB) — reduce image count or resolution`);
     }
     const targetData = new Uint32Array(total);
+    let nEmpty = 0, nInvalid = 0;
     for (const meta of this.camMeta) {
       const rgb = images[meta.imgIdx].rgb;
       const np = meta.w * meta.h;
       for (let p = 0; p < np; p++) {
         const r = rgb[p * 3];
-        if (r < 0) { targetData[meta.offset + p] = 0; continue; } // invalid sentinel
+        // -2: the subject mask says this pixel is EMPTY. No colour target —
+        // the render kernel supervises its coverage to zero instead (covW).
+        if (r < -1.5) { targetData[meta.offset + p] = TGT_EMPTY << 24; nEmpty++; continue; }
+        if (r < 0) { targetData[meta.offset + p] = 0; nInvalid++; continue; } // invalid sentinel
         targetData[meta.offset + p] = (255 << 24)
           | (Math.min(255, Math.round(rgb[p * 3 + 2] * 255)) << 16)
           | (Math.min(255, Math.round(rgb[p * 3 + 1] * 255)) << 8)
           | Math.min(255, Math.round(r * 255));
       }
+    }
+    if (nEmpty || nInvalid) {
+      console.log(`[trainer] targets: ${((total - nEmpty - nInvalid) / total * 100).toFixed(1)}% photo, `
+        + `${(nEmpty / total * 100).toFixed(1)}% mask-empty (coverage supervised, covW=${this.opts.covW ?? 0}), `
+        + `${(nInvalid / total * 100).toFixed(1)}% excluded`);
     }
 
     const maxPix = Math.max(maxViewW * maxViewH,
@@ -701,7 +713,7 @@ export class GSTrainer {
     ];
   }
 
-  _camUniform({ R, t, f, fy, cx, cy, w, h, g = 0, b = 0 }, trainMode, offset, camIdx = 0) {
+  _camUniform({ R, t, f, fy, cx, cy, w, h, g = 0, b = 0, bg = null }, trainMode, offset, camIdx = 0) {
     const u = new Float32Array(36);
     u.set([R[0], R[1], R[2], 0], 0);
     u.set([R[3], R[4], R[5], 0], 4);
@@ -709,7 +721,11 @@ export class GSTrainer {
     u.set([t[0], t[1], t[2], 0.05], 12);          // near plane
     u.set([f, cx, cy, Math.exp(g)], 16);          // .w = exposure gain
     u.set([w, h, Math.ceil(w / TILE), this.n], 20);
-    u.set([0, 0, 0, 0], 24);                      // black background
+    // Background. Black is the training convention (an empty pixel IS black,
+    // which is what lets a masked run supervise empty space). A view render may
+    // pass its own: rendering the same camera on black and on white recovers
+    // per-pixel coverage exactly, since C_white - C_black = T.
+    u.set(bg ? [bg[0], bg[1], bg[2], 0] : [0, 0, 0, 0], 24);
     u.set([trainMode, camIdx, this.camMeta ? this.camMeta.length : 0, b], 28); // .w = exposure bias
     u[32] = this.shDeg; // active SH degree (stepOnce ramps this during training)
     // per-axis focal: fy (0 = same as f). Cameras from a non-uniformly
