@@ -3581,19 +3581,20 @@ function creationTile(it, mine, { shared = false } = {}) {
   const badge = it.splatjs && it.splatjs.badge;
   wrap.innerHTML = `<img loading="lazy" src="${esc(img)}" alt="" onerror="this.style.visibility='hidden'">
     ${badge ? `<i class="yours">${esc(badge)}</i>` : ''}
-    <span class="galname">${esc(it.title || 'Untitled')}</span>
+    <span class="galname">${esc(it.title || 'Untitled')}${shared ? `<time>${esc(shareDate(it.createdDate))}</time>` : ''}</span>
     ${it.description && !(shared && /trained in the browser by Splat.js/.test(it.description)) ? `<span class="galdesc">${esc(it.description)}</span>` : ''}
     <span class="galmeta">${fmt((it.splatjs && it.splatjs.splats) || 0)} splats${dB ? ` · ${(+dB).toFixed(1)} dB` : ''}${it.splatjs && it.splatjs.sogMb ? ` · ${it.splatjs.sogMb} MB` : ''}</span>`;
   if (shared) {
-    // a post-style byline on the tile: avatar, name, date — the space id
-    // carries its owner (userId_xxxx, or the bare userId for a home space)
+    // the sharer as a chip in the image's top-left corner (avatar + name);
+    // the date sits on the title row. The space id carries its owner
+    // (userId_xxxx, or the bare userId for a home space).
     const by = document.createElement('span');
     by.className = 'galby';
-    by.innerHTML = `<i class="galav"></i><b></b><time>${esc(shareDate(it.createdDate))}</time>`;
-    wrap.appendChild(by);
+    by.innerHTML = `<i class="galav"></i><b></b>`;
+    wrap.insertBefore(by, wrap.querySelector('img').nextSibling);
     const ownerId = String(it.id).split('_')[0];
     ownerInfo(ownerId).then((u) => {
-      if (!u || !u.name) { by.querySelector('b').remove(); return; }
+      if (!u || !u.name) { by.remove(); return; }
       by.querySelector('b').textContent = u.name;
       const av = by.querySelector('.galav');
       if (u.avatar) { av.style.backgroundImage = `url("${u.avatar}")`; av.textContent = ''; }
