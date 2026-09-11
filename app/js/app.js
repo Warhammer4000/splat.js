@@ -1099,6 +1099,7 @@ async function useOwnVideo(file) {
     set.origin = `${frames.length} sharp frames picked from your ${Math.round(duration)}s video, ` +
       'right here in this tab. Blurred moments lost to their sharper neighbours.';
     open(set);
+    showDetail(set);   // Start training lives on the detail card (the photo path does the same)
   } catch (e) {
     if (e && e.message === 'cancelled') return;
     console.error(e);
