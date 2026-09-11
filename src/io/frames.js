@@ -32,7 +32,9 @@
  *   blow the GPU target budget (see adaptiveTrainCap).
  * @property {number} [targetBudgetBytes=700e6]  GPU budget for the training
  *   target buffer (all images, RGB float32).
- * @property {(msg: string) => void} [log]
+ * @property {number} [maskCut=0.9]  a mask value at or above this is subject.
+ *   High on purpose — partial silhouette pixels are person/background blends.
+ *   Masks come per file (`{source, name, mask}`), see decodeFrames.
  */
 
 import { probeImageSize } from './pano.js';
@@ -162,7 +164,39 @@ export function processSource(src, srcW, srcH, name, trainCap, opts = {}, preRes
   const tdata = tctx.getImageData(0, 0, tw, th).data;
   releaseCanvas(tctx.canvas);
   const rgb = new Float32Array(tw * th * 3);
+  // Subject mask (opts.mask): a grayscale drawable, white = subject, at any
+  // resolution. Background pixels become the trainer's r < 0 invalid sentinel,
+  // so they contribute no loss and no gradient.
+  //
+  // It is a SEPARATE image on purpose, and it is applied at training scale
+  // ONLY. Two reasons, both learned the hard way (2026-09-11):
+  //
+  //  - The SfM grayscale above must keep the whole frame. The ROOM carries the
+  //    features that pin the poses; a person is the textureless part of their
+  //    own photograph. Solve on everything, train on the subject. Measured on
+  //    the Lisa orbit: full frames register 186/189, the same frames pre-matted
+  //    register 33/189.
+  //  - Baking the matte into the source as alpha does NOT keep them separate.
+  //    Canvas compositing premultiplies, so a transparent pixel's colour is
+  //    gone by the time the feature path reads it — the solver would silently
+  //    see a cut-out floating on black and lose the room anyway.
+  //
+  // The threshold is high by default: a silhouette pixel that is a blend of
+  // hair and wall would otherwise teach the model wall-coloured hair.
+  let mdata = null;
+  if (opts.mask) {
+    const mctx = drawScaled(opts.mask, opts.mask.width, opts.mask.height, tw, th);
+    mdata = mctx.getImageData(0, 0, tw, th).data;
+    releaseCanvas(mctx.canvas);
+  }
+  const maskCut = Math.round(255 * (opts.maskCut ?? 0.9));
+  let masked = 0;
   for (let i = 0; i < tw * th; i++) {
+    if (mdata && mdata[i * 4] < maskCut) {
+      rgb[i * 3] = -1; // invalid sentinel (see gs/trainer.js target packing)
+      masked++;
+      continue;
+    }
     rgb[i * 3] = tdata[i * 4] / 255;
     rgb[i * 3 + 1] = tdata[i * 4 + 1] / 255;
     rgb[i * 3 + 2] = tdata[i * 4 + 2] / 255;
@@ -174,6 +208,7 @@ export function processSource(src, srcW, srcH, name, trainCap, opts = {}, preRes
 
   return {
     name, fw, fh, gray, tw, th, rgb, sharpness,
+    maskedFrac: masked / (tw * th),
     thumb: thumbCtx.canvas,
     /** sample training-res RGB at feature-scale pixel coords */
     sampleColor(x, y) {
@@ -185,9 +220,11 @@ export function processSource(src, srcW, srcH, name, trainCap, opts = {}, preRes
   };
 }
 
-/** Decode image Files/Blobs (or {source, name} pairs of anything
- *  createImageBitmap accepts) into Frames.
- *  @param {Array<File|Blob|{source:*, name:string}>} files
+/** Decode image Files/Blobs (or {source, name, mask} entries of anything
+ *  createImageBitmap accepts) into Frames. `mask` is an optional grayscale
+ *  subject mask for that frame (white = subject); it masks the TRAINING
+ *  target only, never the SfM features.
+ *  @param {Array<File|Blob|{source:*, name:string, mask?:*}>} files
  *  @param {FrameOptions} [opts]
  *  @returns {Promise<Frame[]>} */
 export async function decodeFrames(files, opts = {}) {
@@ -230,8 +267,14 @@ export async function decodeFrames(files, opts = {}) {
         trainCap = adaptiveTrainCap(files.length, bmp.width, bmp.height, opts);
         log(`training resolution: ${trainCap}px max dim (${files.length} images)`);
       }
-      const frame = processSource(bmp, bmp.width, bmp.height, name, trainCap, opts, resized);
+      // per-file subject mask (grayscale; white = subject). Decoded at its own
+      // native size — processSource scales it to the training grid.
+      let mbmp = null;
+      if (file.mask) mbmp = await createImageBitmap(file.mask);
+      const frame = processSource(bmp, bmp.width, bmp.height, name, trainCap,
+        mbmp ? { ...opts, mask: mbmp } : opts, resized);
       bmp.close();
+      if (mbmp) mbmp.close();
       // the photo's focal length, when the file carries it (JPEG / HEIC EXIF):
       // the solver turns an agreeing set into a focal prior and skips its
       // four-candidate focal search (session.solve)

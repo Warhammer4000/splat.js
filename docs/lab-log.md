@@ -4,6 +4,58 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-11 (subject masking: person out of the room)
+
+Direction (user): a decent splat avatar from a single photo. One photo needs a
+generative prior and a GPU service; a 30 s orbit needs neither and is already
+proven here (LisaAvatar 176/181, 29.8 dB, 09-08). What the repo has never had
+is a concept of a SUBJECT — the trained model is a room with a person in it,
+and the rigger would happily skin the filing cabinet. So: matte the person,
+mask the loss, see what is left.
+
+- **Dataset `data/lisa`** — LisaAvatar.mov re-materialised offline as a photo
+  set: ffmpeg every frame at 900x1600, sharpest survivor of each 0.3 s window
+  (9 frames) = 189 images, plus `masks/` from RobustVideoMatting (15 MB ONNX,
+  CPU, 43 s for 189 frames, temporal recurrence). Subject covers 3.5–36.4 % of
+  a frame, median 19.3 %; no matte failures. Registers **186/189 at rms 0.749**
+  — better than the in-browser extraction's 176/181, so the offline prep is not
+  the weak link. Bench set `lisa` (`list: true`), `?masks=1` attaches the mattes.
+- **FAILED, and the lesson of the day: never hand the matte to the solver.**
+  First attempt baked alpha into the PNGs. Canvas compositing premultiplies, so
+  the FEATURE path read a cut-out on black and the room — the only textured
+  thing in the frame — was gone before SIFT ran. **33/189 registered.** A person
+  in dark clothing is the textureless part of their own photograph. Fix is
+  structural: `frames.js` takes the mask as a SEPARATE per-file input
+  (`{source, name, mask}`) applied to the training target only, never to the
+  grayscale. Solve on everything, train on the subject. Registration then comes
+  back bit-identical to the unmasked control (186/189, rms 0.749).
+- **Masked loss alone is not isolation.** 30k, 189 frames, 80.6 % of pixels
+  excluded: the person trains correctly, and the surroundings fill with giant
+  smeared flares. Nothing says "there should be nothing here" any more — a
+  splat outside the mask in every view is unconstrained, and one big enough to
+  cover the subject everywhere is nearly free. opacityReg does starve most of
+  them (**deadPct 67.6 %** vs 12.6 % on the control) but ~1000 survivors swamp
+  the frame.
+- **Silhouette prune fixes it** (`tests/bench/prune_silhouette.py`, offline for
+  now). Project every centre into all 186 cameras: keep it if ≥50 % of the views
+  that see it call it subject (drops 16.7 %); then cap any axis at 4 % of the
+  subject's own diagonal (6.9 cm on a 1.73 m body — drops 1,111 more). Result:
+  **281,192 splats, a person alone on black**, 227 MB → 69 MB.
+- **Numbers, subject pixels only, 13 held-out views** (both models rendered
+  from the same solved poses, scored only inside the matte — the bench's
+  whole-frame PSNRs, 28.61 control vs 29.80 masked, are NOT comparable):
+  control **24.24 dB** aggregate / 25.47 per-view mean; masked+pruned **26.15 /
+  28.58**. Isolation is not a quality tax — the budget and the cycles stop
+  going to the carpet. Control 915,388 live splats vs 281,192.
+- **New tooling**: `tests/bench/render_views.{html,js}` — headless novel-view
+  renderer (posted .ply + recon → PNGs from chosen training poses), which is
+  what made the comparison possible at all.
+- Owed: prune inside the refine loop (the capacity those flares ate should go
+  back to the body); a human preset (SH 0, ~100k cap — the rigger's reference
+  scan is 60,744 splats); floor plane + stated height for metres/ground/facing;
+  and a 20 s capture A/B, because 57 s of standing still is breathing and sway
+  that the optimiser can only average into blur.
+
 ## 2026-09-09 (speed plan #0–#3/#6 implemented; 30-minute row)
 
 - **Solve tiers** (user: training takes 2 min on default, the solve 10 — "more
