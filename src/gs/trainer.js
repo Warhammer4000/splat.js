@@ -114,7 +114,8 @@ export class GSTrainer {
     // covW: mask-supervised coverage (see makeRenderSrc). Off unless a masked
     // set asks for it, and compiled out of the kernel entirely when 0.
     this.renderFeat = { camGrad: this.camGrads, stats: this.useStats, robust: !!this.opts.robustLoss,
-      covW: this.opts.covW ?? 0, covSubjW: this.opts.covSubjW ?? 0 };
+      covW: this.opts.covW ?? 0, covSubjW: this.opts.covSubjW ?? 0,
+      randBg: !!this.opts.randomBg };
     this.pipeRender = d.createComputePipeline({
       label: 'render', layout: 'auto',
       compute: { module: mk(makeRenderSrc(this.opts.eCut, this.opts.aMin, this.tileGrad, this.subgroupAgg, 0, 0.2, 2, this.dilate, this.opts.gradSpread ?? 1, this.opts.gradBatch ?? 16, this.opts.gradZeroSkip ?? false, this.opts.projVec ?? false, this.renderFeat), 'render'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
@@ -969,6 +970,12 @@ export class GSTrainer {
     this.camUniforms[ci][33] =
       (this.opts.robustLoss && this.meanPerr && this.iter > (this.opts.robustWarmup ?? 2000))
         ? this.opts.robustLoss * this.meanPerr : 0;
+    if (this.opts.randomBg) {
+      // random background per step (misc.xyz): mask-empty pixels target it,
+      // the render composites onto it — see makeRenderSrc randBg
+      const u = this.camUniforms[ci];
+      u[24] = this.rand(); u[25] = this.rand(); u[26] = this.rand();
+    }
     this._writeTrainUniforms(this.camUniforms[ci]);
     d.queue.writeBuffer(this.bufTileCnt, 0, this.tileZero);
     this.iter++;
@@ -1167,7 +1174,8 @@ export class GSTrainer {
     const meta = this.camMeta[ci];
     const uni = override
       ? this._camUniform({ ...meta, ...override }, 1, meta.offset, ci)
-      : this.camUniforms[ci];
+      : new Float32Array(this.camUniforms[ci]);
+    uni[24] = 0; uni[25] = 0; uni[26] = 0; // evaluate on black whatever the training background was
     const rows = this.camMeta.length + 1;
     d.queue.writeBuffer(this.bufStats, 0, new Uint32Array(4));
     this._writeTrainUniforms(uni);

@@ -384,6 +384,10 @@ export class Session {
     const gi = this.gpu.info || {};
     const trainerOpts = {
       maxIters: this.opts.maxIters ?? 60000,
+      // a masked set trains its empty pixels against a random background by
+      // default (gs/shaders.js randBg) — the thing that keeps splats out of
+      // the cleared area at full photometric strength
+      ...(this.frames && this.frames.some((f) => f.emptyFrac > 0) ? { randomBg: true } : {}),
       ...this.opts.trainer, ...extra.trainer,
       gpu: this.gpu,
     };
