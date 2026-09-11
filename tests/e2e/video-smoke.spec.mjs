@@ -14,6 +14,13 @@ test('own-video run: extract frames, solve, train', async ({ page }) => {
   await page.goto('/app/?iters=500');
   await page.setInputFiles('#file-input', join(here, 'fixtures', 'truck_walk.mp4'));
 
+  // the scan ends in the review card (timeline + filmstrip); accept the automatic picks
+  await page.waitForSelector('#vid-use', { timeout: 120_000 });
+  const review = await page.evaluate(() => ({ picks: window.__splat.videoReview.picks.length, scored: window.__splat.videoReview.frames.length }));
+  expect(review.scored).toBeGreaterThan(100);
+  expect(review.picks).toBeGreaterThanOrEqual(12);
+  await page.click('#vid-use');
+
   // extraction done: the scene opened from the extracted frames, ready to start
   await page.waitForFunction(() => {
     const b = document.getElementById('btn-go');

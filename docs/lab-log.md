@@ -61,6 +61,37 @@ about ±0.1 dB.
   316 s. The focal search is the gap (COLMAP reads EXIF); CUDA COLMAP not
   measured. Table in docs/bench-sfm-colmap-2026-09-09.md.
 
+## 2026-09-11 (video review card; own WebCodecs decode loop)
+
+- **Review card** (user: "a UI that helps understand what the video frame
+  selector does … the user may change the timeframe"). The extractor gained
+  a `review(ctx)` hook between scan and capture and scan-time thumbnails
+  (`thumbs`, ≤ 360 at 96 px); `planSelection(frames, opts, range)` re-runs
+  the selection on a time range (pure, instant) and `suggestSpan` picks, for
+  a long video, the span the device cap covers at natural density where the
+  footage is sharpest. The app draws the timeline (focus curve normalised
+  to its 95th percentile, blur dips, cuts, picks lane), a draggable range
+  (ends or slide), a filmstrip of picks spread over the range, and a
+  readout (frames, span, per second). On phones it is a fullscreen sheet.
+  e2e video-smoke clicks `#vid-use`; `window.__splat.videoReview/videoPlan`
+  expose the state.
+- **Half a video silently lost** (skulli.mp4 from the QA folder, 1080p,
+  4628 packets tagged 50 fps): it is a 25p field-coded stream (two packets
+  per picture). The decoder emits 2314 frames with correct timestamps
+  (ffmpeg: 2312), but Mediabunny's sample/canvas sinks restamp outputs
+  sequentially from the packet list, so the take "ended" at 46 of 93 s and
+  the second half was never scanned. Both passes now drive WebCodecs
+  directly (EncodedPacketSink → VideoDecoder, container rotation applied
+  in drawImage; capture = one continuous decode from the key packet before
+  the first winner, matched by timestamp within half a frame). Lesson from
+  the first cut: output frames are hardware-backed and few — close them
+  from the output callback (a pump), never hold them until the next packet,
+  or flush() deadlocks (camping.mov hung at 992/1014 with 22 frames open).
+  camping.mov: scan + 145-frame capture 8.6 s; LisaAvatar (4K portrait,
+  rotated 90°) upright, 2160×3840; skulli now 2314 frames over 92.5 s.
+- Frame floor clamped to the cap (a cap below 24 used to re-widen the
+  selection past it).
+
 ## 2026-09-10 (video: camping.mov through the extractor; density beats sharpness)
 
 - **The ask**: run the original camping.mov (1920x1080, 29.97 fps, 1014 frames,

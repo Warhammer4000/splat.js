@@ -47,6 +47,11 @@
  * @property {'longest'|'all'} [shots='longest'] edited clips: reconstruct one continuous take (default) or keep every shot
  * @property {'sharp'|'uniform'} [pick='sharp']  'uniform' takes frames at a fixed rate (`uniformFps`) with no sharpness selection — a control for the selector
  * @property {number} [uniformFps=3]
+ * @property {boolean|{width?: number, count?: number}} [thumbs]  keep small thumbnails from the scan (`count` spread over the
+ *   video, default 360 at 96 px) for a review UI; returned as `thumbs: [{t, index, canvas}]`
+ * @property {(ctx: VideoReview) => Promise<{picks?: number[]}|null>} [review]  called between the scan and the
+ *   capture with the scores, the automatic picks and a `plan(range)` re-selector; return the picks to capture,
+ *   or null to cancel. Without it the automatic picks are captured.
  * @property {number[]} [forceTimes]      timestamps (s) whose nearest frames are always kept (a fixed evaluation set across extraction variants)
  * @property {number} [forceExcludeSec=0] no other pick within this distance of a forced time (keeps a near-duplicate training view out of the test)
  * @property {(e: {stage: 'scan'|'capture', done: number, total: number}) => void} [onProgress]
@@ -301,6 +306,87 @@ export function applyForced(frames, picks, opts) {
   for (let i = 0; i < frames.length; i++) frames[i].picked = set.has(i);
 }
 
+/**
+ * @typedef {object} VideoReview
+ * @property {Array<object>} frames   every scored frame ({t, focus, motion, blur, diff, picked})
+ * @property {Array<{start: number, end: number}>} shots
+ * @property {number[]} picks         the automatic picks (frame indices)
+ * @property {number} budget          the motion budget those picks used
+ * @property {{start: number, end: number}|null} suggested  a time span for long videos (null = whole)
+ * @property {Array<{t: number, index: number, canvas: *}>} thumbs
+ * @property {(range: {start: number, end: number}|null) => {picks: number[], budget: number}} plan
+ *   re-run the selection on a time range (pure, instant — the scores are kept)
+ * @property {number} cap  the device cap on frames
+ */
+
+/** Selection restricted to a time range [start, end] (s); indices are into
+ *  the full `frames` array. Pure: repeatable from a UI slider. */
+export function planSelection(frames, opts = {}, range = null) {
+  let lo = 0, hi = frames.length - 1;
+  if (range) {
+    while (lo < hi && frames[lo].t < range.start) lo++;
+    while (hi > lo && frames[hi].t > range.end) hi--;
+  }
+  if (hi - lo < 2) { lo = Math.max(0, Math.min(lo, frames.length - 3)); hi = Math.min(frames.length - 1, lo + 2); }
+  const sub = frames.slice(lo, hi + 1);
+  const r = selectFrames(sub, opts);
+  const picks = r.picks.map((i) => i + lo);
+  applyForced(frames, picks, opts);
+  for (const f of frames) f.picked = false;
+  for (const i of picks) frames[i].picked = true;
+  return {
+    picks, budget: r.budget,
+    shots: r.shots.map((sh) => ({ start: sh.start + lo, end: sh.end + lo })),
+    shot: r.shot ? { start: r.shot.start + lo, end: r.shot.end + lo } : null,
+    range: { start: frames[lo].t, end: frames[hi].t },
+  };
+}
+
+/** A long video: the span the device cap can hold at the natural density
+ *  (no widened windows), placed where the footage is sharpest. Null when the
+ *  whole take fits. */
+export function suggestSpan(frames, opts = {}) {
+  const cap = opts.maxFrames ?? defaultMaxFrames();
+  const shots = detectShots(frames);
+  let best = shots[0];
+  for (const sh of shots) if (frames[sh.end].t - frames[sh.start].t > frames[best.end].t - frames[best.start].t) best = sh;
+  const sub = frames.slice(best.start, best.end + 1);
+  markOutliers(sub, opts.outlierWindow ?? 15, opts.outlierSensitivity ?? 0.6);
+  const natural = selectByMotion(sub, { budget: 1 - (opts.overlap ?? 0.9), minGap: opts.minGapSec ?? 0.15, maxGap: opts.maxGapSec ?? 0.25 });
+  if (natural.length <= cap) return null;
+  // window of `cap` consecutive natural picks with the highest mean focus
+  const pre = [0];
+  for (const i of natural) pre.push(pre[pre.length - 1] + sub[i].focus);
+  let bj = 0, bs = -Infinity;
+  for (let j = 0; j + cap <= natural.length; j++) {
+    const m = pre[j + cap] - pre[j];
+    if (m > bs) { bs = m; bj = j; }
+  }
+  return { start: sub[natural[bj]].t, end: sub[natural[bj + cap - 1]].t };
+}
+
+/** Scan-time thumbnails: how many and how wide. */
+function thumbPlan(opts, total, sw, sh) {
+  if (!opts.thumbs) return null;
+  const o = typeof opts.thumbs === 'object' ? opts.thumbs : {};
+  const count = o.count || 360, tw = o.width || 96;
+  return { every: Math.max(1, Math.ceil(total / count)), tw, th: Math.max(2, Math.round(tw * sh / sw)) };
+}
+
+/** The review hook between scan and capture (shared by both engines). */
+async function reviewPicks(frames, sel, opts, extra) {
+  if (!opts.review) return sel.picks;
+  const cap = opts.maxFrames ?? defaultMaxFrames();
+  const r = await opts.review({
+    frames, shots: sel.shots, shot: sel.shot, picks: sel.picks, budget: sel.budget, cap,
+    suggested: suggestSpan(frames, opts),
+    plan: (range) => planSelection(frames, opts, range),
+    ...extra,
+  });
+  if (r === null) throw new Error('cancelled');
+  return (r && r.picks) ? r.picks : sel.picks;
+}
+
 /** Selection on one continuous take. */
 function selectFramesContinuous(frames, opts = {}) {
   if (opts.pick === 'uniform') {   // control: a fixed rate, no scoring
@@ -315,7 +401,7 @@ function selectFramesContinuous(frames, opts = {}) {
     return { picks, budget: 0 };
   }
   const maxFrames = opts.maxFrames ?? defaultMaxFrames();
-  const minFrames = opts.minFrames ?? 24;
+  const minFrames = Math.min(maxFrames, opts.minFrames ?? 24);
   const minGap = opts.minGapSec ?? 0.15, maxGap = opts.maxGapSec ?? 0.25;
   markOutliers(frames, opts.outlierWindow ?? 15, opts.outlierSensitivity ?? 0.6);
   let budget = 1 - (opts.overlap ?? 0.9);
@@ -380,6 +466,64 @@ async function mediabunny() {
   return MBmod;
 }
 
+/** Draw a VideoFrame into a canvas of the DISPLAY size (cw x ch), applying
+ *  the container's rotation (clockwise degrees, phones shoot portrait). */
+function drawRotated(ctx, frame, cw, ch, rot) {
+  ctx.save();
+  if (rot === 90) { ctx.translate(cw, 0); ctx.rotate(Math.PI / 2); ctx.drawImage(frame, 0, 0, ch, cw); }
+  else if (rot === 180) { ctx.translate(cw, ch); ctx.rotate(Math.PI); ctx.drawImage(frame, 0, 0, cw, ch); }
+  else if (rot === 270) { ctx.translate(0, ch); ctx.rotate(-Math.PI / 2); ctx.drawImage(frame, 0, 0, ch, cw); }
+  else ctx.drawImage(frame, 0, 0, cw, ch);
+  ctx.restore();
+}
+
+/** Run a VideoDecoder over the track's packets from `startPacket` (decode
+ *  order, Mediabunny demux) and hand every output frame, in presentation
+ *  order with the DECODER's timestamp, to onFrame(frame) — return false to
+ *  stop early. The frames are closed here.
+ *
+ *  Why not Mediabunny's sinks: on field-coded streams (two packets per
+ *  picture, e.g. a 25p camera file tagged 50 fps) the decoder emits one frame
+ *  per packet pair with the right timestamps, but the sinks restamp outputs
+ *  sequentially from the packet list, so the second half of the take
+ *  collapses onto the first (skulli.mp4, 2026-09-11: 4628 packets, 2314
+ *  frames, "ends" at 46 of 93 s). */
+async function runDecoder(MB, track, startPacket, onFrame) {
+  const cfg = await track.getDecoderConfig();
+  const queue = [];
+  let err = null, stop = false, pumping = null;
+  // outputs are hardware-backed and few: close them as they arrive (a pump
+  // driven from the output callback), never hold them until the next packet —
+  // a decoder waiting for its frame pool never finishes flush()
+  const pump = () => pumping || (pumping = (async () => {
+    try {
+      while (queue.length) {
+        const f = queue.shift();
+        try { if (!stop && (await onFrame(f)) === false) stop = true; }
+        catch (e) { err = err || e; stop = true; }
+        finally { f.close(); }
+      }
+    } finally { pumping = null; }
+  })());
+  const dec = new VideoDecoder({ output: (f) => { queue.push(f); pump(); }, error: (e) => { err = e; } });
+  dec.configure(cfg);
+  const sink = new MB.EncodedPacketSink(track);
+  try {
+    for await (const p of sink.packets(startPacket)) {
+      if (err) throw err;
+      if (stop) break;
+      dec.decode(p.toEncodedVideoChunk());
+      while (dec.decodeQueueSize > 16 && !err && !stop) await new Promise((r) => setTimeout(r, 0));
+    }
+    if (!stop && !err) await dec.flush();
+    await pump();
+    if (err) throw err;
+  } finally {
+    try { dec.close(); } catch {}
+    while (queue.length) queue.shift().close();
+  }
+}
+
 /** WebCodecs path: every frame scored, winners re-decoded at full size. */
 async function extractWebCodecs(file, opts, log, onProgress) {
   const MB = await mediabunny();
@@ -387,52 +531,92 @@ async function extractWebCodecs(file, opts, log, onProgress) {
   const track = await input.getPrimaryVideoTrack();
   if (!track) throw new Error('no video track');
   if (!(await track.canDecode())) throw new Error('codec not decodable here');
-  const [W, H] = [await track.getDisplayWidth(), await track.getDisplayHeight()];
   const rotation = await track.getRotation();
   const duration = await track.computeDuration();
   const stats = await track.computePacketStats(Infinity).catch(() => null);
   const total = stats ? stats.packetCount : Math.round(duration * 30);
-  const fps = stats ? stats.averagePacketRate : null;
+  let fps = stats ? stats.averagePacketRate : null;
   let colour = '';
   try { const cs = await track.getColorSpace(); if (cs && cs.transfer) colour = ` ${cs.transfer}${cs.primaries ? '/' + cs.primaries : ''}`; } catch {}
-  log(`video: ${W}x${H}${rotation ? ` (rotated ${rotation}°)` : ''}, ${duration.toFixed(1)}s, ${total} frames${fps ? ` @ ${fps.toFixed(2)} fps` : ''}${colour}`);
 
   // ---- pass 1: score every frame on the 512-px analysis canvas ----
-  const [sw, sh] = analysisSize(W, H);
-  const an = makeAnalyzer(sw, sh);
+  // display size comes from the first decoded frame (coded size, rotated)
+  let W = 0, H = 0, sw = 0, sh = 0, an = null, ctx = null, tp = null;
   const frames = [];
-  const scanSink = new MB.CanvasSink(track, { width: sw, height: sh, fit: 'fill', poolSize: 2 });
+  const thumbs = [];
   let done = 0;
-  for await (const wrapped of scanSink.canvases()) {
-    const ctx = wrapped.canvas.getContext('2d', { willReadFrequently: true });
-    frames.push(an.analyze(ctx, wrapped.timestamp));
+  const first = (frame) => {
+    const fw = frame.displayWidth, fh = frame.displayHeight;
+    [W, H] = (rotation === 90 || rotation === 270) ? [fh, fw] : [fw, fh];
+    [sw, sh] = analysisSize(W, H);
+    an = makeAnalyzer(sw, sh);
+    ctx = mkCanvas(sw, sh).getContext('2d', { willReadFrequently: true });
+    tp = thumbPlan(opts, total, sw, sh);
+    log(`video: ${W}x${H}${rotation ? ` (rotated ${rotation}°)` : ''}, ${duration.toFixed(1)}s, ${total} packets${fps ? ` @ ${fps.toFixed(2)}/s` : ''}${colour}`);
+  };
+  let lastTick = 0;
+  const scanOne = (frame) => {
+    if (!an) first(frame);
+    drawRotated(ctx, frame, sw, sh, rotation);
+    const t = frame.timestamp / 1e6;
+    frames.push(an.analyze(ctx, t));
+    if (tp && done % tp.every === 0) {
+      const tc = mkCanvas(tp.tw, tp.th);
+      tc.getContext('2d').drawImage(ctx.canvas, 0, 0, tp.tw, tp.th);
+      thumbs.push({ t, index: frames.length - 1, canvas: tc });
+    }
     done++;
     if (done % 8 === 0) onProgress({ stage: 'scan', done: Math.min(done, total), total });
-    if (done % 64 === 0) await new Promise((r) => setTimeout(r, 0));
-  }
+  };
+  const psink = new MB.EncodedPacketSink(track);
+  const firstPacket = await psink.getFirstPacket();
+  await runDecoder(MB, track, firstPacket, scanOne);
   onProgress({ stage: 'scan', done: frames.length, total: frames.length });
   if (frames.length < 2) throw new Error('could not decode frames from this video');
+  if (frames.length !== total) {
+    fps = frames.length / Math.max(1e-3, frames[frames.length - 1].t - frames[0].t);
+    log(`${frames.length} frames from ${total} packets (field-coded or dropped) — ${fps.toFixed(2)} fps`);
+  }
 
   // ---- selection ----
-  const { picks, budget, shots, shot } = selectFrames(frames, opts);
-  applyForced(frames, picks, opts);
+  const sel = selectFrames(frames, opts);
+  applyForced(frames, sel.picks, opts);
+  const { budget, shots, shot } = sel;
   const blurred = frames.filter((f) => f.blur).length;
   if (shots.length > 1) log(`${shots.length} shots (cuts at ${shots.slice(1).map((sh) => frames[sh.start].t.toFixed(1) + 's').join(', ')})${shot ? ` — keeping the longest: ${frames[shot.start].t.toFixed(1)}–${frames[shot.end].t.toFixed(1)} s` : ' — keeping all'}`);
-  log(`scored ${frames.length} frames (${blurred} blur dips); kept ${picks.length} — motion budget ${(budget * 100).toFixed(0)} % of the width, focus median ${median(frames.map((f) => f.focus)).toFixed(0)}`);
+  log(`scored ${frames.length} frames (${blurred} blur dips); kept ${sel.picks.length} — motion budget ${(budget * 100).toFixed(0)} % of the width, focus median ${median(frames.map((f) => f.focus)).toFixed(0)}`);
+  const picks = await reviewPicks(frames, sel, opts, { duration, fps, videoW: W, videoH: H, thumbs });
+  if (picks !== sel.picks) log(`review: capturing ${picks.length} frames`);
 
   // ---- pass 2: full-resolution capture of the winners ----
-  const times = picks.map((i) => frames[i].t);
-  const capSink = new MB.CanvasSink(track, { width: W, height: H, fit: 'fill', poolSize: 1 });
+  // one continuous decode from the key packet before the first winner; each
+  // output frame is matched to the next target by timestamp
+  const times = picks.map((i) => frames[i].t).sort((x, y) => x - y);
+  const half = 0.5 * (frames.length > 1 ? (frames[frames.length - 1].t - frames[0].t) / (frames.length - 1) : 0.02);
+  const capCv = mkCanvas(W, H);
+  const capCtx = capCv.getContext('2d');
   const out = [];
-  let k = 0;
-  for await (const wrapped of capSink.canvasesAtTimestamps(times)) {
-    if (!wrapped) { k++; continue; }
-    const blob = await toBlob(wrapped.canvas, opts.jpegQuality ?? 0.95);
-    out.push({ source: blob, name: `frame_${String(out.length + 1).padStart(5, '0')}.jpg`, t: wrapped.timestamp });
-    k++;
-    onProgress({ stage: 'capture', done: k, total: times.length });
+  const blobs = [];
+  let ti = 0;
+  if (times.length) {
+    const key = (await psink.getKeyPacket(times[0])) || firstPacket;
+    await runDecoder(MB, track, key, async (frame) => {
+      const t = frame.timestamp / 1e6;
+      while (ti < times.length && times[ti] < t - half) ti++;   // a target the decoder skipped
+      if (ti >= times.length) return false;
+      if (Math.abs(t - times[ti]) <= half) {
+        drawRotated(capCtx, frame, W, H, rotation);
+        blobs.push({ blob: await toBlob(capCv, opts.jpegQuality ?? 0.95), t });
+        ti++;
+        onProgress({ stage: 'capture', done: ti, total: times.length });
+        if (ti >= times.length) return false;
+      }
+      return true;
+    });
   }
-  return { frames: out, duration, sampled: frames.length, videoW: W, videoH: H, fps, rotation, engine: 'webcodecs', analysis: frames, shots, shot };
+  for (const { blob, t } of blobs) out.push({ source: blob, name: `frame_${String(out.length + 1).padStart(5, '0')}.jpg`, t });
+  if (out.length < times.length) log(`captured ${out.length} of ${times.length} winners (decoder skipped the rest)`);
+  return { frames: out, duration, sampled: frames.length, videoW: W, videoH: H, fps, rotation, engine: 'webcodecs', analysis: frames, shots, shot, thumbs };
 }
 
 /** Fallback: <video> element scan at ~10 samples/s, same scorer/selector. */
@@ -457,7 +641,17 @@ async function extractElement(file, opts, log, onProgress) {
     const an = makeAnalyzer(sw, sh);
     const frames = [];
     const totalSamples = Math.max(2, Math.floor(duration * sps));
-    const scoreNow = (t) => { scanCtx.drawImage(video, 0, 0, sw, sh); frames.push(an.analyze(scanCtx, t)); };
+    const tp = thumbPlan(opts, totalSamples, sw, sh);
+    const thumbs = [];
+    const scoreNow = (t) => {
+      scanCtx.drawImage(video, 0, 0, sw, sh);
+      frames.push(an.analyze(scanCtx, t));
+      if (tp && (frames.length - 1) % tp.every === 0) {
+        const tc = mkCanvas(tp.tw, tp.th);
+        tc.getContext('2d').drawImage(scanCv, 0, 0, tp.tw, tp.th);
+        thumbs.push({ t, index: frames.length - 1, canvas: tc });
+      }
+    };
     if (typeof video.requestVideoFrameCallback === 'function') {
       video.playbackRate = 3;
       let lastT = -1, finished = false;
@@ -480,9 +674,10 @@ async function extractElement(file, opts, log, onProgress) {
       }
     }
     if (frames.length < 2) throw new Error('could not decode frames from this video');
-    const { picks, budget } = selectFrames(frames, opts);
-    applyForced(frames, picks, opts);
-    log(`scored ${frames.length} samples; kept ${picks.length} (motion budget ${(budget * 100).toFixed(0)} %)`);
+    const sel = selectFrames(frames, opts);
+    applyForced(frames, sel.picks, opts);
+    log(`scored ${frames.length} samples; kept ${sel.picks.length} (motion budget ${(sel.budget * 100).toFixed(0)} %)`);
+    const picks = await reviewPicks(frames, sel, opts, { duration, fps: null, videoW: vw, videoH: vh, thumbs });
     const capCv = mkCanvas(vw, vh);
     const capCtx = capCv.getContext('2d');
     const out = [];
@@ -494,7 +689,7 @@ async function extractElement(file, opts, log, onProgress) {
       out.push({ source: blob, name: `frame_${String(i + 1).padStart(5, '0')}.jpg`, t: frames[picks[i]].t });
       onProgress({ stage: 'capture', done: i + 1, total: picks.length });
     }
-    return { frames: out, duration, sampled: frames.length, videoW: vw, videoH: vh, fps: null, rotation: 0, engine: 'element', analysis: frames };
+    return { frames: out, duration, sampled: frames.length, videoW: vw, videoH: vh, fps: null, rotation: 0, engine: 'element', analysis: frames, thumbs };
   } finally {
     video.removeAttribute('src'); video.load(); URL.revokeObjectURL(url);
   }

@@ -1047,20 +1047,24 @@ async function useOwnPhotos(list) {
   showDetail(set);   // Start training lives on the detail card
 }
 
-/** A video: pick its sharpest frames (the server pipeline's policy, run
- *  here) and continue exactly like a photo set. */
+/** A video: every frame is scored (sharpness, motion, cuts), the picks are
+ *  shown on a timeline the user can trim, then the winners are captured and
+ *  continue exactly like a photo set. */
 async function useOwnVideo(file) {
   const card = document.createElement('div');
   card.className = 'upcard';
   card.id = 'vidcard';
-  card.innerHTML = `
-    <b>Reading your video</b>
-    <div class="prep-sub" id="vid-sub">decoding …</div>
-    <div class="prep-meter"><i id="vid-bar" style="width:0%"></i></div>`;
+  const meter = (title, sub) => {
+    card.innerHTML = `
+      <div class="vid-head"><b>${title}</b><span class="prep-sub" id="vid-sub">${sub}</span></div>
+      <div class="prep-meter"><i id="vid-bar" style="width:0%"></i></div>`;
+  };
+  meter('Reading your video', 'decoding …');
   $('stage').appendChild(card);
-  const LABEL = { scan: 'looking for the sharpest frames', capture: 'saving the winners' };
+  const LABEL = { scan: 'scoring every frame', capture: 'saving the winners' };
   try {
     const { frames, duration } = await extractSharpFrames(file, {
+      thumbs: true,
       log: (m) => console.log('[video]', m),
       onProgress: (e) => {
         const bar = $('vid-bar');
@@ -1068,6 +1072,11 @@ async function useOwnVideo(file) {
         const half = e.stage === 'scan' ? 0 : 50;
         bar.style.width = `${half + (e.done / e.total) * 50}%`;
         $('vid-sub').textContent = `${LABEL[e.stage]} · ${e.done} / ${e.total}`;
+      },
+      review: async (ctx) => {
+        const r = await videoReview(card, ctx);
+        if (r) meter('Saving the frames', `0 / ${r.picks.length}`);
+        return r;
       },
     });
     if (frames.length < 12) {
@@ -1087,11 +1096,187 @@ async function useOwnVideo(file) {
       'right here in this tab. Blurred moments lost to their sharper neighbours.';
     open(set);
   } catch (e) {
+    if (e && e.message === 'cancelled') return;
     console.error(e);
     flash(`Could not read that video: ${e.message}`, 8000);
   } finally {
     card.remove();
   }
+}
+
+/** The review card: the scan's scores as a timeline (focus curve, blur dips,
+ *  cuts, picks), a draggable time range, and a filmstrip of the picks. Resolves
+ *  { picks } on "Use these frames", null on cancel. */
+function videoReview(card, ctx) {
+  return new Promise((resolve) => {
+    const { frames, duration, thumbs, cap } = ctx;
+    const full = { start: frames[0].t, end: frames[frames.length - 1].t };
+    let range = ctx.suggested ? { ...ctx.suggested } : { ...full };
+    let plan = ctx.plan(ctx.suggested ? range : null);
+    S.videoReview = ctx;   // console / e2e access
+    const fmt = (t) => `${t.toFixed(1)} s`;
+    card.innerHTML = `
+      <div class="vid-head"><b>Your video</b><span class="prep-sub">${frames.length} frames scored · ${fmt(duration)} · ${ctx.videoW}×${ctx.videoH}</span></div>
+      <div class="vid-legend"><span><i class="focus"></i>sharpness</span><span><i class="pick"></i>picked frame</span><span><i class="blur"></i>blur dip</span><span><i class="cut"></i>cut</span><span><i class="range"></i>range used</span></div>
+      <canvas class="vid-tl" id="vid-tl"></canvas>
+      <canvas class="vid-strip" id="vid-strip"></canvas>
+      <div class="vid-read"><b id="vid-n"></b><span id="vid-span"></span><button class="linkish" id="vid-reset" hidden>whole video</button></div>
+      <div class="upcard-row"><p class="fine" id="vid-hint"></p><span style="display:flex;gap:8px"><button class="btn btn-outline" id="vid-cancel">Cancel</button><button class="btn btn-accent" id="vid-use">Use these frames</button></span></div>`;
+    const tl = $('vid-tl'), strip = $('vid-strip');
+    if (ctx.videoH > ctx.videoW) strip.style.height = (window.innerWidth <= 560 ? 150 : 110) + 'px';   // portrait clips: taller filmstrip
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const PAD = 10, LANE = 16;   // px: side padding, picks lane at the bottom
+    let W = 0, H = 0;
+    const size = (cv) => {
+      const r = cv.getBoundingClientRect();
+      cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
+      const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      return [g, r.width, r.height];
+    };
+    const xOf = (t) => PAD + (t / duration) * (W - 2 * PAD);
+    const tOf = (x) => Math.max(0, Math.min(duration, ((x - PAD) / (W - 2 * PAD)) * duration));
+    const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+    const C = { accent: css('--accent'), accent14: css('--accent-14'), accent30: css('--accent-30'), paper: css('--paper'), muted: css('--muted'), dim: css('--dim'), red: css('--red') };
+    // focus normalised by its 95th percentile so one bright spike does not flatten the curve
+    const sorted = frames.map((f) => f.focus).sort((a, b) => a - b);
+    const fMax = Math.max(1, sorted[Math.floor(sorted.length * 0.95)]);
+    const whole = () => Math.abs(range.start - full.start) < 1e-6 && Math.abs(range.end - full.end) < 1e-6;
+
+    function drawTimeline() {
+      const [g, w, h] = size(tl); W = w; H = h;
+      g.clearRect(0, 0, w, h);
+      const top = 22, bottom = h - LANE - 6, ph = bottom - top;
+      // range fill
+      g.fillStyle = C.accent14;
+      g.fillRect(xOf(range.start), top - 4, xOf(range.end) - xOf(range.start), bottom - top + LANE + 8);
+      // focus area, one column per pixel (max over the frames it covers)
+      const cols = Math.max(1, Math.floor(w - 2 * PAD));
+      const colMax = new Float32Array(cols);
+      for (const f of frames) { const c = Math.min(cols - 1, Math.floor(((f.t / duration) * cols))); if (f.focus > colMax[c]) colMax[c] = f.focus; }
+      g.beginPath(); g.moveTo(PAD, bottom);
+      for (let c = 0; c < cols; c++) g.lineTo(PAD + c, bottom - Math.min(1, colMax[c] / fMax) * ph);
+      g.lineTo(PAD + cols - 1, bottom); g.closePath();
+      g.fillStyle = C.accent30; g.fill();
+      g.beginPath();
+      for (let c = 0; c < cols; c++) { const y = bottom - Math.min(1, colMax[c] / fMax) * ph; if (c) g.lineTo(PAD + c, y); else g.moveTo(PAD + c, y); }
+      g.strokeStyle = C.accent; g.lineWidth = 1; g.stroke();
+      // blur dips
+      g.fillStyle = C.red;
+      for (const f of frames) if (f.blur) g.fillRect(xOf(f.t) - 0.5, bottom - 6, 1, 6);
+      // cuts
+      g.setLineDash([3, 3]); g.strokeStyle = C.muted;
+      for (const sh of ctx.shots.slice(1)) { const x = xOf(frames[sh.start].t); g.beginPath(); g.moveTo(x, top - 4); g.lineTo(x, bottom + LANE); g.stroke(); }
+      g.setLineDash([]);
+      // picks lane
+      g.fillStyle = C.paper;
+      for (const i of plan.picks) g.fillRect(xOf(frames[i].t) - 0.5, bottom + 4, 1, LANE - 6);
+      // dim outside the range
+      g.fillStyle = 'rgba(7, 9, 9, .55)';
+      g.fillRect(0, 0, xOf(range.start), h); g.fillRect(xOf(range.end), 0, w - xOf(range.end), h);
+      // handles
+      for (const t of [range.start, range.end]) {
+        const x = xOf(t);
+        g.fillStyle = C.accent; g.fillRect(x - 1.5, top - 6, 3, bottom - top + LANE + 12);
+        g.fillStyle = C.paper; g.fillRect(x - 5, (top + bottom) / 2 - 9, 10, 18);
+        g.fillStyle = C.accent; g.fillRect(x - 0.5, (top + bottom) / 2 - 5, 1, 10);
+      }
+      // time labels
+      g.fillStyle = C.dim; g.font = `10px ${css('--mono')}`; g.textBaseline = 'top';
+      g.textAlign = 'left'; g.fillText('0 s', PAD, 4);
+      g.textAlign = 'right'; g.fillText(fmt(duration), w - PAD, 4);
+      g.textAlign = 'center'; g.fillStyle = C.paper;
+      g.fillText(`${fmt(range.start)} – ${fmt(range.end)}`, (xOf(range.start) + xOf(range.end)) / 2, 4);
+    }
+
+    function drawStrip() {
+      const [g, w, h] = size(strip);
+      g.clearRect(0, 0, w, h);
+      if (!thumbs || !thumbs.length || !plan.picks.length) return;
+      const slot = 80, n = Math.max(1, Math.min(plan.picks.length, Math.floor(w / slot)));
+      const sw = w / n;
+      for (let k = 0; k < n; k++) {
+        const pi = plan.picks[Math.round((k / Math.max(1, n - 1)) * (plan.picks.length - 1))];
+        const t = frames[pi].t;
+        let th = thumbs[0];   // nearest thumbnail in time
+        for (const c of thumbs) if (Math.abs(c.t - t) < Math.abs(th.t - t)) th = c;
+        const cv = th.canvas, ar = cv.width / cv.height;
+        const dh = h - 8, dw = dh * ar;   // fit height, centre-crop the width into the slot
+        const x = k * sw;
+        g.save(); g.beginPath(); g.rect(x + 1, 4, sw - 2, dh); g.clip();
+        g.drawImage(cv, x + (sw - dw) / 2, 4, dw, dh);
+        g.restore();
+      }
+      const label = n < plan.picks.length ? `${n} of ${plan.picks.length} picks, spread over the range` : `all ${n} picks`;
+      g.font = `10px ${css('--mono')}`; g.textBaseline = 'middle'; g.textAlign = 'left';
+      g.fillStyle = 'rgba(7, 9, 9, .78)'; g.fillRect(0, h - 15, g.measureText(label).width + 10, 15);
+      g.fillStyle = C.muted; g.fillText(label, 5, h - 7.5);
+    }
+
+    function readout() {
+      const n = plan.picks.length, span = range.end - range.start;
+      $('vid-n').textContent = `${n} frame${n === 1 ? '' : 's'}`;
+      $('vid-span').textContent = `${fmt(range.start)} – ${fmt(range.end)} · ${(n / Math.max(0.1, span)).toFixed(1)} per second`;
+      $('vid-reset').hidden = whole();
+      $('vid-hint').textContent = ctx.suggested && whole()
+        ? `Long video: the whole take spreads the ${cap} frames this device can hold too thin. Slide the range to the part that matters.`
+        : ctx.suggested
+          ? `Long video: this is the sharpest span the ${cap} frames this device can hold cover at full density. Slide it, or drag its ends.`
+          : n >= cap
+            ? `The device holds ${cap} frames, so this range is sampled thinner than the footage allows. A shorter range packs them tighter.`
+            : 'Drag the ends of the range, or slide it, to reconstruct only part of the video.';
+      $('vid-use').textContent = `Use these ${n} frames`;
+    }
+    function redraw() { drawTimeline(); drawStrip(); readout(); }
+    function setRange(r) {
+      const minLen = Math.min(1.0, duration);
+      let a = Math.max(full.start, Math.min(r.start, r.end - minLen));
+      let b = Math.min(full.end, Math.max(r.end, a + minLen));
+      if (b - a < minLen) { a = Math.max(full.start, b - minLen); }
+      range = { start: a, end: b };
+      plan = ctx.plan(whole() ? null : range);
+      S.videoPlan = plan;
+      redraw();
+    }
+
+    // dragging: a handle (near it), or the whole range (inside it)
+    let drag = null;
+    tl.addEventListener('pointerdown', (e) => {
+      const x = e.offsetX;
+      const xs = xOf(range.start), xe = xOf(range.end);
+      if (Math.abs(x - xs) <= 12 && Math.abs(x - xs) <= Math.abs(x - xe)) drag = { kind: 'start' };
+      else if (Math.abs(x - xe) <= 12) drag = { kind: 'end' };
+      else if (x > xs && x < xe) drag = { kind: 'move', t0: tOf(x), s0: range.start, e0: range.end };
+      else drag = { kind: x < xs ? 'start' : 'end' };
+      try { tl.setPointerCapture(e.pointerId); } catch {}
+      onMove(e);
+    });
+    let raf = 0;
+    const onMove = (e) => {
+      if (!drag) return;
+      const t = tOf(e.offsetX);
+      let r;
+      if (drag.kind === 'start') r = { start: t, end: range.end };
+      else if (drag.kind === 'end') r = { start: range.start, end: t };
+      else {
+        const len = drag.e0 - drag.s0;
+        let s = drag.s0 + (t - drag.t0);
+        s = Math.max(full.start, Math.min(full.end - len, s));
+        r = { start: s, end: s + len };
+      }
+      if (!raf) raf = requestAnimationFrame(() => { raf = 0; setRange(r); });
+    };
+    tl.addEventListener('pointermove', onMove);
+    const onUp = () => { drag = null; };
+    tl.addEventListener('pointerup', onUp);
+    tl.addEventListener('pointercancel', onUp);
+    $('vid-reset').onclick = () => setRange({ ...full });
+    $('vid-cancel').onclick = () => { cleanup(); resolve(null); };
+    $('vid-use').onclick = () => { cleanup(); resolve({ picks: plan.picks }); };
+    const onResize = () => redraw();
+    window.addEventListener('resize', onResize);
+    function cleanup() { window.removeEventListener('resize', onResize); S.videoReview = null; }
+    setRange(range);
+  });
 }
 
 /** reset everything and show a set's start card (autostart commits a switch) */
