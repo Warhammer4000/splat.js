@@ -13,9 +13,11 @@ import { extractSharpFrames, isVideoFile } from '../../src/io/video.js';
 import { recordCaptureVideo, cameraSupported } from './camera.js';
 import { saveLastCapture, loadLastCapture } from './store.js';
 import { zipStore } from './zip.js';
-import { handleOAuthCallback, sendToArrival, hasToken } from './arrival.js';
+import { handleOAuthCallback, sendToArrival, hasToken, API_BASE } from './arrival.js';
 import { buildSessionZip, fetchModel } from './session_io.js';
 import { PRESETS, REPO, DATA, ownSet } from './data.js';
+// official demo scenes on the wall that are not bundled presets (Garden, The Lab, Camping)
+const EXTRA_PRESET_SPACES = ['42485456_3427', '42485456_9670', '42485456_7518'];
 import { Viewport, camCentre } from './viewport.js';
 import { Developer, fitRect } from './develop.js';
 import { Chart } from './chart.js';
@@ -3554,7 +3556,19 @@ async function fetchShareRecon(it) {
 /** One creation card, post-style: hero, badge, title, the FULL description
  *  and the key numbers. The whole card is the View action — clicking loads
  *  the creation directly (Train lives in the viewer). */
-function creationTile(it, mine) {
+const OWNER_INFO = new Map();   // ownerId -> Promise<{name, avatar}|null>: the public profile, no sign-in needed
+function ownerInfo(ownerId) {
+  if (!OWNER_INFO.has(ownerId)) {
+    OWNER_INFO.set(ownerId, fetch(`${API_BASE}/getUserInfo/${encodeURIComponent(ownerId)}`)
+      .then((r) => r.json())
+      .then((u) => (u && u.status === 'ok') ? { name: u.name || u.uniqueName || '', avatar: (u.profileImageData && u.profileImageData.url) || '' } : null)
+      .catch(() => null));
+  }
+  return OWNER_INFO.get(ownerId);
+}
+const shareDate = (d) => { const t = new Date(d); return isNaN(t) ? '' : t.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }); };
+
+function creationTile(it, mine, { shared = false } = {}) {
   const wrap = document.createElement('a');
   wrap.className = 'galtile';
   const img = (it.splatjs && it.splatjs.thumbUrl) || it.screenshotUrl || '';
@@ -3568,8 +3582,24 @@ function creationTile(it, mine) {
   wrap.innerHTML = `<img loading="lazy" src="${esc(img)}" alt="" onerror="this.style.visibility='hidden'">
     ${badge ? `<i class="yours">${esc(badge)}</i>` : ''}
     <span class="galname">${esc(it.title || 'Untitled')}</span>
-    ${it.description ? `<span class="galdesc">${esc(it.description)}</span>` : ''}
+    ${it.description && !(shared && /trained in the browser by Splat.js/.test(it.description)) ? `<span class="galdesc">${esc(it.description)}</span>` : ''}
     <span class="galmeta">${fmt((it.splatjs && it.splatjs.splats) || 0)} splats${dB ? ` · ${(+dB).toFixed(1)} dB` : ''}${it.splatjs && it.splatjs.sogMb ? ` · ${it.splatjs.sogMb} MB` : ''}</span>`;
+  if (shared) {
+    // a post-style byline on the tile: avatar, name, date — the space id
+    // carries its owner (userId_xxxx, or the bare userId for a home space)
+    const by = document.createElement('span');
+    by.className = 'galby';
+    by.innerHTML = `<i class="galav"></i><b></b><time>${esc(shareDate(it.createdDate))}</time>`;
+    wrap.appendChild(by);
+    const ownerId = String(it.id).split('_')[0];
+    ownerInfo(ownerId).then((u) => {
+      if (!u || !u.name) { by.querySelector('b').remove(); return; }
+      by.querySelector('b').textContent = u.name;
+      const av = by.querySelector('.galav');
+      if (u.avatar) { av.style.backgroundImage = `url("${u.avatar}")`; av.textContent = ''; }
+      else av.textContent = u.name.trim().charAt(0).toUpperCase();
+    });
+  }
   return wrap;
 }
 
@@ -3581,7 +3611,7 @@ async function mountWall() {
   try {
     const { fetchGallery, fetchMine } = await import('./share.js');
     const [{ items }, capTile, runTiles, myShares] = await Promise.all([
-      fetchGallery({ count: 12 }),
+      fetchGallery({ count: 48 }),   // the API's page cap; the wall shows every listed scene
       lastCaptureTile().catch(() => null),
       localRunTiles().catch(() => []),
       hasToken() ? fetchMine().catch(() => []) : Promise.resolve([]),
@@ -3600,23 +3630,20 @@ async function mountWall() {
       <div class="galrow" data-pane="all"></div>`;
     const row = host.querySelector('[data-pane="all"]');
     for (const t of own) row.appendChild(t);
-    // official presets (pinned first via splatjs.pin, otherwise newest),
-    // then OTHER users' shared scenes — the space id carries its owner
-    const OFFICIAL = '42485456_';
-    const keyOf = (x) => (String(x.id).startsWith(OFFICIAL)
-      ? ((x.splatjs && x.splatjs.pin) || 9e9)
-      : 1e12);
+    // the presets (the official demo scenes: pinned first, then newest), then
+    // everyone's shared scenes newest first, each tile with its byline
+    const presetIds = new Set([...PRESETS.map((p) => p.spaceId).filter(Boolean), ...EXTRA_PRESET_SPACES]);
     const mineIds = new Set((myShares || []).map((x) => String(x.id)));
-    const ordered = (items || []).slice()
-      .filter((x) => !mineIds.has(String(x.id)))   // no duplicate of an own share
-      .sort((a, b) => keyOf(a) - keyOf(b));
-    if (own.length && ordered.length) {
-      const sep = document.createElement('div');
-      sep.className = 'galsep';
-      sep.innerHTML = '<span>Presets</span>';
-      row.appendChild(sep);
-    }
-    for (const it of ordered) row.appendChild(creationTile(it, false));
+    const rest = (items || []).filter((x) => !mineIds.has(String(x.id)));   // no duplicate of an own share
+    const pinOf = (x) => (x.splatjs && x.splatjs.pin) || 9e9;
+    const newer = (a, b) => new Date(b.createdDate) - new Date(a.createdDate);
+    const presets = rest.filter((x) => presetIds.has(String(x.id))).sort((a, b) => (pinOf(a) - pinOf(b)) || newer(a, b));
+    const shares = rest.filter((x) => !presetIds.has(String(x.id))).sort(newer);
+    const divider = (label) => { const sep = document.createElement('div'); sep.className = 'galsep'; sep.innerHTML = `<span>${label}</span>`; row.appendChild(sep); };
+    if (own.length && presets.length) divider('Presets');
+    for (const it of presets) row.appendChild(creationTile(it, false));
+    if (shares.length) divider('Shared by people');
+    for (const it of shares) row.appendChild(creationTile(it, false, { shared: true }));
     dragScroll(row);
     host.hidden = false;
   } catch (e) { /* the wall is decoration — never block the app on it */ }

@@ -954,3 +954,9 @@ a.cbtn { text-decoration: none; }
   #vidcard .upcard-row > span { flex: 1 1 100%; justify-content: flex-end; }
   #vidcard .vid-read { flex-wrap: wrap; }
 }
+
+/* shared-scene tiles: who shared it, and when */
+.galby { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); font: 400 12.5px var(--ui); color: var(--muted); }
+.galby b { font-weight: 500; color: var(--paper); }
+.galav { flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--panel-2) center / cover no-repeat; border: 1px solid var(--line-2); font: 600 11px/20px var(--ui); color: var(--muted); text-align: center; font-style: normal; }
+.galby time { margin-left: auto; font: 400 12px var(--mono); color: var(--dim); }
