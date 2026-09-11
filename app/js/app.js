@@ -1064,7 +1064,7 @@ async function useOwnVideo(file) {
   const LABEL = { scan: 'scoring every frame', capture: 'saving the winners' };
   try {
     const { frames, duration } = await extractSharpFrames(file, {
-      thumbs: true,
+      thumbs: { width: window.innerWidth <= 560 ? 112 : 224 },   // scan-time thumbnails for the review card's filmstrip and hover preview
       log: (m) => console.log('[video]', m),
       onProgress: (e) => {
         const bar = $('vid-bar');
@@ -1127,6 +1127,10 @@ function videoReview(card, ctx) {
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const PAD = 10, LANE = 16;   // px: side padding, picks lane at the bottom
     let W = 0, H = 0;
+    let hover = null;   // 'start' | 'end' | 'move' | null — what the pointer is over
+    let previewT = null;   // time under the pointer (or under the dragged handle): its frame is shown
+    const thumbAt = (t) => { let th = thumbs[0]; for (const c of thumbs) if (Math.abs(c.t - t) < Math.abs(th.t - t)) th = c; return th; };
+    const frameAt = (t) => { let lo = 0, hi = frames.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (frames[m].t < t) lo = m + 1; else hi = m; } return frames[lo]; };
     const size = (cv) => {
       const r = cv.getBoundingClientRect();
       cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
@@ -1149,17 +1153,24 @@ function videoReview(card, ctx) {
       // range fill
       g.fillStyle = C.accent14;
       g.fillRect(xOf(range.start), top - 4, xOf(range.end) - xOf(range.start), bottom - top + LANE + 8);
-      // focus area, one column per pixel (max over the frames it covers)
+      // focus curve: one point per frame when the frames are sparser than the
+      // pixels, else the max per pixel column (a long video on a wide screen)
       const cols = Math.max(1, Math.floor(w - 2 * PAD));
-      const colMax = new Float32Array(cols);
-      for (const f of frames) { const c = Math.min(cols - 1, Math.floor(((f.t / duration) * cols))); if (f.focus > colMax[c]) colMax[c] = f.focus; }
-      g.beginPath(); g.moveTo(PAD, bottom);
-      for (let c = 0; c < cols; c++) g.lineTo(PAD + c, bottom - Math.min(1, colMax[c] / fMax) * ph);
-      g.lineTo(PAD + cols - 1, bottom); g.closePath();
+      const pts = [];
+      if (frames.length <= 2 * cols) {
+        for (const f of frames) pts.push([xOf(f.t), bottom - Math.min(1, f.focus / fMax) * ph]);
+      } else {
+        const colMax = new Float32Array(cols);
+        for (const f of frames) { const c = Math.min(cols - 1, Math.floor(((f.t / duration) * cols))); if (f.focus > colMax[c]) colMax[c] = f.focus; }
+        for (let c = 0; c < cols; c++) pts.push([PAD + c, bottom - Math.min(1, colMax[c] / fMax) * ph]);
+      }
+      g.beginPath(); g.moveTo(pts[0][0], bottom);
+      for (const [x, y] of pts) g.lineTo(x, y);
+      g.lineTo(pts[pts.length - 1][0], bottom); g.closePath();
       g.fillStyle = C.accent30; g.fill();
       g.beginPath();
-      for (let c = 0; c < cols; c++) { const y = bottom - Math.min(1, colMax[c] / fMax) * ph; if (c) g.lineTo(PAD + c, y); else g.moveTo(PAD + c, y); }
-      g.strokeStyle = C.accent; g.lineWidth = 1; g.stroke();
+      pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+      g.strokeStyle = C.accent; g.lineWidth = 1.25; g.stroke();
       // blur dips
       g.fillStyle = C.red;
       for (const f of frames) if (f.blur) g.fillRect(xOf(f.t) - 0.5, bottom - 6, 1, 6);
@@ -1173,12 +1184,32 @@ function videoReview(card, ctx) {
       // dim outside the range
       g.fillStyle = 'rgba(7, 9, 9, .55)';
       g.fillRect(0, 0, xOf(range.start), h); g.fillRect(xOf(range.end), 0, w - xOf(range.end), h);
-      // handles
-      for (const t of [range.start, range.end]) {
-        const x = xOf(t);
-        g.fillStyle = C.accent; g.fillRect(x - 1.5, top - 6, 3, bottom - top + LANE + 12);
-        g.fillStyle = C.paper; g.fillRect(x - 5, (top + bottom) / 2 - 9, 10, 18);
-        g.fillStyle = C.accent; g.fillRect(x - 0.5, (top + bottom) / 2 - 5, 1, 10);
+      // handles: the hovered / dragged one grows and glows
+      const active = drag ? drag.kind : hover;
+      if (active === 'move') { g.strokeStyle = C.accent; g.lineWidth = 1.5; g.strokeRect(xOf(range.start), top - 4, xOf(range.end) - xOf(range.start), bottom - top + LANE + 8); }
+      for (const [t, kind] of [[range.start, 'start'], [range.end, 'end']]) {
+        const x = xOf(t), on = active === kind, hw = on ? 8 : 5, hh = on ? 15 : 9, cy = (top + bottom) / 2;
+        if (on) { g.shadowColor = C.accent; g.shadowBlur = 14; }
+        g.fillStyle = C.accent; g.fillRect(x - (on ? 2 : 1.5), top - 6, on ? 4 : 3, bottom - top + LANE + 12);
+        g.fillStyle = C.paper; g.beginPath(); g.roundRect(x - hw, cy - hh, 2 * hw, 2 * hh, 3); g.fill();
+        g.shadowBlur = 0;
+        g.fillStyle = C.accent;
+        for (const dx of on ? [-3, 0, 3] : [0]) g.fillRect(x + dx - 0.5, cy - (on ? 7 : 5), 1, on ? 14 : 10);
+      }
+      // frame under the pointer: hairline + thumbnail + its scores
+      if (previewT != null && thumbs && thumbs.length) {
+        const th = thumbAt(previewT), fr = frameAt(previewT);
+        const x = xOf(previewT);
+        g.fillStyle = C.paper; g.fillRect(x - 0.5, top - 6, 1, bottom - top + LANE + 12);
+        const pw = Math.min(260, Math.max(120, Math.round(w * 0.22))), phh = Math.round(pw * th.canvas.height / th.canvas.width);
+        const px = Math.max(PAD, Math.min(w - PAD - pw, x - pw / 2)), py = top + 2;
+        g.fillStyle = 'rgba(7, 9, 9, .92)'; g.beginPath(); g.roundRect(px - 3, py - 3, pw + 6, phh + 24, 6); g.fill();
+        g.drawImage(th.canvas, px, py, pw, phh);
+        g.strokeStyle = fr.blur ? C.red : fr.picked ? C.accent : C.muted; g.lineWidth = 1.5; g.strokeRect(px + 0.5, py + 0.5, pw - 1, phh - 1);
+        g.font = `11px ${css('--mono')}`; g.textBaseline = 'middle'; g.textAlign = 'left'; g.fillStyle = C.paper;
+        g.fillText(`${fmt(fr.t)}  sharpness ${Math.round(fr.focus)}`, px + 2, py + phh + 11);
+        g.textAlign = 'right'; g.fillStyle = fr.blur ? C.red : fr.picked ? C.accent : C.dim;
+        g.fillText(fr.blur ? 'blur dip' : fr.picked ? 'picked' : 'not picked', px + pw - 2, py + phh + 11);
       }
       // time labels
       g.fillStyle = C.dim; g.font = `10px ${css('--mono')}`; g.textBaseline = 'top';
@@ -1192,7 +1223,7 @@ function videoReview(card, ctx) {
       const [g, w, h] = size(strip);
       g.clearRect(0, 0, w, h);
       if (!thumbs || !thumbs.length || !plan.picks.length) return;
-      const slot = 80, n = Math.max(1, Math.min(plan.picks.length, Math.floor(w / slot)));
+      const slot = Math.max(80, Math.round((h - 8) * 1.5)), n = Math.max(1, Math.min(plan.picks.length, Math.floor(w / slot)));
       const sw = w / n;
       for (let k = 0; k < n; k++) {
         const pi = plan.picks[Math.round((k / Math.max(1, n - 1)) * (plan.picks.length - 1))];
@@ -1240,16 +1271,24 @@ function videoReview(card, ctx) {
 
     // dragging: a handle (near it), or the whole range (inside it)
     let drag = null;
+    const hit = (x) => {
+      const xs = xOf(range.start), xe = xOf(range.end);
+      if (Math.abs(x - xs) <= 14 && Math.abs(x - xs) <= Math.abs(x - xe)) return 'start';
+      if (Math.abs(x - xe) <= 14) return 'end';
+      if (x > xs && x < xe) return 'move';
+      return null;
+    };
+    const cursorFor = (kind, down) => kind === 'move' ? (down ? 'grabbing' : 'grab') : kind ? 'ew-resize' : 'crosshair';
     tl.addEventListener('pointerdown', (e) => {
       const x = e.offsetX;
-      const xs = xOf(range.start), xe = xOf(range.end);
-      if (Math.abs(x - xs) <= 12 && Math.abs(x - xs) <= Math.abs(x - xe)) drag = { kind: 'start' };
-      else if (Math.abs(x - xe) <= 12) drag = { kind: 'end' };
-      else if (x > xs && x < xe) drag = { kind: 'move', t0: tOf(x), s0: range.start, e0: range.end };
-      else drag = { kind: x < xs ? 'start' : 'end' };
+      const h = hit(x);
+      if (h === 'move') drag = { kind: 'move', t0: tOf(x), s0: range.start, e0: range.end };
+      else drag = { kind: h || (x < xOf(range.start) ? 'start' : 'end') };
+      tl.style.cursor = cursorFor(drag.kind, true);
       try { tl.setPointerCapture(e.pointerId); } catch {}
       onMove(e);
     });
+    tl.addEventListener('pointerleave', () => { if (!drag && (hover || previewT != null)) { hover = null; previewT = null; tl.style.cursor = 'crosshair'; drawTimeline(); } });
     let raf = 0;
     const onMove = (e) => {
       if (!drag) return;
@@ -1263,10 +1302,17 @@ function videoReview(card, ctx) {
         s = Math.max(full.start, Math.min(full.end - len, s));
         r = { start: s, end: s + len };
       }
+      previewT = drag.kind === 'start' ? Math.max(full.start, Math.min(r.start, r.end)) : drag.kind === 'end' ? Math.min(full.end, r.end) : t;
       if (!raf) raf = requestAnimationFrame(() => { raf = 0; setRange(r); });
     };
-    tl.addEventListener('pointermove', onMove);
-    const onUp = () => { drag = null; };
+    tl.addEventListener('pointermove', (e) => {
+      if (drag) { onMove(e); return; }
+      const h = hit(e.offsetX);
+      hover = h; tl.style.cursor = cursorFor(h, false);
+      previewT = tOf(e.offsetX);
+      if (!raf) raf = requestAnimationFrame(() => { raf = 0; drawTimeline(); });
+    });
+    const onUp = (e) => { drag = null; hover = hit(e.offsetX); tl.style.cursor = cursorFor(hover, false); if (e.pointerType === 'touch') { hover = null; previewT = null; } drawTimeline(); };
     tl.addEventListener('pointerup', onUp);
     tl.addEventListener('pointercancel', onUp);
     $('vid-reset').onclick = () => setRange({ ...full });
