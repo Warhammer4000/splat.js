@@ -281,7 +281,11 @@ function boot() {
     location.href = 'index.html';
   });
   $('card-x').addEventListener('click', closePicker);
-  $('file-input').addEventListener('change', (e) => useOwnPhotos(e.target.files));
+  $('file-input').addEventListener('change', (e) => {
+    const files = Array.from(e.target.files);
+    e.target.value = '';   // so the same file can be picked again (a cancelled video review, a retry)
+    useOwnPhotos(files);
+  });
   if (cameraSupported()) {
     const rb = $('btn-record');
     rb.hidden = false;
@@ -1116,6 +1120,7 @@ function videoReview(card, ctx) {
     S.videoReview = ctx;   // console / e2e access
     const fmt = (t) => `${t.toFixed(1)} s`;
     card.innerHTML = `
+      <button class="card-x" id="vid-x" aria-label="Cancel">&times;</button>
       <div class="vid-head"><b>Your video</b><span class="prep-sub">${frames.length} frames scored · ${fmt(duration)} · ${ctx.videoW}×${ctx.videoH}</span></div>
       <div class="vid-legend"><span><i class="focus"></i>sharpness</span><span><i class="pick"></i>picked frame</span><span><i class="blur"></i>blur dip</span><span><i class="cut"></i>cut</span><span><i class="range"></i>range used</span></div>
       <canvas class="vid-tl" id="vid-tl"></canvas>
@@ -1316,11 +1321,13 @@ function videoReview(card, ctx) {
     tl.addEventListener('pointerup', onUp);
     tl.addEventListener('pointercancel', onUp);
     $('vid-reset').onclick = () => setRange({ ...full });
-    $('vid-cancel').onclick = () => { cleanup(); resolve(null); };
+    $('vid-cancel').onclick = $('vid-x').onclick = () => { cleanup(); resolve(null); };
+    const onKey = (e) => { if (e.key === 'Escape') { cleanup(); resolve(null); } };
+    window.addEventListener('keydown', onKey);
     $('vid-use').onclick = () => { cleanup(); resolve({ picks: plan.picks }); };
     const onResize = () => redraw();
     window.addEventListener('resize', onResize);
-    function cleanup() { window.removeEventListener('resize', onResize); S.videoReview = null; }
+    function cleanup() { window.removeEventListener('resize', onResize); window.removeEventListener('keydown', onKey); S.videoReview = null; }
     setRange(range);
   });
 }

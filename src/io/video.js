@@ -712,7 +712,7 @@ export async function extractSharpFrames(file, opts = {}) {
     try {
       return await extractWebCodecs(file, opts, log, onProgress);
     } catch (e) {
-      if (engine === 'webcodecs') throw e;
+      if (engine === 'webcodecs' || e.message === 'cancelled') throw e;   // a cancelled review is not a decoder failure
       log(`WebCodecs path unavailable (${e.message}) — using the <video> element`);
     }
   }

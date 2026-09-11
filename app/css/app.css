@@ -921,6 +921,7 @@ a.cbtn { text-decoration: none; }
 /* fullscreen sheet on every device; content column capped at 1200 px */
 #vidcard { position: fixed; inset: 0; transform: none; width: auto; border-radius: 0; border: 0; overflow-y: auto; gap: 14px; padding: clamp(16px, 4vh, 40px) clamp(16px, 6vw, 80px); justify-content: center; background: rgba(10, 13, 13, .985); }
 #vidcard > * { width: min(1200px, 100%); margin: 0 auto; }
+#vidcard > .card-x { position: absolute; top: 14px; right: 16px; width: 36px; margin: 0; z-index: 1; }
 #vidcard .vid-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
 #vidcard .vid-head b { font: 600 22px var(--ui); }
 #vidcard .vid-head .prep-sub { font-size: 13px; }
