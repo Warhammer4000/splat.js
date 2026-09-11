@@ -3260,7 +3260,7 @@ function shareDialog(rec = null) {
     <b>Share this creation</b>
     <input id="sh-title" type="text" spellcheck="false" maxlength="80">
     <label class="upcard-opt"><select id="sh-priv">
-      <option value="Public">Public — listed in the gallery</option>
+      <option value="Open">Public — listed in the gallery</option>   <!-- stored value: the gallery lists "Open" only; PUT /spaces stores the raw value -->
       <option value="Link Only">Anyone with the link</option>
     </select></label>
     ${needsPhotos && (S.loadedFiles || []).length ? `
