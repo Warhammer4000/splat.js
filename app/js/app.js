@@ -18,6 +18,7 @@ import { buildSessionZip, fetchModel } from './session_io.js';
 import { PRESETS, REPO, DATA, ownSet } from './data.js';
 // official demo scenes on the wall that are not bundled presets (Garden, The Lab, Camping)
 const EXTRA_PRESET_SPACES = ['42485456_3427', '42485456_9670', '42485456_7518'];
+const presetSpaceIds = () => new Set([...PRESETS.map((p) => p.spaceId).filter(Boolean), ...EXTRA_PRESET_SPACES]);
 import { Viewport, camCentre } from './viewport.js';
 import { Developer, fitRect } from './develop.js';
 import { Chart } from './chart.js';
@@ -549,6 +550,13 @@ function boot() {
   if (mp.get('space')) restoreShared(mp.get('space'));
   else if (mp.get('model')) restoreSession({ url: mp.get('model'), reconUrl: mp.get('recon') });
   else mountWall();
+  // ?admin: the community moderation sheet over the home wall
+  if (mp.has('admin')) {
+    import('./admin.js').then(({ adminDashboard }) => adminDashboard({
+      flash, ownerInfo, presetIds: presetSpaceIds(),
+      onClose: () => { history.replaceState(null, '', location.pathname); showHome(); },
+    })).catch((e) => flash(`Admin sheet failed: ${e.message}`, 8000));
+  }
 }
 
 // WebGPU probe: navigator.gpu can EXIST while the adapter is unavailable
@@ -3649,7 +3657,7 @@ async function mountWall() {
     for (const t of own) row.appendChild(t);
     // the presets (the official demo scenes: pinned first, then newest), then
     // everyone's shared scenes newest first, each tile with its byline
-    const presetIds = new Set([...PRESETS.map((p) => p.spaceId).filter(Boolean), ...EXTRA_PRESET_SPACES]);
+    const presetIds = presetSpaceIds();
     const mineIds = new Set((myShares || []).map((x) => String(x.id)));
     const rest = (items || []).filter((x) => !mineIds.has(String(x.id)));   // no duplicate of an own share
     const pinOf = (x) => (x.splatjs && x.splatjs.pin) || 9e9;
