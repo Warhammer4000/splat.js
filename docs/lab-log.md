@@ -4,6 +4,57 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-12 (the rig fits itself: markers from the capture's cameras)
+
+User: "now the hard part" - automate the rigger fit (hands, feet, the lot); the
+existing auto-fit is a bounding-box guess (height -> scale, median XZ + min Y
+-> position, a 90-degree yaw if deeper than wide) and everything else is
+dragged by hand in Line up / fine-tune.
+
+- **The asset the manual flow never had**: 186 solved cameras for the same
+  body. So: MediaPipe PoseLandmarker (33 landmarks incl. heels and toes, 0.03
+  s/frame CPU) on every registered frame -> triangulate each landmark across
+  the cameras (DLT, then re-solved without views whose reprojection error is
+  above max(3 px, 2x median); >= 4 views) -> the rigger's fifteen markers ->
+  its own `solveFit` (align-solver.js, with bone stretch) -> fit JSON that
+  `index.html?fit=` opens and `export-binding.mjs` binds. Tools live in
+  `client_git/splat-rigger/tools/autofit_markers.py` + `autofit.mjs`
+  (client_git 82feec163).
+- **Frames**: the recon's PLY frame is Y-down (head at small y - confirmed on
+  the splat's own width-per-slice profile and camera heights); the rigger
+  flips 180deg about X and applies `splatRotation` on top; the same R is
+  applied to the markers, so markers and splat stay self-consistent whatever
+  the yaw. Fit `markers` are stored fit-local, (m - p)/s, like
+  AlignMode._localMarkers.
+- Lisa: 118/186 frames had a full-body detection (close-ups do not); every
+  landmark triangulated, medians 1.6-8.6 px at feature scale (hips worst -
+  she sways).
+- **First fit**: scale 0.978, binding **2.4 cm mean, 0 far** - the rig lands
+  on the splat everywhere - and it walks. Two tells in the stretch factors:
+  Head 1.53 (the ear midpoint sits ~0.23 above the rig's Head joint, which is
+  the top of the neck) and LeftArm 0.87 vs RightArm 1.19 (sway + far-side
+  landmark error, not a body).
+- **Fixes**: Head marker = shoulder line + 0.59 x (ears - shoulder line), the
+  rig's own proportion; markers symmetrised across the sagittal plane
+  (average of left and mirrored right; --asym to keep raw). The symmetry step
+  exposed a **yaw sign bug**: rotY maps angle a to a - yaw, I had yaw = pi - a
+  instead of a - pi, so the body was not facing +Z and the mirror plane
+  crushed the clavicles to 0.48 (binding 5.8 cm, 5,143 far). The first fit had
+  survived the same bug only because splat and markers get the same rotation.
+  Now asserted: the shoulder line must land on -X or the tool exits.
+- **Result**: scale 0.911 (1.70 m rig), all stretches 0.85-1.12, symmetric,
+  marker residuals ~0 (worst Spine2 2 mm), binding **4.1 cm mean, 0 far**
+  (the symmetric pose is a compromise between two swayed sides, hence > 2.4),
+  walks squarely toward the camera on the standard clip.
+- Visible left: trailing-leg smear mid-stride - weights leaking between legs
+  that stand close together (nearest-triangle transfer), the rigger's known
+  weakness, and the `Legs` bone bias exists for it; not touched tonight.
+- Owed: hands (MediaPipe has 21 hand landmarks per hand - a wrist-to-finger
+  fit for the rig's hand bones); a per-marker confidence from the
+  triangulation residual so the manual step can show which markers to trust;
+  the same tool run from the Browser_3DGS app after training (the recon and
+  frames are already there); leg-weight bias by default for masked avatars.
+
 ## 2026-09-11d (the cleared area needs a real target: random background)
 
 User: still far too fuzzy; a scene-trained cut-out is sharper; "more punishment
