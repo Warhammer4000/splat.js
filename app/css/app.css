@@ -999,3 +999,23 @@ a.cbtn { text-decoration: none; }
   .adm-state { grid-column: 2; justify-self: start; }
   .adm-acts { grid-column: 1 / -1; }
 }
+
+/* the wall: Benchmarks | Community [| This device] tabs over responsive grids */
+/* sticky at the top of whatever scrolls: the fixed start card on wide screens, the window (under the 52 px bar) on phones */
+.walltabs { display: flex; gap: 6px; justify-content: center; width: min(1100px, 100%); margin: 10px auto 0; padding: 8px 0; position: sticky; top: 0; z-index: 5; background: var(--ink); scroll-margin-top: 0; }
+/* the start card pads its top by 58 px on wide screens; the stuck row paints that gap so tiles do not show through */
+.walltabs::before { content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: 58px; background: var(--ink); }
+@media (max-width: 640px) { .walltabs { top: 52px; scroll-margin-top: 52px; } .walltabs::before { display: none; } }
+.walltabs [role="tab"] { padding: 8px 18px; border-radius: 999px; border: 1px solid transparent; background: none; color: var(--muted); font: 600 14px var(--ui); cursor: pointer; }
+.walltabs [role="tab"]:hover { color: var(--paper); }
+.walltabs [role="tab"].on { color: var(--accent); background: var(--accent-14); border-color: var(--accent-30); }
+.galgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 26px 18px; width: min(1100px, 100%); margin: 6px auto 0; padding: 10px 0 14px; }
+.galgrid .galtile { width: 100%; margin: 0; }
+.galgrid .galsep, .galgrid .orline { grid-column: 1 / -1; }
+@media (max-width: 1000px) { .galgrid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 640px) { .galgrid { grid-template-columns: 1fr; } }
+.galmore { grid-column: 1 / -1; justify-self: center; margin: 10px 0 6px; }
+.galempty { grid-column: 1 / -1; color: var(--dim); text-align: center; margin: 24px 0; }
+.galtag { position: absolute; top: 18px; left: 18px; z-index: 1; padding: 4px 9px; border-radius: 6px; background: rgba(7, 9, 9, .78); backdrop-filter: blur(6px); font: 600 10.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--alt); font-style: normal; }
+/* grid tiles: long curated descriptions clamp so rows stay even */
+.galgrid .galdesc { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }

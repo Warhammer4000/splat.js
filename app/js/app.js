@@ -3586,10 +3586,17 @@ function ownerInfo(ownerId) {
 }
 const shareDate = (d) => { const t = new Date(d); return isNaN(t) ? '' : t.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }); };
 
-function creationTile(it, mine, { shared = false } = {}) {
+function creationTile(it, mine, { shared = false, preset = false } = {}) {
   const wrap = document.createElement('a');
   wrap.className = 'galtile';
   const img = (it.splatjs && it.splatjs.thumbUrl) || it.screenshotUrl || '';
+  // a benchmark tile names the scene and tags the dataset ("Truck — Tanks & Temples")
+  let title = it.title || 'Untitled', tag = '';
+  if (preset) {
+    const [name, dataset] = title.split(' — ');
+    title = name;
+    tag = dataset || ((it.splatjs && it.splatjs.badge === '360') ? '360° rig' : /camping/i.test(name) ? 'Phone video' : /synthetic/i.test(name) ? 'Sample' : '');
+  }
   const dB = it.splatjs && (it.splatjs.psnrTest ? it.splatjs.psnrTest.psnr : it.splatjs.psnrTrain);
   // index.html explicitly: a bare "?space=" resolves against <base> to the
   // trailing-slash URL, and the CDN's slash-stripping 301 EATS the query
@@ -3599,7 +3606,8 @@ function creationTile(it, mine, { shared = false } = {}) {
   const badge = it.splatjs && it.splatjs.badge;
   wrap.innerHTML = `<img loading="lazy" src="${esc(img)}" alt="" onerror="this.style.visibility='hidden'">
     ${badge ? `<i class="yours">${esc(badge)}</i>` : ''}
-    <span class="galname">${esc(it.title || 'Untitled')}${shared ? `<time>${esc(shareDate(it.createdDate))}</time>` : ''}</span>
+    ${tag ? `<i class="galtag">${esc(tag)}</i>` : ''}
+    <span class="galname">${esc(title)}${shared ? `<time>${esc(shareDate(it.createdDate))}</time>` : ''}</span>
     ${it.description && !(shared && /trained in the browser by Splat.js/.test(it.description)) ? `<span class="galdesc">${esc(it.description)}</span>` : ''}
     <span class="galmeta">${fmt((it.splatjs && it.splatjs.splats) || 0)} splats${dB ? ` · ${(+dB).toFixed(1)} dB` : ''}${it.splatjs && it.splatjs.sogMb ? ` · ${it.splatjs.sogMb} MB` : ''}</span>`;
   if (shared) {
@@ -3628,6 +3636,46 @@ function creationTile(it, mine, { shared = false } = {}) {
   return wrap;
 }
 
+const WALL_KEY = 'splatjs.wall';   // { tab, y }: where the visitor was on the wall
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual';   // the wall restores its own position
+function wallState() { try { return JSON.parse(sessionStorage.getItem(WALL_KEY) || 'null'); } catch { return null; } }
+// the home scrolls inside the fixed start card on wide screens and with the
+// window on phones — read and set the position on whichever scrolls
+const wallScroller = () => { const st = $('start'); return (st && !st.hidden && getComputedStyle(st).position === 'fixed') ? st : null; };
+const wallY = () => { const sc = wallScroller(); return Math.round(sc ? sc.scrollTop : window.scrollY); };
+const wallScrollTo = (y) => { const sc = wallScroller(); if (sc) sc.scrollTop = y; else window.scrollTo(0, y); };
+function saveWallState() {
+  const on = document.querySelector('#walltabs [aria-selected="true"]');
+  try { sessionStorage.setItem(WALL_KEY, JSON.stringify({ tab: on ? on.dataset.tab : 'bench', y: wallY() })); } catch {}
+}
+// back from a scene through the browser's page cache: the wall is still
+// there, the scroll is not — put the visitor back where they were
+window.addEventListener('pageshow', (e) => {
+  if (!e.persisted || !document.getElementById('walltabs')) return;
+  const saved = wallState();
+  if (saved) selectWallTab(saved.tab, { restoreY: saved.y });
+});
+/** Show one wall tab. scrollToTabs: bring the tab row to the top (a switch
+ *  starts the new list from its top); restoreY: land where the visitor was. */
+function selectWallTab(name, { scrollToTabs = false, restoreY = null } = {}) {
+  const host = $('gallery');
+  host.querySelectorAll('[role="tab"]').forEach((b) => { const on = b.dataset.tab === name; b.setAttribute('aria-selected', on ? 'true' : 'false'); b.classList.toggle('on', on); });
+  host.querySelectorAll('[data-pane]').forEach((p) => { p.hidden = p.dataset.pane !== name; });
+  if (scrollToTabs) { $('walltabs').scrollIntoView({ block: 'start', behavior: 'smooth' }); saveWallState(); }
+  else if (restoreY != null) {
+    // the wall may still be laying out (the start card shows a beat later on
+    // phones): keep trying for two seconds until the position holds
+    // (and the browser's own back-navigation restore may land on 0 a beat
+    // later: keep re-asserting until the position has held for a moment)
+    let held = 0;
+    const tryScroll = (n) => {
+      if (Math.abs(wallY() - restoreY) > 2) { wallScrollTo(restoreY); held = 0; } else held++;
+      if (held < 3 && n < 25) setTimeout(() => tryScroll(n + 1), 100);
+    };
+    tryScroll(0);
+  }
+}
+
 /** The creation wall on the start card: Scenes (public, everyone) and —
  *  when this device holds anything of the visitor's own — Local: the last
  *  capture from this browser's storage plus, signed in, their shares
@@ -3641,22 +3689,13 @@ async function mountWall() {
       localRunTiles().catch(() => []),
       hasToken() ? fetchMine().catch(() => []) : Promise.resolve([]),
     ]);
-    // ONE list, the visitor first: their capture, their runs, their shares
-    // always lead; the presets follow behind a slim divider. (The old
-    // Presets/Yours tabs became redundant the moment own content led.)
+    // the visitor's own content (capture, runs, shares) lives on its own tab
     const own = [];
     if (capTile) own.push(capTile);
     for (const t of runTiles) own.push(t);
     for (const it of (myShares || [])) own.push(creationTile(it, false));
     if ((!items || !items.length) && !own.length) return;
     const host = $('gallery');
-    host.innerHTML = `
-      <div class="orline"><span>${own.length ? 'This device' : 'Presets'}</span></div>
-      <div class="galrow" data-pane="all"></div>`;
-    const row = host.querySelector('[data-pane="all"]');
-    for (const t of own) row.appendChild(t);
-    // the presets (the official demo scenes: pinned first, then newest), then
-    // everyone's shared scenes newest first, each tile with its byline
     const presetIds = presetSpaceIds();
     const mineIds = new Set((myShares || []).map((x) => String(x.id)));
     const rest = (items || []).filter((x) => !mineIds.has(String(x.id)));   // no duplicate of an own share
@@ -3664,12 +3703,33 @@ async function mountWall() {
     const newer = (a, b) => new Date(b.createdDate) - new Date(a.createdDate);
     const presets = rest.filter((x) => presetIds.has(String(x.id))).sort((a, b) => (pinOf(a) - pinOf(b)) || newer(a, b));
     const shares = rest.filter((x) => !presetIds.has(String(x.id))).sort(newer);
-    const divider = (label) => { const sep = document.createElement('div'); sep.className = 'galsep'; sep.innerHTML = `<span>${label}</span>`; row.appendChild(sep); };
-    if (own.length && presets.length) divider('Presets');
-    for (const it of presets) row.appendChild(creationTile(it, false));
-    if (shares.length) divider('Shared by people');
-    for (const it of shares) row.appendChild(creationTile(it, false, { shared: true }));
-    dragScroll(row);
+    // tabs: Benchmarks | Community [| This device]. The chosen tab and the
+    // scroll position survive a trip into a scene (sessionStorage), so Back
+    // lands on the next tile instead of the top of the page.
+    const tabs = [['bench', 'Benchmarks'], ['community', 'Community']];
+    if (own.length) tabs.push(['device', 'This device']);
+    host.innerHTML = `<div class="walltabs" id="walltabs" role="tablist">${tabs.map(([k, l]) => `<button type="button" role="tab" data-tab="${k}">${esc(l)}</button>`).join('')}</div>
+      ${own.length ? '<div class="galgrid" data-pane="device" hidden></div>' : ''}
+      <div class="galgrid" data-pane="bench"></div>
+      <div class="galgrid" data-pane="community" hidden></div>`;   // own content first in the DOM too
+    const pane = (k) => host.querySelector(`[data-pane="${k}"]`);
+    for (const it of presets) pane('bench').appendChild(creationTile(it, false, { preset: true }));
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'btn btn-outline galmore';
+    more.textContent = 'See what people made →';
+    more.addEventListener('click', () => selectWallTab('community', { scrollToTabs: true }));
+    pane('bench').appendChild(more);
+    if (shares.length) for (const it of shares) pane('community').appendChild(creationTile(it, false, { shared: true }));
+    else pane('community').innerHTML = '<p class="galempty">Nothing shared yet — yours could be the first.</p>';
+    if (own.length) for (const t of own) pane('device').appendChild(t);
+    host.querySelectorAll('[role="tab"]').forEach((b) => b.addEventListener('click', () => selectWallTab(b.dataset.tab, { scrollToTabs: true })));
+    host.addEventListener('click', (e) => { if (e.target.closest('a.galtile')) saveWallState(); }, true);
+    const saved = wallState();
+    // first visit: own content leads when there is any (a run just finished
+    // wants its tile), otherwise the benchmarks; a saved position wins
+    const initial = saved && host.querySelector(`[data-tab="${saved.tab}"]`) ? saved.tab : (own.length ? 'device' : 'bench');
+    selectWallTab(initial, { restoreY: saved ? saved.y : null });
     host.hidden = false;
   } catch (e) { /* the wall is decoration — never block the app on it */ }
 }
