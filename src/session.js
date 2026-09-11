@@ -76,6 +76,20 @@ export function undistortFrames(frames, recon) {
         }
       }
     }
+    if (im.alpha) {
+      // the subject alpha rides along (nearest), or it drifts off the photo
+      const adst = new Uint8Array(im.alpha.length);
+      for (let y = 0; y < im.th; y++) {
+        for (let x = 0; x < im.tw; x++) {
+          const xp = (x + 0.5 - cx) / f, yp = (y + 0.5 - cy) / f;
+          const r2 = xp * xp + yp * yp;
+          const D = 1 + k1 * r2 + k2 * r2 * r2;
+          const rx = Math.round(f * xp * D + cx - 0.5), ry = Math.round(f * yp * D + cy - 0.5);
+          adst[y * im.tw + x] = (rx < 0 || ry < 0 || rx >= im.tw || ry >= im.th) ? 0 : im.alpha[ry * im.tw + rx];
+        }
+      }
+      im.alpha = adst;
+    }
     im.rgb = dst;
   }
   return true;
@@ -299,13 +313,13 @@ export class Session {
    *  create it. (Measured 2026-09-11: coverage loss alone, covW 3, left the
    *  room fully opaque at 45% dead splats.)
    *
-   *  The masks are already in the frames — a training pixel below -1.5 is the
-   *  TGT_EMPTY sentinel — so this needs no extra input. A point is kept when
+   *  The masks are already in the frames (frame.alpha), so this needs no
+   *  extra input. A point is kept when
    *  it lands on the subject in at least `keep` of the views that see it.
    */
   maskPoints(keep = 0.5) {
     const frames = this.frames;
-    if (!frames.some((f) => f.emptyFrac > 0)) return 0;
+    if (!frames.some((f) => f.alpha && f.emptyFrac > 0)) return 0;
     const pts = this.recon.points;
     const seen = new Int32Array(pts.length);
     const subj = new Int32Array(pts.length);
@@ -321,7 +335,7 @@ export class Session {
         const v = ((c.fy ?? c.f) * (R[3] * X[0] + R[4] * X[1] + R[5] * X[2] + t[1]) / z + c.cy) * sy;
         if (u < 0 || v < 0 || u >= im.tw || v >= im.th) continue;
         seen[i]++;
-        if (im.rgb[((v | 0) * im.tw + (u | 0)) * 3] > -1.5) subj[i]++;
+        if (im.alpha[(v | 0) * im.tw + (u | 0)] > 64) subj[i]++;   // not known-empty
       }
     }
     const before = pts.length;

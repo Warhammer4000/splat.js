@@ -4,6 +4,79 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-11d (the cleared area needs a real target: random background)
+
+User: still far too fuzzy; a scene-trained cut-out is sharper; "more punishment
+for splats on the cleared area". Right on all three, and the third names the
+mechanism: a scene-trained cut-out is sharp because every pixel outside the
+subject has a REAL target (the wall), so a bulging splat is punished at full
+photometric strength on its SCALE and POSITION. My coverage loss only pushed
+opacity - the one channel that dies at saturation.
+
+- **Checked the reference first** (user: "masking is a standard feature of
+  LichtFeld, you can give it a transparent PNG"). It is, and it is the same
+  three mechanisms: `MaskMode::Segment` = `weight * mean(alpha * (1-mask)^power)`
+  with weight 1.0, power 2 (our covW, linear instead of BCE);
+  `AlphaConsistent` = L1(alpha, mask) x 10 (our covS); `use_alpha_as_mask`
+  reads the PNG alpha; `BackgroundMode::Random`. `mask_mode` defaults to None,
+  so a transparent PNG does nothing there until a mode is picked.
+- **Random background** (`randomBg`, default on for masked sets): each step
+  draws a background colour, empty pixels take it as their target, the render
+  composites onto it. A fixed colour is the curtain trap (an opaque splat of
+  that colour scores as empty); a moving one cannot be matched, so the
+  photometric loss shoves whatever is in the cleared area out through scale
+  and position. What the wall does, without the wall.
+- **BUG on the first run (v8/v9), and its diagnosis was wrong.** 22.8 dB. I
+  blamed per-image exposure (the empty target must be gain*bg + bias, or a
+  clean pixel keeps a residual the model removes by tinting) - a real bug,
+  fixed, but NOT the cause: v9 with the fix scored the same 22.86. The
+  black/white render pair said the background was CLEAN; the loss was in the
+  subject. Lesson re-learned: look at the render before theorising.
+- **Silhouette ruler, v9 (13 held-out views): IoU 0.937, halo 0.005, edge
+  band 2.6 px** - halo 28x below the afternoon's best (0.124), edge 3.7x
+  tighter, no offline prune at all. The fuzz is gone.
+- **The cost**: subject PSNR 26.15 -> 21.8 on the offline ruler. Split by
+  region (outer 6 px vs body core): edge band 22.2 -> 16.0 dB, core 27.0 ->
+  23.5, interior coverage 0.98 -> 0.95, signed error -0.006 -> -0.02 (body
+  rendered ~2% darker). Two mechanisms: (1) where the matte is a pixel tight
+  or the subject MOVED between frames, an "empty" vote is now as strong as a
+  "photo" vote and the optimiser erodes thin structure (hair, fingers) - the
+  view inconsistency I flagged on day one, moved from "halo" to "eroded";
+  (2) the random background leaks through the small residual translucency
+  every splat surface has (T ~ 0.03 -> colours converge to photo - T*E[bg]),
+  which is a ~1.5% darkening on black. Original 3DGS sidesteps (2) by
+  evaluating on the training background.
+- **Soft alpha-composited target** (v11, the RGBA convention of 3DGS and
+  LichtFeld): frames keep the photo whole plus a Uint8 alpha; the kernel
+  composites `alpha*photo + (1-alpha)*(gain*bg+bias)` every step, the SSIM
+  pass the same. Correct, and no lever here: the trimap band it replaced was
+  0.7% of pixels; v11 = v9 on every ruler. Kept because it is right.
+- **Subject-side BCE (covS=1) is unusable**: `-1/O` blows up on subject
+  pixels early in training - 9 min for 18k cycles, PSNR falling to 10, splats
+  climbing. Killed. Left opt-in with a warning.
+- **Guard ring** (`maskGuard`, default 3 px): empty pixels within 3 px OUTSIDE
+  the matte get no loss - a ring that votes neither way, so honest matte /
+  motion slop does not erode the edge while everything beyond it is still
+  punished. v12: bench **22.90 -> 24.40 dB**, offline 21.86 -> 22.49, edge
+  band 15.7 -> 17.1, signed error -0.021 -> -0.013; silhouette unchanged
+  (IoU **0.939**, halo 0.007, edge 3.4 px). Strictly better; now the default.
+- **Where it stands** (13 held-out views):
+
+  | pipeline | offline PSNR | edge / core | IoU | halo | edge px |
+  |---|---|---|---|---|---|
+  | coverage loss + hull + offline prune (09-11c) | 26.15 | 22.2 / 27.0 | 0.886 | 0.124 | 9.96 |
+  | + random background (v9) | 21.77 | 16.0 / 23.5 | 0.937 | 0.005 | 2.6 |
+  | + soft alpha target (v11) | 21.86 | 15.7 / 24.0 | 0.935 | 0.005 | 3.3 |
+  | **+ 3 px guard ring (v12)** | 22.49 | 17.1 / 24.0 | **0.939** | 0.007 | 3.4 |
+
+  The user's read: the results look good. They do - the remaining loss is a
+  subtly thinner outline on hair and fingers and a ~1.3% darkening, neither
+  visible at viewing size, both real on the ruler.
+- Owed: (1) evaluate/export with the leak in mind (a neutral background at
+  eval, or push T -> 0 on the subject by a stable means - NOT the BCE);
+  (2) the capture experiment, still - the erosion is view disagreement and a
+  20 s clip attacks it at the source; (3) guard width A/B (2/3/5 px).
+
 ## 2026-09-11c (in-loop hull pruning — density control, the other half)
 
 Owed from 09-11b: mask-driven pruning INSIDE refine, because an opacity loss

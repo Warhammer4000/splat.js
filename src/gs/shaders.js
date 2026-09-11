@@ -566,11 +566,13 @@ fn main(@builtin(workgroup_id) wg: vec3u,
 // 2 = backward only (restores C/T/end, mixes the SSIM gradient into gC);
 // 3 = backward only for SSAA (this kernel runs at ssaa x the loss res; gC
 //     comes from the downsample-loss pass's per-1x-pixel gradient buffer).
-// Target alpha byte codes in the packed RGBA8 training targets:
-//   255  a real photograph pixel     0  invalid (no loss at all)
-//   TGT_EMPTY  the subject mask says this pixel is empty — coverage is
-//              supervised to zero and the colour is ignored
-export const TGT_EMPTY = 128;
+// The alpha byte of a packed RGBA8 training target is the SUBJECT ALPHA
+// (255 for an unmasked set); 0 means invalid, no loss at all. Masked runs
+// composite the target per step: alpha * photo + (1 - alpha) * background.
+// Below this alpha a pixel counts as empty for the coverage term and the
+// readouts; at or above APHOTO it counts as subject for the PSNR.
+export const ALPHA_EMPTY = 64;
+export const ALPHA_PHOTO = 191;
 
 const makeRenderSrcRaw = (E = DEFAULT_E_CUT, A = DEFAULT_A_MIN, tileGrad = false, subgroups = false, mode = 0, ssimW = 0.2, ssaa = 2, D = 0.3, spread = 1, batch = 1, zskip = false,
   // P partial shared accumulators per gradient slot, lane-interleaved (li % P): 256 threads
@@ -796,32 +798,33 @@ ${cov ? '  var gO = 0.0; // dL/dO, where O = 1 - T is accumulated coverage' : ''
   if (lossOk) {
     let packed = tgtImg[off + pi];
     let tcode = packed >> 24u;
+    // alpha byte: the subject alpha (255 unmasked, 0 = invalid). isEmpty /
+    // isPhoto classify the pixel for the coverage term and the readouts; the
+    // target itself is composited with the full soft alpha below.
     var isEmpty = false;
+    var isPhoto = true;
     if (tcode == 0u) {
       lossOk = false; // invalid pixel (undistortion out-of-frame sentinel)
-${emptyAware ? /* wgsl */ `    } else if (tcode == ${TGT_EMPTY}u) {
-      // KNOWN EMPTY: a subject mask says nothing is here.
-${cov ? /* wgsl */ `      // Coverage term: L = -log(1 - O) = -log(T), dL/dO = 1/T, which chained
+${emptyAware ? /* wgsl */ `    } else {
+      isEmpty = tcode <= ${ALPHA_EMPTY}u;
+      isPhoto = tcode >= ${ALPHA_PHOTO}u;
+${cov ? /* wgsl */ `      // Coverage term on empty pixels: L = -log(T), dL/dO = 1/T, which chained
       // through dO/da_k = T/(1-a_k) is 1/(1-a_k) per splat. Opacity only —
       // it cannot reach a splat that has already saturated (o(1-o) -> 0).
-      gO = COVW / max(T, 1e-3);` : ''}
-${randBg ? /* wgsl */ `      // Random background: the target is THIS step's background colour
-      // (cam.misc.xyz, redrawn every step). A fixed colour is the curtain
-      // trap — an opaque splat of that colour scores as well as empty space.
-      // A moving one cannot be matched, so the full photometric gradient
-      // pushes whatever is here out, through SCALE and POSITION, which never
-      // saturate the way opacity does. It is what a real wall does for a
-      // scene-trained cut-out, without needing the wall.
-      isEmpty = true;` : /* wgsl */ `      lossOk = false; // no colour gradient, and not counted in the PSNR`}
+      if (isEmpty) { gO = COVW / max(T, 1e-3); }` : ''}
+${randBg ? '' : /* wgsl */ `      if (isEmpty) { lossOk = false; } // no random background: nothing to compare against`}
 ` : ''}    }
     if (lossOk) {
       // per-image exposure compensation (gain = cam.proj.w, bias = cam.misc2.w)
       let gain = cam.proj.w;
-      // an empty pixel's target is the background AS THE RENDER SEES IT — with
-      // this image's exposure applied. Against the raw colour a clean pixel
-      // would still carry (gain-1)*bg + bias, removable only by tinting the
-      // whole cleared area (measured: 31.0 -> 22.8 dB, dead 47% -> 15%).
-      let tcol = ${randBg ? 'select(unpack4x8unorm(packed).rgb, gain * bg + vec3f(cam.misc2.w), isEmpty)' : 'unpack4x8unorm(packed).rgb'};
+${emptyAware ? /* wgsl */ `      // Soft composite: alpha * photo + (1 - alpha) * background, the background
+      // AS THE RENDER SEES IT (this image's exposure applied - against the raw
+      // colour a clean pixel keeps a residual (gain-1)*bg + bias that the model
+      // can only remove by tinting the whole cleared area). Random per step
+      // (randBg), so nothing but transparency satisfies the empty side, and a
+      // partial pixel - hair, a finger's edge - is asked to be partial.
+      let ta = unpack4x8unorm(packed);
+      let tcol = mix(gain * bg + vec3f(cam.misc2.w), ta.rgb, ta.a);` : /* wgsl */ `      let tcol = unpack4x8unorm(packed).rgb;`}
       let err = (gain * C + vec3f(cam.misc2.w)) - tcol;
       // Charbonnier (smooth L1); gC = dL/dC up to a constant
       const DELTA = 0.03;
@@ -835,11 +838,11 @@ ${mode === 2 ? /* wgsl */ `      // mix in the D-SSIM gradient (computed by the 
       let gs = vec3f(gssim[pi * 4u], gssim[pi * 4u + 1u], gssim[pi * 4u + 2u]);
       gC = gain * ((1.0 - SSIMW) * sign(err) - SSIMW * gs);` : /* wgsl */ `      gC = gain * eg;              // dL / d(rendered color)`}
       let lossv = (root.x + root.y + root.z) - 3.0 * DELTA;
-      // an empty pixel carries no error mass: refine grows capacity where the
+      // only subject pixels carry error mass: refine grows capacity where the
       // image is wrong, and it must not chase the background
-      perr = select(lossv, 0.0, isEmpty);
-${cov && covS > 0 ? '      gO = -COVS / max(1.0 - T, 1e-3); // L = -log(O) on subject pixels' : ''}
-${mode === 2 ? '' : /* wgsl */ `      if (!isEmpty) { // photo pixels only: PSNR, loss stat, exposure
+      perr = select(0.0, lossv, isPhoto);
+${cov && covS > 0 ? '      if (isPhoto) { gO = -COVS / max(1.0 - T, 1e-3); } // L = -log(O) on subject pixels (opt-in; blows up early)' : ''}
+${mode === 2 ? '' : /* wgsl */ `      if (isPhoto) { // subject pixels only: PSNR, loss stat, exposure
       atomicAdd(&stats[2], 1u); // valid-pixel count (PSNR denominator)
       // squared error for the PSNR metric, DITHERED before quantization: plain
       // truncation zeroes sub-quantum pixels and inflates PSNR above ~40dB
@@ -1720,13 +1723,13 @@ fn kw(k: i32) -> f32 { return 0.2660255 * exp(-f32(k * k) / 4.5); }
 fn readXY(pi: u32) -> array<vec4f, 2> {
   let packed = tgtImg[bitcast<u32>(cam.misc.w) + pi];
   var o = array<vec4f, 2>(vec4f(0.0), vec4f(0.0));
-  let tc = packed >> 24u;
-  if (tc != 0u) {
+  if ((packed >> 24u) != 0u) {
     let x = cam.proj.w * vec3f(outImg[pi * 4u], outImg[pi * 4u + 1u], outImg[pi * 4u + 2u]) + vec3f(cam.misc2.w);
     o[0] = vec4f(x, 1.0);
-    // a mask-empty pixel (TGT_EMPTY) targets the step's background colour,
-    // same as the photometric term — structure there is structure to remove
-    o[1] = vec4f(select(unpack4x8unorm(packed).rgb, cam.proj.w * cam.misc.xyz + vec3f(cam.misc2.w), tc == ${TGT_EMPTY}u), 1.0);
+    // soft-composited target, same as the photometric term (alpha = 1 on an
+    // unmasked set, so this is the plain photo there)
+    let ta = unpack4x8unorm(packed);
+    o[1] = vec4f(mix(cam.proj.w * cam.misc.xyz + vec3f(cam.misc2.w), ta.rgb, ta.a), 1.0);
   }
   return o;
 }
@@ -1870,7 +1873,8 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
   }
   C /= f32(SS * SS);
   let gain = cam.proj.w;
-  let tcol = select(unpack4x8unorm(packed).rgb, gain * cam.misc.xyz + vec3f(cam.misc2.w), (packed >> 24u) == ${TGT_EMPTY}u);
+  let ta = unpack4x8unorm(packed);
+  let tcol = mix(gain * cam.misc.xyz + vec3f(cam.misc2.w), ta.rgb, ta.a);
   atomicAdd(&stats[2], 1u);
   let err = (gain * C + vec3f(cam.misc2.w)) - tcol;
   let dith = fract(sin(f32(pi) * 12.9898) * 43758.5453);

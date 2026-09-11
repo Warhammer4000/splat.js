@@ -32,12 +32,15 @@
  *   blow the GPU target budget (see adaptiveTrainCap).
  * @property {number} [targetBudgetBytes=700e6]  GPU budget for the training
  *   target buffer (all images, RGB float32).
- * @property {number} [maskCut=0.75]  a mask value at or above this is subject.
- *   High on purpose — partial silhouette pixels are person/background blends.
- *   Masks come per file (`{source, name, mask}`), see decodeFrames.
+ * @property {number} [maskCut=0.75]  a mask value at or above this counts as
+ *   subject for the PSNR and readouts. Masks come per file
+ *   (`{source, name, mask}`), see decodeFrames; the loss itself composites
+ *   the target with the full soft alpha.
  * @property {number} [maskBgCut=0.25]  at or below this the pixel is known
- *   EMPTY and is trained against black; between the two cuts it is excluded.
- *   Raise the gap to trust the matte less (and get a softer silhouette).
+ *   EMPTY for the silhouette machinery (seed filter, hull, coverage term).
+ * @property {number} [maskGuard=3]  px of empty pixels just outside the matte
+ *   that get NO loss (a ring that votes neither way); see the note in
+ *   processSource.
  */
 
 import { probeImageSize } from './pano.js';
@@ -192,39 +195,64 @@ export function processSource(src, srcW, srcH, name, trainCap, opts = {}, preRes
     mdata = mctx.getImageData(0, 0, tw, th).data;
     releaseCanvas(mctx.canvas);
   }
-  // A mask has THREE states, not two, and the third is what makes the
-  // silhouette sharp:
+  // Subject mask -> per-pixel ALPHA, kept beside the photograph. The photo is
+  // stored whole; the trainer composites the target itself, every step:
+  //     target = alpha * photo + (1 - alpha) * background
+  // (the RGBA-input convention of 3DGS and LichtFeld). The first version here
+  // was a three-way trimap - subject / excluded band / empty sentinel - and
+  // under a random background it forced every partial pixel to be opaque or
+  // nothing: hair, fingers and the outline eroded (edge band -6 dB, body -3.5
+  // dB, 2026-09-11). A partial pixel is supervised as partial now.
   //
-  //   >= maskCut     subject   — train against the photograph
-  //   <= maskBgCut   empty     — no colour target at all: the trainer
-  //                             supervises this pixel's COVERAGE to zero
-  //                             (gs/shaders.js TGT_EMPTY). Matching a black
-  //                             colour instead does not work — an opaque
-  //                             black Gaussian scores as well as empty space
-  //                             and the model paints a curtain (measured).
-  //   in between     unknown   — the matte's own soft edge: excluded, because
-  //                             a half-hair half-wall pixel is neither.
-  //
-  // Ignoring ALL non-subject pixels (the obvious first version) leaves the ring
-  // just outside the subject unconstrained, and splats bulge into it for free —
-  // a fuzzy halo no prune can tell from real hair.
-  const maskCut = Math.round(255 * (opts.maskCut ?? 0.75));
-  const maskBgCut = Math.round(255 * (opts.maskBgCut ?? 0.25));
-  let masked = 0, empty = 0;
-  for (let i = 0; i < tw * th; i++) {
-    if (mdata) {
-      const m = mdata[i * 4];
-      if (m < maskCut) {
-        if (m > maskBgCut) {            // unknown band: no loss either way
-          rgb[i * 3] = -1;              // invalid sentinel (gs/trainer.js)
-          masked++;
-        } else {                        // known empty: supervise coverage
-          rgb[i * 3] = -2;              // TGT_EMPTY sentinel
-          empty++;
+  // maskCut / maskBgCut no longer gate the loss. They classify pixels for the
+  // readouts, for what counts in the PSNR (>= maskCut), and for what the
+  // silhouette machinery may treat as empty (<= maskBgCut).
+  let alpha = null;
+  let masked = 0, empty = 0, guarded = 0;
+  let guard = null;
+  if (mdata) {
+    const hi = Math.round(255 * (opts.maskCut ?? 0.75));
+    const lo = Math.round(255 * (opts.maskBgCut ?? 0.25));
+    alpha = new Uint8Array(tw * th);
+    for (let i = 0; i < tw * th; i++) {
+      const a = mdata[i * 4];
+      alpha[i] = a;
+      if (a <= lo) empty++;
+      else if (a < hi) masked++;
+    }
+    // Guard ring (opts.maskGuard, px): the empty pixels within this distance
+    // OUTSIDE the matte get no loss at all. Under a random background an
+    // "empty" vote is as strong as a "photo" vote, and where the matte is a
+    // pixel tight or the subject moved a few pixels between frames, the two
+    // disagree - the optimiser then resolves it by eroding the edge (edge
+    // band -6 dB, 2026-09-11). Voting neither way in a narrow ring lets
+    // honest slop through while everything beyond it is still punished.
+    const g = (opts.maskGuard ?? 3) | 0;   // measured 2026-09-11: +1.5 dB, silhouette unchanged
+    if (g > 0) {
+      // separable Chebyshev dilation of "not empty" by g px
+      const notEmpty = new Uint8Array(tw * th);
+      for (let i = 0; i < tw * th; i++) notEmpty[i] = alpha[i] > lo ? 1 : 0;
+      const tmp = new Uint8Array(tw * th);
+      for (let y = 0; y < th; y++) {
+        for (let x = 0; x < tw; x++) {
+          let v = 0;
+          for (let k = -g; k <= g && !v; k++) { const xx = x + k; if (xx >= 0 && xx < tw) v = notEmpty[y * tw + xx]; }
+          tmp[y * tw + x] = v;
         }
-        continue;
+      }
+      guard = new Uint8Array(tw * th);
+      for (let y = 0; y < th; y++) {
+        for (let x = 0; x < tw; x++) {
+          let v = 0;
+          for (let k = -g; k <= g && !v; k++) { const yy = y + k; if (yy >= 0 && yy < th) v = tmp[yy * tw + x]; }
+          const i = y * tw + x;
+          if (v && !notEmpty[i]) { guard[i] = 1; guarded++; }
+        }
       }
     }
+  }
+  for (let i = 0; i < tw * th; i++) {
+    if (guard && guard[i]) { rgb[i * 3] = -1; continue; } // guard ring: no loss (invalid sentinel)
     rgb[i * 3] = tdata[i * 4] / 255;
     rgb[i * 3 + 1] = tdata[i * 4 + 1] / 255;
     rgb[i * 3 + 2] = tdata[i * 4 + 2] / 255;
@@ -236,8 +264,10 @@ export function processSource(src, srcW, srcH, name, trainCap, opts = {}, preRes
 
   return {
     name, fw, fh, gray, tw, th, rgb, sharpness,
-    maskedFrac: masked / (tw * th),
-    emptyFrac: empty / (tw * th),
+    alpha,                                 // Uint8 subject alpha per pixel, or null
+    maskedFrac: masked / (tw * th),        // partial (between the cuts)
+    emptyFrac: empty / (tw * th),          // at or below maskBgCut
+    guardFrac: guarded / (tw * th),        // empty pixels excluded by the guard ring
     thumb: thumbCtx.canvas,
     /** sample training-res RGB at feature-scale pixel coords */
     sampleColor(x, y) {

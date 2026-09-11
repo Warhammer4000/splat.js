@@ -11,9 +11,9 @@
 // space as dead capacity and relocate it onto the subject.
 //
 // Carving is conservative on purpose. A voxel only loses a vote from a view
-// that sees it AND calls it KNOWN-empty (the TGT_EMPTY sentinel); the matte's
-// soft edge votes neither way, and a voxel outside a view's frame is not
-// evidence of anything.
+// that sees it AND calls it KNOWN-empty (alpha <= 0.25); the matte's soft edge
+// votes neither way, and a voxel outside a view's frame is not evidence of
+// anything.
 
 /**
  * @param {object} recon   solved reconstruction (cams + subject points)
@@ -31,7 +31,7 @@
  */
 export function buildVisualHull(recon, frames, opts = {}) {
   const { res = 128, margin = 0.15, keep = 0.85, minViews = 8, kMad = 4 } = opts;
-  if (!frames.some((f) => f.emptyFrac > 0)) return null;
+  if (!frames.some((f) => f.alpha && f.emptyFrac > 0)) return null;
   const pts = recon.points;
   if (!pts || pts.length < 8) return null;
 
@@ -70,7 +70,7 @@ export function buildVisualHull(recon, frames, opts = {}) {
 
   for (const c of recon.cams) {
     const im = frames[c.imgIdx];
-    if (!im || !(im.emptyFrac > 0)) continue;
+    if (!im || !im.alpha || !(im.emptyFrac > 0)) continue;
     const sx = im.tw / im.fw, sy = im.th / im.fh;
     const { R, t } = c;
     const fy = c.fy ?? c.f;
@@ -88,9 +88,9 @@ export function buildVisualHull(recon, frames, opts = {}) {
           const w = (fy * (R[3] * X + R[4] * Y + R[5] * Z + t[1]) / zc + c.cy) * sy;
           if (u < 0 || w < 0 || u >= im.tw || w >= im.th) continue; // not evidence
           seen[v]++;
-          // TGT_EMPTY (-2) is the only carving vote; the soft-edge band (-1)
-          // abstains, so a fuzzy matte cannot erode the subject.
-          if (im.rgb[((w | 0) * im.tw + (u | 0)) * 3] < -1.5) {
+          // only a KNOWN-empty pixel (alpha <= 0.25) votes to carve; the
+          // matte's soft edge abstains, so a fuzzy matte cannot erode the subject
+          if (im.alpha[(w | 0) * im.tw + (u | 0)] <= 64) {
             miss[v]++;
             if (miss[v] > killAt) alive[v] = 0;
           }

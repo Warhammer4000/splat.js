@@ -1,7 +1,7 @@
 // trainer.js — WebGPU 3DGS optimizer (anisotropic, sorted; see shaders.js).
 
 import {
-  STRIDE, TILE, ENTRIES_CAP, TGT_EMPTY, makeProjectSrc, makeRenderSrc, makeChainSrc,
+  STRIDE, TILE, ENTRIES_CAP, makeProjectSrc, makeRenderSrc, makeChainSrc,
   SCAN_SRC, SCATTER_SRC, SORT_SRC, ADAM_SRC, SH_ADAM_SRC, BLIT_SRC, shRestCoefs,
   VIS_COUNT_SRC, VIS_SCAN_SRC, VIS_SCATTER_SRC, makeAdamSrc, makeSHAdamSrc,
   GATHER_SRC, REFINE_APPLY_SRC, REFINE_PATCH_SRC, SSIM_SRC, makeSsaaLossSrc,
@@ -252,10 +252,12 @@ export class GSTrainer {
     this.cams = cams;
     this.sceneRadius = sceneRadius;
 
-    // Targets are packed RGBA8 (one u32 per pixel; alpha 0 marks pixels the
-    // undistortion resampled out of frame). The source photographs are 8-bit,
-    // so this is lossless vs f32 — and 4x less GPU memory and loss-read
-    // bandwidth, which is what lets full sets fit on phones.
+    // Targets are packed RGBA8 (one u32 per pixel). The alpha byte is the
+    // subject alpha (255 for an unmasked set); 0 marks pixels the undistortion
+    // resampled out of frame, which get no loss at all. The source
+    // photographs are 8-bit, so this is lossless vs f32 — and 4x less GPU
+    // memory and loss-read bandwidth, which is what lets full sets fit on
+    // phones.
     let total = 0; // in PIXELS
     this.camMeta = cams.map((c) => {
       const im = images[c.imgIdx];
@@ -269,25 +271,30 @@ export class GSTrainer {
         `binding limit (${(limit / 1e6).toFixed(0)}MB) — reduce image count or resolution`);
     }
     const targetData = new Uint32Array(total);
-    let nEmpty = 0, nInvalid = 0;
+    let nEmpty = 0, nPartial = 0, nInvalid = 0;
     for (const meta of this.camMeta) {
-      const rgb = images[meta.imgIdx].rgb;
+      const im = images[meta.imgIdx];
+      const rgb = im.rgb, alpha = im.alpha;
       const np = meta.w * meta.h;
       for (let p = 0; p < np; p++) {
         const r = rgb[p * 3];
-        // -2: the subject mask says this pixel is EMPTY. No colour target —
-        // the render kernel supervises its coverage to zero instead (covW).
-        if (r < -1.5) { targetData[meta.offset + p] = TGT_EMPTY << 24; nEmpty++; continue; }
         if (r < 0) { targetData[meta.offset + p] = 0; nInvalid++; continue; } // invalid sentinel
-        targetData[meta.offset + p] = (255 << 24)
+        // subject alpha in the top byte; 1 is the floor so 0 stays "invalid"
+        let a = 255;
+        if (alpha) {
+          a = Math.max(1, alpha[p]);
+          if (a <= 64) nEmpty++; else if (a < 191) nPartial++;
+        }
+        targetData[meta.offset + p] = (a << 24)
           | (Math.min(255, Math.round(rgb[p * 3 + 2] * 255)) << 16)
           | (Math.min(255, Math.round(rgb[p * 3 + 1] * 255)) << 8)
           | Math.min(255, Math.round(r * 255));
       }
     }
-    if (nEmpty || nInvalid) {
-      console.log(`[trainer] targets: ${((total - nEmpty - nInvalid) / total * 100).toFixed(1)}% photo, `
-        + `${(nEmpty / total * 100).toFixed(1)}% mask-empty (coverage supervised, covW=${this.opts.covW ?? 0}), `
+    if (nEmpty || nPartial || nInvalid) {
+      console.log(`[trainer] targets: ${((total - nEmpty - nPartial - nInvalid) / total * 100).toFixed(1)}% subject, `
+        + `${(nPartial / total * 100).toFixed(1)}% partial, ${(nEmpty / total * 100).toFixed(1)}% empty `
+        + `(soft-composited; randomBg=${!!this.opts.randomBg}, covW=${this.opts.covW ?? 0}), `
         + `${(nInvalid / total * 100).toFixed(1)}% excluded`);
     }
 
