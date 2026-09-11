@@ -3065,6 +3065,12 @@ async function compressSog(gen) {
   }
 }
 
+/** The viewer link of a shared scene — index.html explicitly (the bare
+ *  /splat-js URL 301s through the CDN and drops its query). */
+const shareLinkOf = (spaceId) => {
+  const path = location.pathname.endsWith('.html') ? location.pathname : location.pathname.replace(/\/$/, '') + '/index.html';
+  return `${location.origin}${path}?space=${encodeURIComponent(spaceId)}`;
+};
 const SHARE_ICON = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true" class="sh">' +
   '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>' +
   '<path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>';
@@ -3147,7 +3153,7 @@ function exportActions() {
       flash(`Session save failed: ${e.message}`, 6000);
     }
   } });
-  acts.push({ act: 'imgs', label: 'Download photos', sub: `The ${S.loadedFiles ? S.loadedFiles.length : 0} training images · zip`, run: async () => {
+  if (S.loadedFiles && S.loadedFiles.length) acts.push({ act: 'imgs', label: 'Download photos', sub: `The ${S.loadedFiles ? S.loadedFiles.length : 0} training images · zip`, run: async () => {
     if (!S.loadedFiles || !S.loadedFiles.length) { flash('No source images in this run.'); return; }
     flash('Packing your photos …', 60000);
     const entries = [];
@@ -3168,11 +3174,15 @@ function exportActions() {
 function buildExport() {
   const wrap = document.createElement('div');
   wrap.className = 'exportwrap';
-  if (S.restored) {
-    wrap.innerHTML = `<button class="btn btn-outline btn-share" title="Download">${DL_ICON}Download</button>`;
+  if (S.restored && S.share) {
+    // a scene that is already shared: Share means its link (and the downloads)
+    wrap.innerHTML = `<button class="cbtn accent btn-share" title="Share this scene">${SHARE_ICON}Share</button>`;
+    wrap.querySelector('button').addEventListener('click', () => shareDialog(null, { link: true }));
+  } else if (S.restored) {
+    wrap.innerHTML = `<button class="cbtn btn-share" title="Download">${DL_ICON}Download</button>`;
     wrap.querySelector('button').addEventListener('click', () => shareDialog(null, { downloadsOnly: true }));
   } else {
-    wrap.innerHTML = `<button class="btn btn-accent btn-share" title="Share this creation">${SHARE_ICON}Share</button>`;
+    wrap.innerHTML = `<button class="cbtn accent btn-share" title="Share this creation">${SHARE_ICON}Share</button>`;
     wrap.querySelector('button').addEventListener('click', () => { if (!S.uploading) shareDialog(); });
   }
   return wrap;
@@ -3241,7 +3251,7 @@ function uploadDialog() {
 
 /** Share the finished run: one link that opens the viewer (tour + compare
  *  + stats) with an arrival space behind it. Same sign-in as Upload. */
-function shareDialog(rec = null, { downloadsOnly = false } = {}) {
+function shareDialog(rec = null, { downloadsOnly = false, link = false } = {}) {
   // rec: share a STORED local scene (sog + recon + thumb from IndexedDB) —
   // no live session required
   document.getElementById('upcard')?.remove();
@@ -3255,8 +3265,16 @@ function shareDialog(rec = null, { downloadsOnly = false } = {}) {
   const acts = rec ? [] : exportActions();
   card.innerHTML = `
     <button class="card-x" id="sh-x" aria-label="Close">&times;</button>
-    <b>${downloadsOnly ? 'Download' : 'Share this creation'}</b>
-    <div class="sh-form" ${downloadsOnly ? 'hidden' : ''}>
+    <b>${downloadsOnly ? 'Download' : link ? 'Share this scene' : 'Share this creation'}</b>
+    ${link && S.share ? `<div class="sh-link">
+      <input id="sh-url" type="text" readonly value="${esc(shareLinkOf(S.share.id))}">
+      <div class="upcard-row sh-linkrow">
+        <a class="linkish sh-enter" href="https://arrival.space/${encodeURIComponent(S.share.id)}" target="_blank" rel="noopener">Enter the space ↗</a>
+        ${navigator.share ? '<button type="button" class="btn btn-outline" id="sh-native">Share …</button>' : ''}
+        <button type="button" class="btn btn-accent" id="sh-copy">Copy link</button>
+      </div>
+    </div>` : ''}
+    <div class="sh-form" ${(downloadsOnly || link) ? 'hidden' : ''}>
     <input id="sh-title" type="text" spellcheck="false" maxlength="80">
     <label class="upcard-opt"><select id="sh-priv">
       <option value="Open">Public — listed in the gallery</option>   <!-- stored value: the gallery lists "Open" only; PUT /spaces stores the raw value -->
@@ -3278,6 +3296,18 @@ function shareDialog(rec = null, { downloadsOnly = false } = {}) {
   $('stage').appendChild(card);
   for (const a of acts) card.querySelector(`[data-dl="${a.act}"]`).addEventListener('click', () => { card.remove(); a.run(); });
   card.querySelector('#sh-x').addEventListener('click', () => card.remove());
+  if (link && S.share) {
+    const url = shareLinkOf(S.share.id);
+    const urlInput = card.querySelector('#sh-url');
+    urlInput.addEventListener('focus', () => urlInput.select());
+    card.querySelector('#sh-copy').addEventListener('click', async (e) => {
+      try { await navigator.clipboard.writeText(url); e.currentTarget.textContent = 'Copied'; }
+      catch { urlInput.select(); flash('Press Ctrl+C to copy the link.', 4000); }
+    });
+    card.querySelector('#sh-native')?.addEventListener('click', async () => {
+      try { await navigator.share({ title: S.share.title || 'Splat.js scene', url }); } catch { /* dismissed */ }
+    });
+  }
   const input = card.querySelector('#sh-title');
   input.value = rec ? (rec.name || 'Local Scene')
     : (S.preset.id === '__own' ? 'My splat' : S.preset.name);

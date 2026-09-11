@@ -1022,8 +1022,8 @@ a.cbtn { text-decoration: none; }
 .galgrid .galdesc { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 
 /* the finished run's call to action: Share (accent) — downloads live inside the share sheet */
-.btn-share { display: inline-flex; align-items: center; gap: 8px; }
-.btn-share svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+/* same pill as Compress / Train beside it; only the icon is added */
+.btn-share svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 #upcard { position: relative; max-height: 92vh; overflow-y: auto; }
 #upcard > .card-x { position: absolute; top: 8px; right: 8px; width: 32px; height: 32px; font-size: 24px; }
 .sh-form { display: flex; flex-direction: column; gap: 12px; }
@@ -1033,3 +1033,9 @@ a.cbtn { text-decoration: none; }
 .sh-dl button:hover { background: rgba(255, 255, 255, .055); }
 .sh-dl b { display: block; font: 600 13px var(--ui); color: var(--paper); }
 .sh-dl span { font: 400 11.5px var(--mono); color: var(--dim); }
+/* share sheet, link mode: the scene's link with copy / native share / enter */
+.sh-link { display: flex; flex-direction: column; gap: 10px; }
+.sh-link input { width: 100%; box-sizing: border-box; font-size: 12px; color: var(--muted); }
+.sh-linkrow { justify-content: flex-end; align-items: center; flex-wrap: wrap; }
+.sh-enter { margin-right: auto; font-size: 13px; }
+.sh-linkrow .btn { text-decoration: none; padding: 8px 14px; font-size: 13px; }
