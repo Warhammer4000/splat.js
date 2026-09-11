@@ -1020,3 +1020,16 @@ a.cbtn { text-decoration: none; }
 .galtag { position: absolute; top: 18px; left: 18px; z-index: 1; padding: 4px 9px; border-radius: 6px; background: rgba(7, 9, 9, .78); backdrop-filter: blur(6px); font: 600 10.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--alt); font-style: normal; }
 /* grid tiles: long curated descriptions clamp so rows stay even */
 .galgrid .galdesc { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* the finished run's call to action: Share (accent) — downloads live inside the share sheet */
+.btn-share { display: inline-flex; align-items: center; gap: 8px; }
+.btn-share svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+#upcard { position: relative; max-height: 92vh; overflow-y: auto; }
+#upcard > .card-x { position: absolute; top: 8px; right: 8px; width: 32px; height: 32px; font-size: 24px; }
+.sh-form { display: flex; flex-direction: column; gap: 12px; }
+.sh-dl { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--line); }
+.sh-dl-head { font: 400 11px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dim); margin: 0 0 4px 10px; }
+.sh-dl button { text-align: left; padding: 8px 10px; border-radius: 8px; background: none; border: 0; color: inherit; cursor: pointer; }
+.sh-dl button:hover { background: rgba(255, 255, 255, .055); }
+.sh-dl b { display: block; font: 600 13px var(--ui); color: var(--paper); }
+.sh-dl span { font: 400 11.5px var(--mono); color: var(--dim); }

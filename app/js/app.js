@@ -3065,54 +3065,36 @@ async function compressSog(gen) {
   }
 }
 
-function buildExport() {
+const SHARE_ICON = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true" class="sh">' +
+  '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>' +
+  '<path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>';
+
+/** Save a Blob under the run's name. */
+function downloadBlob(blob, ext) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${((S.preset && S.preset.name) || 'splat').toLowerCase().replace(/\W+/g, '_')}.${ext}`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+/** The download options for the current run — listed under Share in the
+ *  share sheet. Each carries its own progress and messages. */
+function exportActions() {
   const mb = (S.splats * 164 / 1e6).toFixed(1); // 41 float properties per splat (SH deg 2)
   const sogMb = (S.splats * 164 / 1e6 / 15).toFixed(1); // SOG lands around 1/15th
-  const wrap = document.createElement('div');
-  wrap.className = 'exportwrap';
-  wrap.innerHTML = `
-    <button class="iconbtn" title="Export" aria-label="Export">${DL_ICON}</button>
-    <div class="menu" hidden>
-      ${S.restored ? '' : `<button data-act="share"><b>Share</b><span>One link — viewer, compare and a space to enter</span></button>`}
-      <button data-act="arr"><b>Upload to Arrival.Space</b><span>Straight into a space of yours</span></button>
-      <button data-act="sog"><b>Download .sog</b><span>Compressed for the web · ~${sogMb} MB</span></button>
-      ${S.lodPlan && S.lodPlan.snaps.length ? `<button data-act="lod"><b>Download LOD</b><span>Streamed SOG, ${S.lodPlan.snaps.length + 1} detail levels · zip</span></button>` : ''}
-      <button data-act="ply"><b>Download .ply</b><span>Standard splat file · ${mb} MB</span></button>
-      ${S.restored ? '' : `<button data-act="session"><b>Download session</b><span>Re-loadable + resumable · sog, poses, raw state</span></button>`}
-      <button data-act="imgs"><b>Download photos</b><span>The ${S.loadedFiles ? S.loadedFiles.length : 0} training images · zip</span></button>
-    </div>`;
-
-  const menu = wrap.querySelector('.menu');
-  wrap.querySelector('.iconbtn').addEventListener('click', (e) => {
-    e.stopPropagation();
-    document.querySelectorAll('.menu').forEach((m) => { if (m !== menu) m.hidden = true; });
-    menu.hidden = !menu.hidden;
-  });
-  const download = (blob, ext) => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${(S.preset.name || 'splat').toLowerCase().replace(/\W+/g, '_')}.${ext}`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-  };
-  wrap.querySelector('[data-act="ply"]').addEventListener('click', async () => {
-    menu.hidden = true;
-    download(S.plyBlob || await S.session.exportPlyBlob(), 'ply');
-    flash(`${fmt(S.splats)} splats on their way to your downloads.`, 3500);
-  });
-  wrap.querySelector('[data-act="sog"]').addEventListener('click', async () => {
-    menu.hidden = true;
+  const acts = [];
+  acts.push({ act: 'sog', label: 'Download .sog', sub: `Compressed for the web · ~${sogMb} MB`, run: async () => {
     try {
       const blob = await getSogBlob();
-      download(blob, 'sog');
+      downloadBlob(blob, 'sog');
       flash(`${fmt(S.splats)} splats compressed to ${(blob.size / 1e6).toFixed(1)} MB.`, 4000);
     } catch (e) {
       console.error(e);
       flash(`SOG compression failed: ${e.message}`, 6000);
     }
-  });
-  wrap.querySelector('[data-act="lod"]')?.addEventListener('click', async () => {
-    menu.hidden = true;
+  } });
+  if (S.lodPlan && S.lodPlan.snaps.length) acts.push({ act: 'lod', label: 'Download LOD', sub: `Streamed SOG, ${S.lodPlan.snaps.length + 1} detail levels · zip`, run: async () => {
     try {
       document.getElementById('sogcard')?.remove();
       const card = document.createElement('div');
@@ -3140,42 +3122,32 @@ function buildExport() {
       });
       const zip = zipStore(entries.map(([name, data]) => ({ name: name.replace(/^\//, ''), data })));
       document.getElementById('sogcard')?.remove();
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(zip);
-      a.download = `${(S.preset.name || 'splat').toLowerCase().replace(/\W+/g, '_')}_lod.zip`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      downloadBlob(zip, 'lod.zip');
       flash(`Streamed LOD with ${levels.length} levels · ${(zip.size / 1e6).toFixed(1)} MB zipped.`, 5000);
     } catch (e) {
       document.getElementById('sogcard')?.remove();
       console.error(e);
       flash(`LOD build failed: ${e.message}`, 6000);
     }
-  });
-  wrap.querySelector('[data-act="arr"]').addEventListener('click', () => {
-    menu.hidden = true;
-    if (!S.uploading) uploadDialog();
-  });
-  wrap.querySelector('[data-act="share"]')?.addEventListener('click', () => {
-    menu.hidden = true;
-    if (!S.uploading) shareDialog();
-  });
-  wrap.querySelector('[data-act="session"]')?.addEventListener('click', async () => {
-    menu.hidden = true;
+  } });
+  acts.push({ act: 'ply', label: 'Download .ply', sub: `Standard splat file · ${mb} MB`, run: async () => {
+    downloadBlob(S.plyBlob || await S.session.exportPlyBlob(), 'ply');
+    flash(`${fmt(S.splats)} splats on their way to your downloads.`, 3500);
+  } });
+  if (!S.restored) acts.push({ act: 'session', label: 'Download session', sub: 'Re-loadable + resumable · sog, poses, raw state', run: async () => {
     try {
       const sog = await getSogBlob();
       flash('Packing the session …', 60000);
       const zip = await buildSessionZip(S, sog);
-      download(zip, 'session.zip');
+      downloadBlob(zip, 'session.zip');
       flash(`Session saved · ${(zip.size / 1e6).toFixed(1)} MB. Load it back with ` +
         `?model=<url> or by dropping it on the app.`, 7000);
     } catch (e) {
       console.error(e);
       flash(`Session save failed: ${e.message}`, 6000);
     }
-  });
-  wrap.querySelector('[data-act="imgs"]').addEventListener('click', async () => {
-    menu.hidden = true;
+  } });
+  acts.push({ act: 'imgs', label: 'Download photos', sub: `The ${S.loadedFiles ? S.loadedFiles.length : 0} training images · zip`, run: async () => {
     if (!S.loadedFiles || !S.loadedFiles.length) { flash('No source images in this run.'); return; }
     flash('Packing your photos …', 60000);
     const entries = [];
@@ -3184,13 +3156,25 @@ function buildExport() {
       entries.push({ name: f.name, data: new Uint8Array(await blob.arrayBuffer()) });
     }
     const zip = zipStore(entries);
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(zip);
-    a.download = `${(S.preset.name || 'capture').toLowerCase().replace(/\W+/g, '_')}_photos.zip`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    downloadBlob(zip, 'photos.zip');
     flash(`${entries.length} photos zipped and on their way.`, 4000);
-  });
+  } });
+  return acts;
+}
+
+/** The finished run's one call to action: Share (opens the share sheet,
+ *  which also lists the downloads). A scene someone else shared cannot be
+ *  re-shared, so it gets Download instead. */
+function buildExport() {
+  const wrap = document.createElement('div');
+  wrap.className = 'exportwrap';
+  if (S.restored) {
+    wrap.innerHTML = `<button class="btn btn-outline btn-share" title="Download">${DL_ICON}Download</button>`;
+    wrap.querySelector('button').addEventListener('click', () => shareDialog(null, { downloadsOnly: true }));
+  } else {
+    wrap.innerHTML = `<button class="btn btn-accent btn-share" title="Share this creation">${SHARE_ICON}Share</button>`;
+    wrap.querySelector('button').addEventListener('click', () => { if (!S.uploading) shareDialog(); });
+  }
   return wrap;
 }
 
@@ -3257,7 +3241,7 @@ function uploadDialog() {
 
 /** Share the finished run: one link that opens the viewer (tour + compare
  *  + stats) with an arrival space behind it. Same sign-in as Upload. */
-function shareDialog(rec = null) {
+function shareDialog(rec = null, { downloadsOnly = false } = {}) {
   // rec: share a STORED local scene (sog + recon + thumb from IndexedDB) —
   // no live session required
   document.getElementById('upcard')?.remove();
@@ -3268,8 +3252,11 @@ function shareDialog(rec = null) {
   // need uploading for the viewer-side comparison
   const needsPhotos = !rec && (!(S.loadedFiles || []).length || !(S.loadedFiles || []).every((f) => f.url));
   const photoMb = ((S.loadedFiles || []).reduce((a, f) => a + ((f.source || f).size || 0), 0) / 1e6).toFixed(0);
+  const acts = rec ? [] : exportActions();
   card.innerHTML = `
-    <b>Share this creation</b>
+    <button class="card-x" id="sh-x" aria-label="Close">&times;</button>
+    <b>${downloadsOnly ? 'Download' : 'Share this creation'}</b>
+    <div class="sh-form" ${downloadsOnly ? 'hidden' : ''}>
     <input id="sh-title" type="text" spellcheck="false" maxlength="80">
     <label class="upcard-opt"><select id="sh-priv">
       <option value="Open">Public — listed in the gallery</option>   <!-- stored value: the gallery lists "Open" only; PUT /spaces stores the raw value -->
@@ -3283,8 +3270,14 @@ function shareDialog(rec = null) {
     <div class="upcard-row">
       <button class="btn btn-quiet" id="sh-cancel">Cancel</button>
       <button class="btn btn-accent" id="sh-go">Share</button>
-    </div>`;
+    </div>
+    </div>
+    ${acts.length ? `<div class="sh-dl">${downloadsOnly ? '' : '<span class="sh-dl-head">Or download</span>'}
+      ${acts.map((a) => `<button type="button" data-dl="${a.act}"><b>${esc(a.label)}</b><span>${esc(a.sub)}</span></button>`).join('')}
+    </div>` : ''}`;
   $('stage').appendChild(card);
+  for (const a of acts) card.querySelector(`[data-dl="${a.act}"]`).addEventListener('click', () => { card.remove(); a.run(); });
+  card.querySelector('#sh-x').addEventListener('click', () => card.remove());
   const input = card.querySelector('#sh-title');
   input.value = rec ? (rec.name || 'Local Scene')
     : (S.preset.id === '__own' ? 'My splat' : S.preset.name);
