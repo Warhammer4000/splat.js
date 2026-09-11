@@ -4,6 +4,53 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-11c (in-loop hull pruning — density control, the other half)
+
+Owed from 09-11b: mask-driven pruning INSIDE refine, because an opacity loss
+cannot remove a splat that has already saturated. Built it as a carved volume
+rather than a per-view test, so the refine loop pays a lookup, not 186
+projections.
+
+- **`src/gs/hull.js`**: visual hull carved from the mask sentinels + solved
+  cams. Only a view that SEES a voxel and calls it TGT_EMPTY votes to carve it;
+  the matte's soft band abstains, so a fuzzy edge cannot erode the subject.
+  `refine()` (legacy path, the default — it already reads params back to the
+  CPU) treats anything outside as dead capacity, and the existing MCMC
+  relocation recycles it onto the body. No kernel change, no new kill path.
+- **Two bugs worth recording, both found by looking at one number (`% solid`):**
+  1. Carving mid-loop on the RATIO killed voxels on partial counts — a voxel
+     with two empty votes in its first eight views died even though it would
+     finish at 2/186. Sound bound instead: carve once misses exceed what the
+     FULL camera set could forgive.
+  2. The bbox. `maskPoints` cannot remove a point lying along the viewing ray
+     THROUGH the subject in every view, so the filtered cloud keeps a long tail
+     of far stragglers: the 1-99 percentile box came out **20 x 9 x 24 units**
+     and the person was 0.1 % of it. Median +/- 4*MAD finds the actual body
+     (0.56 x 1.75 x 0.55). The hull now also filters the seed (2203 of 3607).
+- **It works, and it is not enough.** Halo with NO offline prune at all:
+  0.64 (no hull) -> **0.47** (hull, centre test) -> **0.39** (hull + footprint,
+  six axis probes at 2 sigma). PSNR 30.69 -> **31.04 dB**. But the offline
+  per-view prune still reaches 0.124: a visual hull is a strictly looser bound
+  than the 186 silhouettes it was carved from, and the gap is that looseness.
+- **Tightening it backfires**: keep 0.97 / res 160 carves the subject —
+  seeds 835 points instead of 2203 and scores **29.46 dB**. keep 0.85 stays.
+- Best measured today, 13 held-out views:
+
+  | pipeline | PSNR | splats | IoU | halo | edge | interior |
+  |---|---|---|---|---|---|---|
+  | seed filter + covW 1 + prune 6/9 | 30.69 | 216,603 | **0.886** | **0.124** | 9.96 px | 0.976 |
+  | + in-loop hull, no prune | 31.04 | 439,734 | 0.696 | 0.474 | 37.3 px | 0.998 |
+  | **+ in-loop hull + prune 6/9** | **31.04** | 211,185 | 0.861 | 0.169 | 10.8 px | **0.984** |
+
+  The hull's real wins are the model (+0.35 dB), the interior (0.984), and that
+  the prune now removes 8 % instead of 10 %. It did NOT retire the prune.
+- **Where the remaining fuzz actually lives**: interior coverage is ~1.0 and
+  the halo concentrates on arms, hands and hair — the parts that MOVED during
+  57 s of standing still. Views disagree about where she was, and no mask can
+  fix a disagreement about where the subject IS; the optimiser averages it into
+  a soft edge. Next lever is the capture, not the code: a 20 s clip, or the
+  same clip cut to its steadiest 20 s window, scored on this same ruler.
+
 ## 2026-09-11b (sharper silhouette: what actually removes a background)
 
 User: the silhouette is fuzzy. It was, and the first two fixes were wrong in

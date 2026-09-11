@@ -1814,13 +1814,23 @@ export class GSTrainer {
 
     let dead = [];
     const donors = [];
-    let deadAll = 0;
+    let deadAll = 0, outside = 0;
     const deadThr = this.opts.deadThr ?? 0.02;
+    // Subject hull (gs/hull.js): a splat the silhouettes agree is in empty
+    // space is dead capacity however opaque it got — and an opaque one is
+    // exactly what no opacity loss can reach any more. Relocating it puts the
+    // capacity back on the subject instead of leaving a flare in the air.
+    const hullKill = this.hullKill;
     for (let i = 0; i < this.n; i++) {
-      const o = sig(params[i * STRIDE + 13]);
-      if (o < deadThr) { deadAll++; if (canReloc) dead.push(i); }
-      else if (o > 0.4) donors.push(i);
+      const b = i * STRIDE;
+      const o = sig(params[b + 13]);
+      const out = !!hullKill && hullKill(params[b], params[b + 1], params[b + 2],
+        Math.exp(Math.max(params[b + 3], params[b + 4], params[b + 5])));
+      if (out) outside++;
+      if (o < deadThr || out) { deadAll++; if (canReloc) dead.push(i); }
+      else if (o > 0.4) donors.push(i);   // donors are hull-clean by construction
     }
+    if (outside) this._lastOutside = outside;
     // telemetry: how many of the rows relocated last round are still alive
     let survived = 0;
     if (this._lastReloc) {

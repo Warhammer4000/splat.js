@@ -25,6 +25,7 @@ import { focalPxFrom35 } from './io/exif.js';
 import { isEquirect, sliceEquirect, faceSizeFor, probeImageSize, FACE_ROTS } from './io/pano.js';
 import { runSfM } from './sfm/sfm.js';
 import { initGaussians } from './gs/init.js';
+import { buildVisualHull, makeHullTest, makeSplatTest } from './gs/hull.js';
 import { GSTrainer } from './gs/trainer.js';
 import { createGpu } from './gpu/context.js';
 import { gaussiansToPly, bakeOpacityCompensation } from './io/ply.js';
@@ -331,11 +332,34 @@ export class Session {
     return dropped;
   }
 
+  /** Carve the subject hull from the masks and hand it to the trainer, so
+   *  refinement treats anything in provably empty space as dead capacity.
+   *  No-op when the frames carry no masks. */
+  _buildHull(opts = {}) {
+    if (opts.hull === false) return null;
+    const t0 = Date.now();
+    const hull = buildVisualHull(this.recon, this.frames, opts.hullOpts);
+    if (!hull) return null;
+    this.hull = hull;
+    this.hullTest = makeHullTest(hull);
+    this.splatTest = makeSplatTest(hull, opts.hullOpts);
+    // seed from inside the hull only: the silhouette test alone cannot remove
+    // a point that sits along the viewing ray through the subject, and those
+    // stragglers are what blow the scene bounds out
+    const before = this.recon.points.length;
+    this.recon.points = this.recon.points.filter((p) => this.hullTest(p.X[0], p.X[1], p.X[2]));
+    this._log(`subject hull: ${hull.dim.join('x')} voxels, ${(hull.fill * 100).toFixed(1)}% solid, `
+      + `carved in ${((Date.now() - t0) / 1000).toFixed(1)}s; seeding from `
+      + `${this.recon.points.length} of ${before} points inside it`);
+    return hull;
+  }
+
   /** Seed Gaussians from the sparse cloud and set up the WebGPU trainer. */
   async seed(extra = {}) {
     if (!this.recon) throw new Error('solve() first');
     this._stage({ stage: 'seed', done: 0, total: 1 });
     if (extra.maskPoints !== false) this.maskPoints(extra.maskKeep ?? 0.5);
+    this._buildHull(extra);
     // default seed scales with the solve's point count: the flat 60k
     // default seed-bound capacity (cap = seed x capMult) on point-rich
     // scenes — garden measured +0.4 dB from lifting it. Explicit
@@ -442,6 +466,7 @@ export class Session {
         `cameras (every ${split}th) held out of training`);
     }
 
+    if (this.splatTest) this.trainer.hullKill = this.splatTest;
     this._stage({ stage: 'seed', done: 1, total: 1, detail: { splats: this.model.n } });
     return this.model;
   }

@@ -34,7 +34,7 @@ const TAG = `${SET}_${ITERS}` + (Q.has('classic') ? '_classic' : '')
   + (Q.has('classicsolve') ? '_cs' : '') + (Q.get('featres') ? `_fr${Q.get('featres')}` : '') + (Q.get('feats') ? `_nf${Q.get('feats')}` : '') + (Q.get('octave') ? `_oc${Q.get('octave')}` : '') + (Q.get('peak') ? `_pk${Q.get('peak')}` : '') + (Q.get('solve') ? `_sv${Q.get('solve')}` : '') + (Q.get('baratio') != null ? `_br${Q.get('baratio')}` : '') + (Q.get('bapts') != null ? `_bp${Q.get('bapts')}` : '') + (Q.get('pairworkers') === '0' ? '_npw' : '') + (Q.get('exiffocal') === '0' ? '_nxf' : '') + (Q.get('focals') ? `_fs${Q.get('focals').replace(/[^0-9]/g, '')}` : '') + (Q.get('bracket') === '0' ? '_nbk' : '') + (Q.get('inittrials') != null ? `_it${Q.get('inittrials')}` : '') + (Q.get('initpair') ? `_ip${Q.get('initpair').replace(',', '')}` : '') + (Q.get('searchsub') === '0' ? '_nss' : '')
   + (Q.get('compact') === '0' ? '_ncp' : '') + (Q.get('gspread') ? `_gs${Q.get('gspread')}` : '') + (Q.get('gbatch') ? `_gb${Q.get('gbatch')}` : '') + (Q.get('usestats') ? '_us' : '') + (Q.get('camgrads') ? '_cg' : '') + (Q.get('rectbin') ? '_rb' : '') + (Q.get('ipf') ? `_ipf${Q.get('ipf')}` : '') + (Q.get('gzskip') ? '_gz' : '') + (Q.get('pvec') ? '_pv' : '') + (Q.get('sgagg') ? '_sg' : '') + (Q.get('tilegrad') === '0' ? '_ntg' : '') + (Q.get('frommodel') ? '_fm' : '') + (Q.get('aspect') ? '_asp' : '') + (Q.get('asplr') ? `_al${Q.get('asplr')}` : '') + (Q.get('sfmaspect') === '0' ? '_nsa' : Q.get('sfmaspect') ? '_sa' : '') + (Q.get('lockk') ? '_lk' : '') + (Q.get('pairinl') ? `_pi${Q.get('pairinl')}` : '') + (Q.get('pairinladj') ? `_pa${Q.get('pairinladj')}` : '') + (Q.get('relax') === '0' ? '_nrx' : '')
   + (Q.get('video') ? `_v${Q.get('video').split('/').pop().replace(/.[^.]+$/, '')}` : '') + (Q.get('vidmode') ? `_vm${Q.get('vidmode')}` : '') + (Q.get('vidmax') ? `_vx${Q.get('vidmax')}` : '') + (Q.get('vidoverlap') ? `_vo${Q.get('vidoverlap')}` : '') + (Q.get('vidshots') ? `_vs${Q.get('vidshots')}` : '') + (Q.get('vidmaxgap') ? `_vg${Q.get('vidmaxgap').replace('.', '')}` : '') + (Q.get('vidpick') ? `_vp${Q.get('vidpick')}${(Q.get('vidfps') || '').replace('.', '')}` : '') + (Q.get('vidhold') ? '_vh' : '') + (Q.get('vidholdexcl') ? `_hx${Q.get('vidholdexcl').replace('.', '')}` : '')
-  + (Q.get('masks') ? '_msk' : '') + (Q.get('covw') ? `_cw${Q.get('covw')}` : '') + (Q.get('covs') ? `_cs${Q.get('covs')}` : '') + (Q.get('maskcut') ? `_mc${Q.get('maskcut')}` : '') + (Q.get('maskbg') ? `_mb${Q.get('maskbg')}` : '')
+  + (Q.get('masks') ? '_msk' : '') + (Q.get('hullkeep') ? `_hk${Q.get('hullkeep')}` : '') + (Q.get('hullres') ? `_hr${Q.get('hullres')}` : '') + (Q.get('covw') ? `_cw${Q.get('covw')}` : '') + (Q.get('covs') ? `_cs${Q.get('covs')}` : '') + (Q.get('maskcut') ? `_mc${Q.get('maskcut')}` : '') + (Q.get('maskbg') ? `_mb${Q.get('maskbg')}` : '')
   + (Q.get('dir') ? `_d${Q.get('dir')}` : '') + (Q.get('tag') ? `_${Q.get('tag')}` : '')   // free suffix: e.g. the recon source, which no flag names
   + (Q.get('seed') ? `_s${Q.get('seed')}` : '');
 const t0 = Date.now();
@@ -155,6 +155,10 @@ try {
     }
   }
 
+  const hullOpts = {};
+  if (Q.get('hullkeep')) hullOpts.keep = +Q.get('hullkeep');
+  if (Q.get('hullres')) hullOpts.res = +Q.get('hullres');
+  if (Q.get('hullmad')) hullOpts.kMad = +Q.get('hullmad');
   const ses = window.__ses = createSession({
     ...(Q.get('init') ? { initTarget: +Q.get('init') } : {}),
     // ?ipf=N pins the per-frame batch: the refine trigger is checked once per
@@ -345,7 +349,7 @@ try {
     await ses.seedFrom(gaussians, { iter: 0 });
     await say('seeded-from-model', { splats: gaussians.n });
   } else {
-    await ses.seed();
+    await ses.seed({ hullOpts });
   }
   if (cfg.pano) {
     // rig-aware split (see omni_run.js): all six faces of every 8th pano
