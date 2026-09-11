@@ -1002,10 +1002,9 @@ a.cbtn { text-decoration: none; }
 
 /* the wall: Benchmarks | Community [| This device] tabs over responsive grids */
 /* sticky at the top of whatever scrolls: the fixed start card on wide screens, the window (under the 52 px bar) on phones */
-.walltabs { display: flex; gap: 6px; justify-content: center; width: min(1100px, 100%); margin: 10px auto 0; padding: 8px 0; position: sticky; top: 0; z-index: 5; background: var(--ink); scroll-margin-top: 0; }
-/* the start card pads its top by 58 px on wide screens; the stuck row paints that gap so tiles do not show through */
-.walltabs::before { content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: 58px; background: var(--ink); }
-@media (max-width: 640px) { .walltabs { top: 52px; scroll-margin-top: 52px; } .walltabs::before { display: none; } }
+.walltabs { display: flex; gap: 6px; justify-content: center; width: min(1100px, 100%); margin: 10px auto 0; padding: 8px 0; position: sticky; top: -58px; z-index: 5; background: var(--ink); scroll-margin-top: -58px; }
+/* the start card's sticky reference sits 58 px (its top padding) below the bar on wide screens: a -58 px offset parks the stuck row right under the bar */
+@media (max-width: 640px) { .walltabs { top: 52px; scroll-margin-top: 52px; } }
 .walltabs [role="tab"] { padding: 8px 18px; border-radius: 999px; border: 1px solid transparent; background: none; color: var(--muted); font: 600 14px var(--ui); cursor: pointer; }
 .walltabs [role="tab"]:hover { color: var(--paper); }
 .walltabs [role="tab"].on { color: var(--accent); background: var(--accent-14); border-color: var(--accent-30); }

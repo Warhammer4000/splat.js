@@ -3690,14 +3690,15 @@ async function mountWall() {
       hasToken() ? fetchMine().catch(() => []) : Promise.resolve([]),
     ]);
     // the visitor's own content (capture, runs, shares) lives on its own tab
+    const presetIds = presetSpaceIds();
     const own = [];
     if (capTile) own.push(capTile);
     for (const t of runTiles) own.push(t);
-    for (const it of (myShares || [])) own.push(creationTile(it, false));
+    // the presets are benchmarks even for the account that owns them
+    for (const it of (myShares || [])) if (!presetIds.has(String(it.id))) own.push(creationTile(it, false));
     if ((!items || !items.length) && !own.length) return;
     const host = $('gallery');
-    const presetIds = presetSpaceIds();
-    const mineIds = new Set((myShares || []).map((x) => String(x.id)));
+    const mineIds = new Set((myShares || []).filter((x) => !presetIds.has(String(x.id))).map((x) => String(x.id)));
     const rest = (items || []).filter((x) => !mineIds.has(String(x.id)));   // no duplicate of an own share
     const pinOf = (x) => (x.splatjs && x.splatjs.pin) || 9e9;
     const newer = (a, b) => new Date(b.createdDate) - new Date(a.createdDate);
