@@ -48,6 +48,19 @@ client_git.
   mode now asks for the precise tier and the landmarks stage refuses a
   collapsed camera set with a plain message. The 4K orbit (transcoded to
   H.264 for headless Chrome) is the real end-to-end test.
+- **End to end on the 4K orbit** (`tests/e2e/avatar_mode.mjs --train`, test
+  budget 3000 + 1500 iterations): 1708 frames scored, 208 picked, matte
+  208 frames on wasm, precise solve 207 cameras (4 min), hull 4.8 % solid
+  (1878 of 3296 mask-filtered points), 99,534 Gaussians seeded, landmarks in
+  17 s (15 markers, residual 0.1 cm, 478/478 face points, 42 head-stabilised
+  crop cameras), face pass +1500 with 117 crop samples, bind 81,534 splats
+  at 2.73 cm / 0 far / leak 0.5 %, package 23 MB downloaded. The package
+  registered through the API as dev avatar **5640** and renders in the
+  fixed client with a clean face at 0.55 m (`scratch/closeup_app_sheet.jpg`).
+  The "Use as my avatar" button is the same upload path; sign-in needs a
+  human click, so that last step is untested headless.
+- Not built: the body-fit service (rig-mesh binding until then); SOG/SH
+  choice for the ship size; `pcsync` of the driver fix; merge to main.
 
 ## 2026-09-13 (the face in the APP: a client fix, one surface, and a head that sits on hers)
 
