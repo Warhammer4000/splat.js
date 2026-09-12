@@ -4,6 +4,55 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-13 (the face in the APP: a client fix, one surface, and a head that sits on hers)
+
+User: the renders looked good but not the app. Close-ups through the real
+client (Playwright, camera parked 0.45 m in front of the Head bone -
+`scratch/avatar_closeup.mjs`, with `--skin=0/--relight=0/--identbones/--rest`
+probes) settled it in order:
+
+- **Not relighting, not weights, not the order remap, not the sorter**: each
+  toggled/measured in the live client; face splats are 99.9 % Head.
+- **The SH0 export was one culprit**: stripping the bands of an SH3 model
+  exposes needle splats the bands were hiding - the same file rendered
+  smeared in MY renderer too. An SH0 *fine-tune* (bench `?stripsh=1&shdeg=0`,
+  8k polish steps from v3, 0.6 min, 28.48 dB) is fine and ships at 18 MB
+  (avatar 5637). The user wants the bands kept, so:
+- **The real culprit, client side**: the SH3 file rendered sharp with
+  skinning OFF and smeared with skinning ON. PlayCanvas's copy-to-workbuffer
+  pass evaluates the SH for the UNSKINNED splat's view direction
+  (`center.view * mat3(center.modelView)`) before the bone transform; on a
+  strongly view-dependent scan every skinned splat showed a colour meant for
+  another angle. Fix in `splat-avatar-driver.js` (client_git 473e391e6): the
+  colour hook re-evaluates the SH for the skinned direction (world view
+  vector from the skinned centre, back through the skin rotation and the
+  wrapper rotation), driver-owned `uSkinCamPos/uSkinModelRot` uniforms.
+  Verified through the local client build (the build serves the unbundled
+  script). Needs `pcsync pushAll` to reach dev/live. This is also what the
+  rigger's sidecar path showed on 09-12c.
+- **One surface** (user rule): the nearest-surface mesh must be the outer
+  skin only - the Anny game_engine surface carries two eyeballs and a mouth
+  interior as separate closed components (370 verts); `anny_fit.py` now
+  keeps the largest component (client_git 100c9f57d).
+- **The head on her face** (user: "nose on nose, chin on chin, I hand-tune
+  this"): `head_correspond.py` runs the face landmarker on a shaded RENDER of
+  the fitted head and traces all 468 points to barycentric mesh points;
+  `head_deform.py` fits a similarity then a Laplacian deformation of the
+  head region to the triangulated landmarks (neck fixed, pins with residual
+  > 2.5x median dropped: 425/468) - mean landmark-to-mesh 6.2 mm -> 0.4 mm,
+  max vertex move 11 mm. Plain point-to-surface ICP (`head_register.py`)
+  reached 1.2 mm but slides along the skin; correspondences are what put the
+  nose on the nose. (A boundary-term bug first sent neck-band vertices 60 cm
+  away - the Laplacian rows already carry the fixed neighbours' share.)
+- Shipped: **5639** = v3 SH3 (83 MB) + binding from the face-registered
+  single-surface head, assigned. 5638 = same splat, generic-head binding;
+  5637 = SH0-trained 18 MB (needs no client fix). Relit close-ups of 5638 vs
+  5639 differ only subtly at this light - the normals are right now, the
+  visible gains were the SH direction and the SH bands themselves.
+- Next: push the driver; head phenotypes in the fitter instead of a
+  post-hoc deformation; hair-edge needles (anisoReg); an SH1/SH2 or SOG
+  ship size between 18 and 83 MB.
+
 ## 2026-09-12d (a sharper face: native-resolution crops as head-stabilised cameras)
 
 User: "research ways we can increase sharpness of the face, maybe retrain once
