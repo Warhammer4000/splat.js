@@ -4,6 +4,59 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-12c (the avatar onto the account: an API route, deployed to dev)
+
+User: "set the avatar for my account" -> "deploy to dev and upload the avatar
+to me".
+
+- **Why the public API could not do it**: (1) `/files/upload` stores every
+  file as `<hashedUser>/<random>_<name>` and the client finds a splat avatar's
+  config by NAME (`glb -> json` beside it) and recognises the type by
+  `url.includes("/splat_avatar_")`; (2) `assign` needs an `avatars` row, and
+  URL avatars only got rows through the legacy `addAvatarConfig` (browser
+  session certificate). The MCP `create_avatar` is parts-only.
+- **Route** `POST /api/v1/avatars/splat` (backend_git acc3d15): takes the
+  resource keys of already-uploaded glb/splat/binding(+fit, thumbnail),
+  COPIES the rig GLB (and thumb) to the legacy layout
+  `<user>/splat_avatar_<hash>_<stamp>.glb`, writes the sibling config itself
+  (byte-compatible with the client's own splat-done save), inserts the row,
+  `assign:true` sets it active. `.bin` added to the upload allow-list. MCP
+  tool `create_splat_avatar`; `scripts/upload_splat_avatar.mjs` = the future
+  `arrival avatar upload` (there is no `arrival` CLI package yet - the plan
+  exists, `api/spaces_cli.js` is its server half). No client change.
+- **Deployed to dev** (`deploy_to_dev.sh`, git push + pm2 reload, clean
+  boot). Smoke test `backend_test/splat_avatar_smoke.mjs` as the test admin -
+  which IS the user's account (id 42485456, same on dev and live; the UGC
+  bucket is shared too): avatar **5633** registered and assigned; row lists,
+  config resolves, every URL answers. Note: `/loginUser/` returns no API key;
+  `POST /api/v1/auth/login` does.
+- **Runtime proof** (`backend_test/splat_avatar_view.mjs`: local client build
+  -> dev backend, agent-inspection session params, Playwright): Tom Home
+  shows the splat; console "binding loaded (336220 splats, 67 bones) ->
+  skinning installed (unified work-buffer path)". The Apollo 11 space was
+  the first try - a cutscene, camera on a rocket; pick a plain room.
+- **A rigger finding, not fixed**: `index.html?fit=&bin=<url>` (reopening a
+  saved avatar) renders exporter sidecars as a smear whenever the SIDECAR
+  path wins; the page's own rebind (scheduled on entering Animate with no
+  lastBinding) races it and masks the problem when it lands last. I removed
+  the race (enter Animate after the sidecar) and the smear became
+  deterministic - so the sidecar path itself
+  (`new SplatSkin(..., placedFitWorld(currentFit), r.binding, ..., {worldSpace:
+  true})`) is what disagrees with `export-binding.mjs` sidecars; the runtime
+  driver reads the same sidecars correctly. Patch reverted; the rigger is
+  unchanged. Yesterday's rpm-vs-Anny leg comparison in the rigger therefore
+  rests on the in-page rebind for the rpm half and on whichever path won for
+  the Anny half; the leakage RULER (from the sidecar bytes) and today's
+  runtime render are the trustworthy evidence.
+- Splat shipped as SH0 (22 MB, 336,220 splats, same order so the binding
+  indices hold; client hash of the PLY = the md5 the API prefixes).
+- For live: deploy backend_git main (acc3d15+fc18435) with
+  `deploy_to_live.sh`, then `node scripts/upload_splat_avatar.mjs --api
+  https://api-live.arrival.space/api/v1 --ply ... --binding ... --glb ...
+  --fit ... --thumb ... --assign` with the live API key, or the MCP tool
+  from here (files via upload_binary_file / upload_file_from_url; the 22 MB
+  PLY is fine from a URL).
+
 ## 2026-09-12b (overnight: a rigged body model as the binding surface)
 
 User: fit a surface model that is itself rigged, then align the bones to it -
