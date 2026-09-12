@@ -32,7 +32,7 @@ const TAG = `${SET}_${ITERS}` + (Q.has('classic') ? '_classic' : '')
   + (Q.get('opadecay') ? `_od${Q.get('opadecay')}` : '') + (Q.get('ratiocap') ? `_rc${Q.get('ratiocap')}` : '')
   + (Q.get('econ') ? `_e${Q.get('econ')}` : '') + (Q.get('deadtiny') ? '_dtn' : '') + (Q.get('minutes') ? `_m${Q.get('minutes')}` : '') + (Q.get('evalmin') ? `_ev${Q.get('evalmin')}` : '')
   + (Q.has('classicsolve') ? '_cs' : '') + (Q.get('featres') ? `_fr${Q.get('featres')}` : '') + (Q.get('feats') ? `_nf${Q.get('feats')}` : '') + (Q.get('octave') ? `_oc${Q.get('octave')}` : '') + (Q.get('peak') ? `_pk${Q.get('peak')}` : '') + (Q.get('solve') ? `_sv${Q.get('solve')}` : '') + (Q.get('baratio') != null ? `_br${Q.get('baratio')}` : '') + (Q.get('bapts') != null ? `_bp${Q.get('bapts')}` : '') + (Q.get('pairworkers') === '0' ? '_npw' : '') + (Q.get('exiffocal') === '0' ? '_nxf' : '') + (Q.get('focals') ? `_fs${Q.get('focals').replace(/[^0-9]/g, '')}` : '') + (Q.get('bracket') === '0' ? '_nbk' : '') + (Q.get('inittrials') != null ? `_it${Q.get('inittrials')}` : '') + (Q.get('initpair') ? `_ip${Q.get('initpair').replace(',', '')}` : '') + (Q.get('searchsub') === '0' ? '_nss' : '')
-  + (Q.get('compact') === '0' ? '_ncp' : '') + (Q.get('gspread') ? `_gs${Q.get('gspread')}` : '') + (Q.get('gbatch') ? `_gb${Q.get('gbatch')}` : '') + (Q.get('usestats') ? '_us' : '') + (Q.get('camgrads') ? '_cg' : '') + (Q.get('rectbin') ? '_rb' : '') + (Q.get('ipf') ? `_ipf${Q.get('ipf')}` : '') + (Q.get('gzskip') ? '_gz' : '') + (Q.get('pvec') ? '_pv' : '') + (Q.get('sgagg') ? '_sg' : '') + (Q.get('tilegrad') === '0' ? '_ntg' : '') + (Q.get('frommodel') ? '_fm' : '') + (Q.get('aspect') ? '_asp' : '') + (Q.get('asplr') ? `_al${Q.get('asplr')}` : '') + (Q.get('sfmaspect') === '0' ? '_nsa' : Q.get('sfmaspect') ? '_sa' : '') + (Q.get('lockk') ? '_lk' : '') + (Q.get('pairinl') ? `_pi${Q.get('pairinl')}` : '') + (Q.get('pairinladj') ? `_pa${Q.get('pairinladj')}` : '') + (Q.get('relax') === '0' ? '_nrx' : '')
+  + (Q.get('compact') === '0' ? '_ncp' : '') + (Q.get('gspread') ? `_gs${Q.get('gspread')}` : '') + (Q.get('gbatch') ? `_gb${Q.get('gbatch')}` : '') + (Q.get('usestats') ? '_us' : '') + (Q.get('camgrads') ? '_cg' : '') + (Q.get('rectbin') ? '_rb' : '') + (Q.get('ipf') ? `_ipf${Q.get('ipf')}` : '') + (Q.get('gzskip') ? '_gz' : '') + (Q.get('pvec') ? '_pv' : '') + (Q.get('sgagg') ? '_sg' : '') + (Q.get('tilegrad') === '0' ? '_ntg' : '') + (Q.get('frommodel') ? '_fm' : '') + (Q.get('shdeg') != null ? `_sh${Q.get('shdeg')}` : '') + (Q.get('aspect') ? '_asp' : '') + (Q.get('asplr') ? `_al${Q.get('asplr')}` : '') + (Q.get('sfmaspect') === '0' ? '_nsa' : Q.get('sfmaspect') ? '_sa' : '') + (Q.get('lockk') ? '_lk' : '') + (Q.get('pairinl') ? `_pi${Q.get('pairinl')}` : '') + (Q.get('pairinladj') ? `_pa${Q.get('pairinladj')}` : '') + (Q.get('relax') === '0' ? '_nrx' : '')
   + (Q.get('video') ? `_v${Q.get('video').split('/').pop().replace(/.[^.]+$/, '')}` : '') + (Q.get('vidmode') ? `_vm${Q.get('vidmode')}` : '') + (Q.get('vidmax') ? `_vx${Q.get('vidmax')}` : '') + (Q.get('vidoverlap') ? `_vo${Q.get('vidoverlap')}` : '') + (Q.get('vidshots') ? `_vs${Q.get('vidshots')}` : '') + (Q.get('vidmaxgap') ? `_vg${Q.get('vidmaxgap').replace('.', '')}` : '') + (Q.get('vidpick') ? `_vp${Q.get('vidpick')}${(Q.get('vidfps') || '').replace('.', '')}` : '') + (Q.get('vidhold') ? '_vh' : '') + (Q.get('vidholdexcl') ? `_hx${Q.get('vidholdexcl').replace('.', '')}` : '')
   + (Q.get('masks') ? '_msk' : '') + (Q.get('maskguard') ? `_mg${Q.get('maskguard')}` : '') + (Q.get('randbg') ? `_rbg${Q.get('randbg')}` : '') + (Q.get('hullkeep') ? `_hk${Q.get('hullkeep')}` : '') + (Q.get('hullres') ? `_hr${Q.get('hullres')}` : '') + (Q.get('covw') ? `_cw${Q.get('covw')}` : '') + (Q.get('covs') ? `_cs${Q.get('covs')}` : '') + (Q.get('maskcut') ? `_mc${Q.get('maskcut')}` : '') + (Q.get('maskbg') ? `_mb${Q.get('maskbg')}` : '')
   + (Q.get('dir') ? `_d${Q.get('dir')}` : '') + (Q.get('tag') ? `_${Q.get('tag')}` : '')   // free suffix: e.g. the recon source, which no flag names
@@ -209,7 +209,7 @@ try {
       : {
         // cap = min(seed·capMult, maxSplats): truck's 25,141-point seed × 8 × 8
         // is 1.61M, so a true 2M needs ?capmult=16 (what the app uses ≥ 1M)
-        maxSplats: +(Q.get('maxsplats') || Math.min(2000000, Math.round(ITERS * 35))), capMult: +(Q.get('capmult') || 8), shDeg: 3,
+        maxSplats: +(Q.get('maxsplats') || Math.min(2000000, Math.round(ITERS * 35))), capMult: +(Q.get('capmult') || 8), shDeg: +(Q.get('shdeg') ?? 3),   // ?shdeg=0: an avatar preset (view-independent colour)
         growRate: 0.05, mcmcNoise: true, scaleReg: 0.01, moveCap: 0.25, shLr: 3e-4,
         // econ=brush: the Brush economy as ONE package (its pieces never
         // transplanted one at a time): no loss-side reg, decay 0.004/200it,
@@ -354,6 +354,11 @@ try {
     const { decodeModel } = await import('../../app/js/session_io.js');
     const bytes = new Uint8Array(await (await fetch(Q.get('frommodel'))).arrayBuffer());
     const { gaussians, state } = await decodeModel(bytes, null);
+    // ?stripsh=1: drop the imported SH bands so the continuation trains a
+    // view-independent model (with ?shdeg=0) — an SH0 EXPORT of an SH3 model
+    // is not that: the DC alone exposes needle splats the bands were hiding
+    // (2026-09-12, the face in the app)
+    if (Q.get('stripsh')) { gaussians.sh = null; gaussians.shK = 0; }
     // a bare .ply/.sog carries BAKED opacities (undo them); a session zip's state.bin is raw
     await ses.seedFrom(gaussians, { iter: +(Q.get('fromiter') || (state && state.iter) || 0), unbake: !state });   // ?fromiter=N continues the schedules from there
     await say('seeded-from-model', { splats: gaussians.n });

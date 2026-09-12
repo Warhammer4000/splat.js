@@ -121,6 +121,10 @@ for k in range(NL):
     if X is None: continue
     canon[k] = X; lmerr[k] = med; lmviews[k] = n
 good = np.where(np.isfinite(lmerr) & (lmerr <= MAX_LM_ERR))[0]
+# the triangulated face (PLY frame) — the head registration target for the body-model fit
+json.dump({'frame': 'ply (y down)', 'landmarks': {int(k): canon[k].round(5).tolist() for k in good},
+           'medianReprojPx4k': {int(k): round(float(lmerr[k]), 2) for k in good}},
+          open(os.path.join(ROOT, 'scratch', 'face_canon3d.json'), 'w'))
 print(f'canonical face: {len(good)}/{NL} landmarks, median reproj {np.nanmedian(lmerr[good]):.1f} px at 4K '
       f'(views per landmark median {np.median(lmviews[good]):.0f})')
 

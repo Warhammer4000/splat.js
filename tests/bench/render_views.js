@@ -18,7 +18,8 @@ try {
   const g = parsePlyGaussians(plyBytes);
   say(`${g.n} splats, ${recon.cams.length} cams, radius ${recon.sceneRadius}`);
 
-  const ses = createSession({});
+  // ?dilate=0.3&mipcomp=0 emulates a classic viewer (PlayCanvas: +0.3 px dilation, no compensation)
+  const ses = createSession({ trainer: { ...(Q.get('dilate') ? { dilate: +Q.get('dilate') } : {}), ...(Q.get('mipcomp') === '0' ? { mipComp: false } : {}) } });
   ses.useReconstruction(recon);                // cameras for the opacity unbake
   await ses.seedFrom(g, { viewOnly: true, sceneRadius: recon.sceneRadius, unbake: !Q.get('baked') });   // render what the trainer rendered (?baked=1: the export as external viewers show it)
 
