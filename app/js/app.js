@@ -634,7 +634,14 @@ function showIntro() {
 async function openCaptureSet(rec = null) {
   rec = rec || await loadLastCapture();
   if (!rec || !rec.files || rec.files.length < 2) return null;
-  const files = rec.files.map((e) => new File([e.blob], e.name, { type: e.blob.type || 'image/jpeg' }));
+  const files = rec.files.map((e) => {
+    const f = new File([e.blob], e.name, { type: e.blob.type || 'image/jpeg' });
+    if (e.mask) f.mask = e.mask;   // avatar mode: the person's matte rides with the frame
+    return f;
+  });
+  // an avatar capture restores as an avatar run (the manifest names the stages done so far)
+  S.avatar = rec.avatar && rec.avatar.kind === 'avatar' ? rec.avatar : null;
+  S.avatarOpts = S.avatar ? (await import('../avatar/index.js')).trainingOptions(S.avatar, { iters: S.settings.iters || INITIAL_ITERS }) : null;
   await sortByCapture(files);
   if (S.ownUrls) S.ownUrls.forEach(URL.revokeObjectURL);
   S.ownUrls = files.map((f) => URL.createObjectURL(f));
@@ -1076,6 +1083,7 @@ async function useOwnVideo(file) {
   meter('Reading your video', 'decoding …');
   $('stage').appendChild(card);
   const LABEL = { scan: 'scoring every frame', capture: 'saving the winners' };
+  let avatarWanted = false, videoMeta = {};   // the review card's "make an avatar" box
   try {
     const { frames, duration } = await extractSharpFrames(file, {
       thumbs: { width: window.innerWidth <= 560 ? 112 : 224 },   // scan-time thumbnails for the review card's filmstrip and hover preview
@@ -1089,7 +1097,7 @@ async function useOwnVideo(file) {
       },
       review: async (ctx) => {
         const r = await videoReview(card, ctx);
-        if (r) meter('Saving the frames', `0 / ${r.picks.length}`);
+        if (r) { avatarWanted = r.avatar; videoMeta = { videoW: ctx.videoW, videoH: ctx.videoH }; meter('Saving the frames', `0 / ${r.picks.length}`); }
         return r;
       },
     });
@@ -1097,17 +1105,29 @@ async function useOwnVideo(file) {
       flash('That video is too short — a slow 20+ second pass works best.', 6000);
       return;
     }
+    // avatar mode (app/avatar, lazy): cut the person out of every frame and
+    // ask whether that is the subject — before anything expensive runs. A
+    // "no" continues as a plain scene; the masks ride on the frame entries
+    // and the session takes them as its per-file mask input.
+    S.avatar = null; S.avatarOpts = null;
+    if (avatarWanted) {
+      const av = await import('../avatar/index.js');
+      const manifest = await av.prepareCapture(frames, { video: file.name, picks: frames.length, duration, ...videoMeta }, { card, flash });
+      if (manifest) { S.avatar = manifest; S.avatarOpts = av.trainingOptions(manifest, { iters: S.settings.iters || INITIAL_ITERS }); }
+    }
     if (S.ownUrls) S.ownUrls.forEach(URL.revokeObjectURL);
     S.ownUrls = frames.map((f) => URL.createObjectURL(f.source));
     // persist the EXTRACTED frames (small JPEGs), not the raw video
     persistCapture({
       kind: 'video', created: Date.now(),
-      files: frames.map((f) => ({ name: f.name, blob: f.source })),
+      files: frames.map((f) => ({ name: f.name, blob: f.source, ...(f.mask ? { mask: f.mask } : {}) })),
+      ...(S.avatar ? { avatar: S.avatar } : {}),
     });
     const set = ownSet(frames, S.ownUrls);
-    set.kind = 'Your video';
+    set.kind = S.avatar ? 'Your avatar' : 'Your video';
     set.origin = `${frames.length} sharp frames picked from your ${Math.round(duration)}s video, ` +
-      'right here in this tab. Blurred moments lost to their sharper neighbours.';
+      'right here in this tab. Blurred moments lost to their sharper neighbours.' +
+      (S.avatar ? ' The room is cut away; only the person trains.' : '');
     open(set);
     showDetail(set);   // Start training lives on the detail card (the photo path does the same)
   } catch (e) {
@@ -1137,6 +1157,7 @@ function videoReview(card, ctx) {
       <canvas class="vid-tl" id="vid-tl"></canvas>
       <canvas class="vid-strip" id="vid-strip"></canvas>
       <div class="vid-read"><b id="vid-n"></b><span id="vid-span"></span><button class="linkish" id="vid-reset" hidden>whole video</button></div>
+      <label class="vid-avatar"><input type="checkbox" id="vid-avatar">This is a person — make an avatar <small>(orbit at arm's length, arms slightly out; the room is cut away)</small></label>
       <div class="upcard-row"><p class="fine" id="vid-hint"></p><span style="display:flex;gap:8px"><button class="btn btn-outline" id="vid-cancel">Cancel</button><button class="btn btn-accent" id="vid-use">Use these frames</button></span></div>`;
     const tl = $('vid-tl'), strip = $('vid-strip');
     if (ctx.videoH > ctx.videoW) strip.style.height = (window.innerWidth <= 560 ? 150 : 110) + 'px';   // portrait clips: taller filmstrip
@@ -1335,7 +1356,7 @@ function videoReview(card, ctx) {
     $('vid-cancel').onclick = $('vid-x').onclick = () => { cleanup(); resolve(null); };
     const onKey = (e) => { if (e.key === 'Escape') { cleanup(); resolve(null); } };
     window.addEventListener('keydown', onKey);
-    $('vid-use').onclick = () => { cleanup(); resolve({ picks: plan.picks }); };
+    $('vid-use').onclick = () => { const avatar = !!$('vid-avatar')?.checked; cleanup(); resolve({ picks: plan.picks, avatar }); };
     const onResize = () => redraw();
     window.addEventListener('resize', onResize);
     function cleanup() { window.removeEventListener('resize', onResize); window.removeEventListener('keydown', onKey); S.videoReview = null; }
@@ -1545,6 +1566,8 @@ async function startPrep() {
     // scenes. Re-enable when the encoder handles unbounded DC.
     const engine = engineQ === 'v2' ? 'v2' : undefined;
     if (engine) { trainerOpts.engine = engine; }
+    // avatar mode: one subject, not a room — its own sizing (app/avatar)
+    if (S.avatarOpts) Object.assign(trainerOpts, S.avatarOpts.trainer);
     const session = createSession({
       maxIters: S.maxIters, evalHoldEvery: 2500,
       holdout: -1,
@@ -1552,6 +1575,7 @@ async function startPrep() {
       evalSplit: EVAL.on ? EVAL.split : 0,
       initTarget: lodOn ? 250000 : (st.splats ? Math.round(st.splats / 4) : (phoneClass ? 60000 : undefined)),
       maxViewW: mvW, maxViewH: mvH,
+      ...(S.avatarOpts ? S.avatarOpts.session : {}),
       // phones: iOS jetsams the tab long before the GPU is the limit —
       // decode-to-target (in the library), 720px features, a smaller SIFT
       // worker pool, and dropping gray/rgb once each stage has consumed them
@@ -2230,10 +2254,34 @@ function enterDone() {
   if (S._detailsFromUrl) { S._detailsFromUrl = false; openDetails(); }   // ?details=<tab> reopens the sheet
 }
 
+/** Avatar mode: the trained, isolated splat is the halfway point — joints,
+ *  face, body model, binding and the account come after, on their own card
+ *  (app/avatar/runner.js). The app only mounts the card and persists the
+ *  manifest the stages write. */
+async function runAvatarStages() {
+  if (!S.avatar || !S.session) return;
+  const gen = S.gen;
+  try {
+    const av = await import('../avatar/index.js');
+    await av.afterTraining({
+      session: S.session, frames: S.preset.files || S.loadedFiles, manifest: S.avatar,
+      capture: S._capRec,
+      mount: (card) => $('stage').appendChild(card),
+      log: (m) => console.log('[avatar]', m), flash,
+      persist: (m) => { if (S._capRec && S.gen === gen) { S._capRec.avatar = m; persistCapture(S._capRec); } },
+      arrival: { hasToken, API_BASE },
+    });
+  } catch (e) {
+    console.error(e);
+    flash(`Avatar: ${e.message || e}`, 8000);
+  }
+}
+
 async function finish() {
   S.iter = S.session.trainer.iter;   // honest count — the run may end early
   S.minutes = Math.max(1, Math.round((performance.now() - S.trainT0) / 60000));
   enterDone();
+  if (S.avatar) runAvatarStages();
   const hold = S.psnrHold != null ? ` · ${S.psnrHold.toFixed(1)} dB on the photograph it never saw` : '';
   flash(`Done${hold}`, 6000);
   if (EVAL.on) {

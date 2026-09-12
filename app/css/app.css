@@ -1039,3 +1039,19 @@ a.cbtn { text-decoration: none; }
 .sh-linkrow { justify-content: flex-end; align-items: center; flex-wrap: wrap; }
 .sh-enter { margin-right: auto; font-size: 13px; }
 .sh-linkrow .btn { text-decoration: none; padding: 8px 14px; font-size: 13px; }
+
+/* ── avatar mode (app/avatar) ─────────────────────────────────────────────── */
+.vid-avatar { display: flex; align-items: center; gap: 8px; margin: 6px 0 2px; font: 500 13px var(--sans, system-ui); color: var(--paper); cursor: pointer; }
+.vid-avatar input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); }
+.vid-avatar small { color: var(--muted); font-weight: 400; }
+.av-strip { display: flex; gap: 6px; overflow-x: auto; padding: 8px 0 4px; }
+.av-strip canvas { height: 160px !important; width: auto !important; border-radius: 6px; background: #fff; flex: none; }
+.av-stages { list-style: none; margin: 8px 0 4px; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 4px 10px; }
+.av-stages li { display: flex; justify-content: space-between; gap: 6px; font: 500 12px var(--sans, system-ui); color: var(--muted); padding: 4px 8px; border-radius: 6px; background: var(--panel-2); }
+.av-stages li em { font-style: normal; font-size: 11px; opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.av-stages li.done { color: var(--paper); }
+.av-stages li.done::before { content: '✓ '; color: var(--accent); }
+.av-stages li.running { color: var(--accent); }
+.av-stages li.failed { color: var(--red); }
+.av-card .av-overlay { display: flex; gap: 6px; overflow-x: auto; padding: 6px 0; }
+.av-card .av-overlay canvas { height: 200px; border-radius: 6px; flex: none; }
