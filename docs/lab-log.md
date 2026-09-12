@@ -4,6 +4,51 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-13b (avatar mode in the Splat.js app — feature/avatar-mode)
+
+User: "design a nicely separated pipeline that fits into the Splat.js app …
+maybe a separate app". Design page: one app, three walls (library knows no
+people; `app/avatar/` lazy-loaded; one service for the body fit); the
+manifest on the capture record is the boundary. User: "Yes do it but on
+another feature branch" -> `feature/avatar-mode` in Browser_3DGS and
+client_git.
+
+- **Step 1 (344235e)**: the video review card grows a box; `app/avatar/`
+  (manifest, runner, stages/matte, ui/cutouts). RobustVideoMatting through
+  onnxruntime-web: the WebGPU provider accepts the model and refuses
+  AveragePool with ceil_mode at run time -> first-frame probe, wasm fallback
+  at 1280 px, 0.34 s/frame (149 frames in 50 s). The cut-outs checkpoint
+  works; masks ride on the frame entries into the session; the masked
+  preset trains; the finished run hands off to the stage runner.
+- **Shared rigger core (client_git 687df5984)**: `autofit-core.js`
+  (landmarks -> markers -> fit) and `export-binding-core.js` (fit + centres
+  [+ surface] -> SBA1), pure; the sidecar payload is byte-identical to
+  `tools/export-binding.mjs` on Lisa. Snapshotted into `app/avatar/rig/`
+  by `scripts/sync_rig.mjs` until it is a package.
+- **Stages** landmarks (tasks-vision pose + face in the tab, CPU delegate:
+  148 frames in 7 s; robust DLT with a Jacobi 4x4 eigen solver — inverse
+  iteration was the first version and is numerically wrong on these
+  systems; PnP by Huber-LM; unit-tested on synthetic cameras and
+  cross-checked against the python pipeline's real observations: 0.09 mm
+  mean vs `face_canon3d.json`), facepass (crop windows + a second session
+  continued from the raw state, crops weighted by face size), bodyfit
+  (service hook; rig mesh until the service exists), bind (the core, plus
+  the leakage ruler), publish (upload + `POST /avatars/splat`, behind a
+  click because sign-in needs one; a package download beside it).
+- **Two library bugs the app path exposed** (the bench never hit them):
+  the visual hull's median±MAD box collapsed to 1 cm on a cloud whose
+  subject points sat in one cluster -> 0 % solid -> 0 Gaussians seeded and
+  a run that trained NOTHING (the WebGPU "binding size is zero" errors);
+  fixed with a 10-90 percentile floor on the box, a rejection of a hull that
+  keeps < 5 % of the points, and a never-seed-from-nothing fallback in
+  `seed()`.
+- **The 1080p/40 s test clip solves degenerate** with the standard tier:
+  camera centres within ~20 cm of one point (a rotation-only solution, BA
+  rms fine) — the nose rays never meet, the fit scale came out 0.2. Avatar
+  mode now asks for the precise tier and the landmarks stage refuses a
+  collapsed camera set with a plain message. The 4K orbit (transcoded to
+  H.264 for headless Chrome) is the real end-to-end test.
+
 ## 2026-09-13 (the face in the APP: a client fix, one surface, and a head that sits on hers)
 
 User: the renders looked good but not the app. Close-ups through the real

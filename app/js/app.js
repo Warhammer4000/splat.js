@@ -1613,6 +1613,7 @@ async function startPrep() {
     session.on('stage', (e) => { if (S.gen === gen) onStage(e); });
     session.on('metrics', (e) => { if (S.gen === gen) onMetrics(e); });
     session.on('event', (e) => { if (S.gen === gen) onTrainEvent(e); });
+    if (S.avatar || new URLSearchParams(location.search).has('sessionlog')) session.on('log', (m) => console.log('[session]', m));
 
     // 1) decode
     let files;
@@ -2270,6 +2271,7 @@ async function runAvatarStages() {
       log: (m) => console.log('[avatar]', m), flash,
       persist: (m) => { if (S._capRec && S.gen === gen) { S._capRec.avatar = m; persistCapture(S._capRec); } },
       arrival: { hasToken, API_BASE },
+      thumb: () => renderShareThumb(),
     });
   } catch (e) {
     console.error(e);

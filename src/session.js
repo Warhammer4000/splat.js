@@ -361,10 +361,20 @@ export class Session {
     // a point that sits along the viewing ray through the subject, and those
     // stragglers are what blow the scene bounds out
     const before = this.recon.points.length;
-    this.recon.points = this.recon.points.filter((p) => this.hullTest(p.X[0], p.X[1], p.X[2]));
-    this._log(`subject hull: ${hull.dim.join('x')} voxels, ${(hull.fill * 100).toFixed(1)}% solid, `
+    const inside = this.recon.points.filter((p) => this.hullTest(p.X[0], p.X[1], p.X[2]));
+    this._log(`subject hull: ${hull.dim.join('x')} voxels of ${hull.cell.toFixed(3)} (box ${hull.dim.map((d) => (d * hull.cell).toFixed(2)).join('x')}), ${(hull.fill * 100).toFixed(1)}% solid, `
       + `carved in ${((Date.now() - t0) / 1000).toFixed(1)}s; seeding from `
-      + `${this.recon.points.length} of ${before} points inside it`);
+      + `${inside.length} of ${before} points inside it`);
+    // a hull that disagrees with the masks (a bounding box blown out by ray
+    // stragglers, a matte that does not line up) would seed NOTHING and
+    // kill every splat that grows — the run trained 0 Gaussians in the app,
+    // 2026-09-13. Then the masks alone must do: no hull, all mask-filtered points.
+    if (inside.length < Math.max(8, 0.05 * before) || hull.fill < 0.002) {
+      this._log(`subject hull rejected (${inside.length} of ${before} points, ${(hull.fill * 100).toFixed(2)}% solid) — training on the masks alone`);
+      this.hull = null; this.hullTest = null; this.splatTest = null;
+      return null;
+    }
+    this.recon.points = inside;
     return hull;
   }
 
@@ -372,8 +382,14 @@ export class Session {
   async seed(extra = {}) {
     if (!this.recon) throw new Error('solve() first');
     this._stage({ stage: 'seed', done: 0, total: 1 });
+    const allPoints = this.recon.points;
     if (extra.maskPoints !== false) this.maskPoints(extra.maskKeep ?? 0.5);
     this._buildHull(extra);
+    if (this.recon.points.length < 8) {
+      // never seed from nothing: the whole cloud beats an empty model
+      this._log(`subject filters left ${this.recon.points.length} points — seeding from the whole cloud instead`);
+      this.recon.points = allPoints;
+    }
     // default seed scales with the solve's point count: the flat 60k
     // default seed-bound capacity (cap = seed x capMult) on point-rich
     // scenes — garden measured +0.4 dB from lifting it. Explicit

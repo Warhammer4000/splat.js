@@ -13,6 +13,7 @@
 //
 // Everything avatar-specific lives under app/avatar/; src/ stays generic.
 import { newManifest, setStage } from './manifest.js';
+import { solveTierOpts } from '../../src/sfm/sfm.js';
 import { cutoutsCard } from './ui/cutouts.js';
 
 export { isAvatar, STAGES, STAGE_LABEL, nextStage } from './manifest.js';
@@ -63,7 +64,10 @@ export async function prepareCapture(frames, source, { card, flash = () => {}, l
  *  not a room. */
 export function trainingOptions(manifest, { iters = 30000 } = {}) {
   return {
-    session: { evalSplit: 0, initTarget: 100000 },
+    // the precise solve tier: an orbit around a person is a small, low-texture
+    // scene, and the quick/standard tiers collapsed a 1080p orbit into a
+    // rotation-only solution once (2026-09-13) — nothing downstream survives that
+    session: { evalSplit: 0, initTarget: 100000, sfm: solveTierOpts('precise') },
     trainer: { maxSplats: 600000, capMult: 8 },
     iters,
   };

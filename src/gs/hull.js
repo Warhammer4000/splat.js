@@ -45,9 +45,14 @@ export function buildVisualHull(recon, frames, opts = {}) {
   const lo = [0, 0, 0], hi = [0, 0, 0];
   const mid = (arr) => { const a = Float64Array.from(arr).sort(); return a[a.length >> 1]; };
   for (let a = 0; a < 3; a++) {
-    med[a] = mid(pts.map((p) => p.X[a]));
+    const v = Float64Array.from(pts.map((p) => p.X[a])).sort();
+    med[a] = v[v.length >> 1];
     mad[a] = mid(pts.map((p) => Math.abs(p.X[a] - med[a]))) || 1e-3;
-    const half = kMad * mad[a] * (1 + margin);
+    // MAD alone collapsed to a 1 cm box on a cloud whose subject points sat in
+    // one tight cluster (2026-09-13, the app's 1080p test clip): never let the
+    // box be narrower than the cloud's 10-90 percentile span
+    const p10 = v[Math.floor(0.1 * (v.length - 1))], p90 = v[Math.floor(0.9 * (v.length - 1))];
+    const half = Math.max(kMad * mad[a], 0.5 * (p90 - p10)) * (1 + margin);
     lo[a] = med[a] - half; hi[a] = med[a] + half;
   }
   const span = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
