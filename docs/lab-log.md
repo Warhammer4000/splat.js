@@ -4,6 +4,83 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-12d (a sharper face: native-resolution crops as head-stabilised cameras)
+
+User: "research ways we can increase sharpness of the face, maybe retrain once
+the surface is known, or get the best face images and reapply - be creative".
+
+- **Diagnosis** (`scratch/face_stats.json`): the face is 133 px ear-to-ear
+  at 4K (median; max 350) = 55 px in the 900x1600 training target, and the
+  head moves against the body-registered camera (landmark reprojection
+  median 37 px at 4K, p90 262 px). Two limits, both must go: resolution and
+  head motion.
+- **Stage** `tests/bench/face_crops.py`: MediaPipe FaceLandmarker (478 pts)
+  on a head window of every native 4K frame (the 189 selected frames
+  re-extracted with OpenCV - the ffmpeg select expression for 189 indices
+  is too long for its parser; OpenCV applies the rotation metadata, all 189
+  matched the training frames at diff 0.7/255) -> robust DLT of every
+  landmark across the solved body cameras = a canonical 3D face (478/478,
+  median reprojection 3.2 px at 4K) -> per-frame PnP of that face = a
+  head-stabilised camera (landmark residual 5.1 -> 2.2 px; head-vs-body
+  pose delta median 2.8 deg, p90 11.7 deg) -> a fixed 768x768 window at
+  native resolution, cx/cy shifted, f native; RVM matte on the crop gated by
+  the dilated body matte. 45 frames show a face (the orbit's back half does
+  not), 6 held out (`heldOut` in `scratch/lisa_face_recon_all.json`).
+  Session/bench/render_views now honour a camera's own principal point.
+- **Continuation was broken** - three bugs found on the way, all fixed
+  (c3ca855): (1) `seedFrom()` lacked the masked-set `randomBg` default, so a
+  continued masked run trained its empty pixels against BLACK: 200 steps
+  from the converged person grew ~240 live splats into opaque 33 cm needles
+  (scale +1.3 log, opacity +4.4 logits, the maximum Adam allows at full lr)
+  and killed 18k. Found by continuing from the RAW state zip (same wreck ->
+  not the import) and matching the needles to their v12 twins by position
+  (they were ordinary 10 %-opacity, 4 cm splats). (2) A bare .ply carries
+  the Mip opacity compensation BAKED (`exportPlyBlob`) and the trainer
+  compensated it again: `unbakeOpacityCompensation` (exact inverse, same f,
+  cams, dilate) on import; render_views renders the unbaked model (the
+  earlier v12 "baseline" renders were double-compensated). (3) seedFrom
+  reset the blur exclusions and the eval split - a resume trained on the
+  held-out views. Also `opts.lrWarmup` (ramp after a warm restart) and
+  `?fromiter/?warmup/?poststate` in the bench. Probe: 1000 polish steps
+  from lisa_v12 now change a held-out view by 1.1/255 mean; before, 85.
+- **Results** (six held-out face crops, `tests/bench/face_eval.py`; face
+  PSNR = centre quarter of the crop on subject pixels; sharpness = render /
+  GT Laplacian variance):
+
+  | model | steps | crops | cap | face PSNR | subject PSNR | sharpness |
+  |---|---|---|---|---|---|---|
+  | lisa_v12 (body only) | - | - | - | 22.03 | 18.28 | 0.21 |
+  | v1: continue 15k (from iter 5000) | 15k | 39 x1 | 600k | 23.96 | 20.10 | 0.22 |
+  | v2: continue 35k, crops sampled x3 | 35k | 39 x3 | 1M | 24.52 | 21.02 | **0.47** |
+  | **v3: as v2, crops weighted by face size (x1..x6)** | 35k | 39 x1-6 | 1M | **25.47** | **21.99** | 0.44 |
+
+  v2: eyes with catchlights, brows, nostrils and hair strands resolved;
+  residual needle streaks at hair edges and speckle at the ear. The BODY
+  gains too (held-out views 8/48: 25.3 -> 27.0, 25.7 -> 31.0 dB) - the
+  extra steps at a 1M cap were worth having on their own. Bench psnrTest
+  (mixed body + crops, 38 views) 29.0. 68 % dead at the cap - the export
+  keeps 315k live splats. 5.1 min of training on the 5080.
+- **Why it works**: a crop camera is just a camera with a shifted principal
+  point and the native focal - no new loss, no new renderer path. The head
+  motion goes into the crop's pose (PnP against the person's OWN
+  triangulated face), so the crops agree with each other even where the
+  body cameras disagree about the head.
+- **v3** (crop duplicates `round(3 * facePx / 250)`, 1..6 - the close,
+  350 px faces carry the most information): +3.4 dB face PSNR over v12 and
+  the cleanest hair (fewer streaks than v2). Body held-out views 8 / 48:
+  25.3 / 25.7 -> 26.8 / 31.6 dB. 5.3 min. **Shipped to dev**: SH0 PLY
+  (336,674 splats, 22.9 MB) + a fresh Anny-surface binding (2.2 cm, 0 far)
+  = avatar **5635**, assigned; runtime console "binding loaded (336674
+  splats, 67 bones) -> skinning installed"; Tom Home screenshot
+  `scratch/dev_avatar_v3.png`. Package `scratch/avatar_lisa_v3/`.
+- Not done / next: the orbit's back half has no face landmarks (no crops
+  for hair / back of head - would need ear- or hair-based stabilisation);
+  the sharpest frames are the ceiling (350 px face) - a capture that steps
+  closer for a few seconds would lift it; the needle streaks at hair edges
+  (anisoReg is 0 by default - a small ratio bound for the continuation is
+  worth a cell); one recipe cell each for "x3 sampling" vs "35k steps" vs
+  "1M cap" to know which of v2's three levers mattered.
+
 ## 2026-09-12c (the avatar onto the account: an API route, deployed to dev)
 
 User: "set the avatar for my account" -> "deploy to dev and upload the avatar
