@@ -19,7 +19,8 @@ try {
   say(`${g.n} splats, ${recon.cams.length} cams, radius ${recon.sceneRadius}`);
 
   const ses = createSession({});
-  await ses.seedFrom(g, { viewOnly: true, sceneRadius: recon.sceneRadius });
+  ses.useReconstruction(recon);                // cameras for the opacity unbake
+  await ses.seedFrom(g, { viewOnly: true, sceneRadius: recon.sceneRadius, unbake: !Q.get('baked') });   // render what the trainer rendered (?baked=1: the export as external viewers show it)
 
   const W = +(Q.get('w') || 540);
   const cv = document.getElementById('cv');
@@ -36,7 +37,7 @@ try {
     ses.view.attach(cv);
     const bg = Q.get('bg') ? Q.get('bg').split(',').map(Number) : null;
     ses.view.setCamera({ R: c.R, t: c.t, f: c.f * s, fy: (c.fy ?? c.f) * s,
-                         cx: W / 2, cy: H / 2, w: W, h: H, ...(bg ? { bg } : {}) });
+                         cx: (c.cx ?? fr.fw / 2) * s, cy: (c.cy ?? fr.fh / 2) * s, w: W, h: H, ...(bg ? { bg } : {}) });
     ses.view.renderNow();
     await new Promise((r) => requestAnimationFrame(r));
     ses.view.renderNow();                       // second pass: sorted, settled

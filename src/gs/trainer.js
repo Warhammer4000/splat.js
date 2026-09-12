@@ -840,6 +840,26 @@ export class GSTrainer {
    *  Needs the 'timestamp-query' device feature (requested when available). */
   /** Adam bias corrections 1/(1-b^t) for the current step, written into the
    *  uniforms so the kernels skip two pow() per parameter (speed plan #6). */
+  /** opts.lrWarmup = N: linear learning-rate ramp over the first N
+   *  iterations after the moments' birth (adamT0). A CONTINUATION starts
+   *  Adam with zero moments, and bias-corrected Adam then steps every
+   *  parameter by the full lr in the direction of its first gradients — a
+   *  seed does not care, a converged model does: measured 2026-09-12, 200
+   *  steps from a trained person grew a few hundred splats 2-3x into
+   *  needles and killed 18k, 1000 steps wrecked it. The ramp lets v
+   *  accumulate the true gradient scale while the steps are still small.
+   *  Returns the uniform array with lr slots [lo, hi) scaled (a copy while
+   *  ramping, the array itself once warm). */
+  _warmed(arr, lo, hi) {
+    const N = this.opts.lrWarmup;
+    if (!(N > 0)) return arr;
+    const w = Math.min(1, Math.max(1, this.iter - (this.adamT0 || 0)) / N);
+    if (w >= 1) return arr;
+    const out = Float32Array.from(arr);
+    for (let i = lo; i < hi; i++) out[i] *= w;
+    return out;
+  }
+
   _adamBias() {
     const t = Math.max(1, this.adamData[19]);
     this.adamData[32] = 1 / (1 - Math.pow(this.adamData[16], t));
@@ -869,8 +889,8 @@ export class GSTrainer {
       d.queue.writeBuffer(this.bufTileCnt, 0, this.tileZero);
       this.adamData[19] = (this.iter + 1) - (this.adamT0 || 0);
       this._adamBias();
-      d.queue.writeBuffer(this.uniAdam, 0, this.adamData);
-      if (this.shK) { this.shAdamData[3] = this.iter + 1; this.shAdamData[5] = this.n * this.shK * 3; this._shAdamBias(); d.queue.writeBuffer(this.uniSHAdam, 0, this.shAdamData); }
+      d.queue.writeBuffer(this.uniAdam, 0, this._warmed(this.adamData, 0, 14));
+      if (this.shK) { this.shAdamData[3] = this.iter + 1; this.shAdamData[5] = this.n * this.shK * 3; this._shAdamBias(); d.queue.writeBuffer(this.uniSHAdam, 0, this._warmed(this.shAdamData, 4, 5)); }
       const gx = Math.ceil(meta.w / TILE), gy = Math.ceil(meta.h / TILE);
       const nGroups = Math.ceil(this.n / 256);
       const d1 = (pass, total) => { const g = Math.ceil(total / 256); if (g <= 65535) pass.dispatchWorkgroups(g); else pass.dispatchWorkgroups(65535, Math.ceil(g / 65535)); };
@@ -1032,12 +1052,12 @@ export class GSTrainer {
       const sLr = 1e-2 * Math.pow(0.6, Math.min(1, this.iter / this.horizon));
       this.adamData[3] = this.adamData[4] = this.adamData[5] = sLr;
     }
-    d.queue.writeBuffer(this.uniAdam, 0, this.adamData);
+    d.queue.writeBuffer(this.uniAdam, 0, this._warmed(this.adamData, 0, 14));
     if (this.shK) {
       this.shAdamData[3] = this.iter;
       this.shAdamData[5] = this.n * this.shK * 3;
       this._shAdamBias();
-      d.queue.writeBuffer(this.uniSHAdam, 0, this.shAdamData);
+      d.queue.writeBuffer(this.uniSHAdam, 0, this._warmed(this.shAdamData, 4, 5));
     }
 
     const enc = d.createCommandEncoder();

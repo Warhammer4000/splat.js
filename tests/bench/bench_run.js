@@ -85,6 +85,7 @@ const SETS = {
   // loss only sees the person. The photographs themselves stay whole, so the
   // solver still registers off the room.
   lisa:      { dir: 'lisa', list: true, masks: 'masks' },
+  lisaface:  { dir: 'lisaface', list: true, masks: 'masks' },   // lisa + native-4K face crops (tests/bench/face_crops.py); train with ?gtrecon=&frommodel=
   bicycle:   { dir: 'bicycle', list: true },
   garden:    { dir: 'garden', list: true },
   statue:    { dir: 'statue_ka', list: true },
@@ -240,6 +241,8 @@ try {
         // speed-plan bisect toggles: keep the compiled-out work compiled in
         ...(Q.get('usestats') ? { useStats: true } : {}),
         ...(Q.get('camgrads') ? { camGrads: true } : {}),
+        // continuation runs ramp the lr over the first N iterations (zero Adam moments); ?warmup=0 disables
+        ...((Q.get('warmup') || Q.get('frommodel')) ? { lrWarmup: +(Q.get('warmup') ?? 1000) } : {}),
         ...(Q.get('rectbin') ? { rectBin: true } : {}),   // speed plan #5: per-axis tile binning
         // visibility compaction: chain/Adam/SH-Adam over visible splats only
         ...(Q.get('compact') === '0' ? { compact: false } : {}),
@@ -315,7 +318,9 @@ try {
         const fr = gj.frames[c.imgIdx]; const i = fr ? byName.get(fr.name) : undefined;
         if (i == null) return null;
         const s = ses.frames[i].fw / fr.fw;
-        return { ...c, imgIdx: i, f: c.f * s, ...(c.fy != null ? { fy: c.fy * s } : {}), cx: ses.frames[i].fw / 2, cy: ses.frames[i].fh / 2 };
+        // crop cams (face_crops.py) carry an off-centre principal point: scale it like f
+        return { ...c, imgIdx: i, f: c.f * s, ...(c.fy != null ? { fy: c.fy * s } : {}),
+          cx: c.cx != null ? c.cx * s : ses.frames[i].fw / 2, cy: c.cy != null ? c.cy * s : ses.frames[i].fh / 2 };
       }).filter(Boolean);
     }
     if (!gj.points && gj.cloud && gj.cloud.xyz) {
@@ -348,8 +353,9 @@ try {
     // (with ?iters=1&gputime=N) instead of growing there for 7 minutes
     const { decodeModel } = await import('../../app/js/session_io.js');
     const bytes = new Uint8Array(await (await fetch(Q.get('frommodel'))).arrayBuffer());
-    const { gaussians } = await decodeModel(bytes, null);
-    await ses.seedFrom(gaussians, { iter: 0 });
+    const { gaussians, state } = await decodeModel(bytes, null);
+    // a bare .ply/.sog carries BAKED opacities (undo them); a session zip's state.bin is raw
+    await ses.seedFrom(gaussians, { iter: +(Q.get('fromiter') || (state && state.iter) || 0), unbake: !state });   // ?fromiter=N continues the schedules from there
     await say('seeded-from-model', { splats: gaussians.n });
   } else {
     await ses.seed({ hullOpts });
@@ -434,6 +440,15 @@ try {
     const blob = await ses.exportPlyBlob();
     await post(Q.get('postply'), blob);
     await say('ply-posted', { mb: +(blob.size / 1e6).toFixed(0) });
+  }
+  if (Q.get('poststate')) {
+    // the trainer's RAW state (no opacity bake) as a resumable session zip —
+    // what a continuation run (?frommodel=) should start from
+    const { packState } = await import('../../app/js/session_io.js');
+    const { zipStore } = await import('../../app/js/zip.js');
+    const zip = zipStore([{ name: 'state.bin', data: await packState(ses) }]);
+    await post(Q.get('poststate'), zip);
+    await say('state-posted', { mb: +(zip.size / 1e6).toFixed(0) });
   }
   if (Q.get('gputime')) {
     // per-kernel GPU time at the final splat count (timestamp queries, one

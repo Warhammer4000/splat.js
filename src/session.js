@@ -28,7 +28,7 @@ import { initGaussians } from './gs/init.js';
 import { buildVisualHull, makeHullTest, makeSplatTest } from './gs/hull.js';
 import { GSTrainer } from './gs/trainer.js';
 import { createGpu } from './gpu/context.js';
-import { gaussiansToPly, bakeOpacityCompensation } from './io/ply.js';
+import { gaussiansToPly, bakeOpacityCompensation, unbakeOpacityCompensation } from './io/ply.js';
 
 /** world-space position of a camera pose {R, t} */
 export function camPosition({ R, t }) {
@@ -413,7 +413,11 @@ export class Session {
     const cams = this.recon.cams.map((c) => {
       const im = this.frames[c.imgIdx];
       const s = im.tw / im.fw;
-      return { ...c, f: c.f * s, ...(c.fy != null ? { fy: c.fy * s } : {}), cx: im.tw / 2, cy: im.th / 2, w: im.tw, h: im.th };
+      return { ...c, f: c.f * s, ...(c.fy != null ? { fy: c.fy * s } : {}),
+        // the principal point is normally the frame centre; a crop camera (a
+        // native-resolution window cut out of a larger image, see
+        // tests/bench/face_crops.py) carries its own, at feature scale
+        cx: c.cx != null ? c.cx * s : im.tw / 2, cy: c.cy != null ? c.cy * s : im.th / 2, w: im.tw, h: im.th };
     });
     // output buffers must fit the largest view the host will ever render —
     // interactive canvases are usually LARGER than the training resolution
@@ -426,6 +430,17 @@ export class Session {
       for (const f of this.frames) { f.rgb = null; f.sampleColor = () => [0.5, 0.5, 0.5]; }
     }
 
+    this._applyTrainingSplit(extra);
+
+    if (this.splatTest) this.trainer.hullKill = this.splatTest;
+    this._stage({ stage: 'seed', done: 1, total: 1, detail: { splats: this.model.n } });
+    return this.model;
+  }
+
+  /** Which cameras train and which are scored: blur exclusions, the chart
+   *  holdout and the evaluation split. Shared by seed() and a continuation
+   *  (seedFrom with frames), so a resumed run keeps the same test set. */
+  _applyTrainingSplit(extra = {}) {
     // blur-aware training: the blurriest frames stay registered (their poses
     // hold the chain together) but are excluded from the loss so the model
     // doesn't learn their motion blur
@@ -484,9 +499,6 @@ export class Session {
         `cameras (every ${split}th) held out of training`);
     }
 
-    if (this.splatTest) this.trainer.hullKill = this.splatTest;
-    this._stage({ stage: 'seed', done: 1, total: 1, detail: { splats: this.model.n } });
-    return this.model;
   }
 
   /**
@@ -512,6 +524,10 @@ export class Session {
     this.gpu.onLost = (info) => this._deviceLost(info);
     const trainerOpts = {
       maxIters: this.opts.maxIters ?? 60000,
+      // same masked-set default as seed(): without it a continuation trained
+      // its empty pixels against BLACK (2026-09-12: 200 steps from a
+      // converged person grew opaque dark needles out of the subject)
+      ...(this.frames && this.frames.some((f) => f.emptyFrac > 0) ? { randomBg: true } : {}),
       ...this.opts.trainer, ...opts.trainer,
       gpu: this.gpu,
     };
@@ -523,11 +539,27 @@ export class Session {
       cams = this.recon.cams.map((c) => {
         const im = this.frames[c.imgIdx];
         const s = im.tw / im.fw;
-        return { ...c, f: c.f * s, ...(c.fy != null ? { fy: c.fy * s } : {}), cx: im.tw / 2, cy: im.th / 2, w: im.tw, h: im.th };
+        return { ...c, f: c.f * s, ...(c.fy != null ? { fy: c.fy * s } : {}),
+        // the principal point is normally the frame centre; a crop camera (a
+        // native-resolution window cut out of a larger image, see
+        // tests/bench/face_crops.py) carries its own, at feature scale
+        cx: c.cx != null ? c.cx * s : im.tw / 2, cy: c.cy != null ? c.cy * s : im.th / 2, w: im.tw, h: im.th };
       });
     }
     const maxW = Math.max(this.opts.maxViewW ?? 2560, ...cams.map((c) => c.w));
     const maxH = Math.max(this.opts.maxViewH ?? 1440, ...cams.map((c) => c.h));
+    if (opts.unbake && this.trainer.mipComp !== false && this.recon?.cams?.length) {
+      // a bare .ply/.sog export carries opacities with the Mip compensation
+      // BAKED (exportPlyBlob); this trainer compensates at render time, so
+      // undo the bake with the exporter's own f (training scale of the first
+      // camera), camera positions and dilate. A state.bin is raw: never unbake it.
+      const c0 = this.recon.cams[0];
+      const fr0 = (this.frames || this.recon.frames || [])[c0.imgIdx];
+      const f0 = cams.length ? cams[0].f : c0.f * (fr0 && fr0.tw && fr0.fw ? fr0.tw / fr0.fw : 1);
+      const pos = Float32Array.from(this.recon.cams.flatMap(camPosition));
+      this.model.data = unbakeOpacityCompensation(this.model.data, this.model.n, f0, pos, this.trainer.dilate);
+      this._log(`unbaked the export's opacity compensation (f ${f0.toFixed(1)}, ${this.recon.cams.length} cams, dilate ${this.trainer.dilate})`);
+    }
     this.trainer.setup(this.model, cams, this.frames || [], maxW, maxH, radius);
     // setup zero-fills SH (view dependence is normally learned) — a restored
     // model brings its own
@@ -540,6 +572,10 @@ export class Session {
     this.holdout = -1;
     this.trainer.holdout = -1;
     this.testCams = [];
+    // a continuation trains like the run it continues: the same blur
+    // exclusions and evaluation split (a resume that trained on the held-out
+    // views scored them as train views)
+    if (!opts.viewOnly && this.frames && cams.length) this._applyTrainingSplit(opts);
     // a resumed run must not refine on its first frame: the refine timer is
     // not part of the saved state, and lastRefine 0 fired a growth refine
     // (+5 % splats) right after every resume (e2e resume spec, 2026-09-09)

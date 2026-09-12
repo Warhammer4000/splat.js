@@ -43,6 +43,37 @@ export function bakeOpacityCompensation(data, n, f, camPositions, dilate = 0.3) 
   return out;
 }
 
+/** Exact inverse of bakeOpacityCompensation: a bare .ply/.sog export carries
+ *  BAKED opacities, and a trainer with Mip compensation would compensate them
+ *  a second time (sub-pixel splats fade, and a continuation run grows them
+ *  into needles to get their coverage back — measured 2026-09-12: 200
+ *  iterations from a baked PLY wrecked a converged person). Same f, camera
+ *  positions and dilate as the bake, so the state round-trips bit-for-bit up
+ *  to float rounding. */
+export function unbakeOpacityCompensation(data, n, f, camPositions, dilate = 0.3) {
+  const out = Float32Array.from(data);
+  const nc = camPositions.length / 3;
+  for (let i = 0; i < n; i++) {
+    const b = i * STRIDE;
+    let z2min = Infinity;
+    for (let c = 0; c < nc; c++) {
+      const dx = data[b] - camPositions[c * 3];
+      const dy = data[b + 1] - camPositions[c * 3 + 1];
+      const dz = data[b + 2] - camPositions[c * 3 + 2];
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 < z2min) z2min = d2;
+    }
+    const z = Math.max(1e-3, Math.sqrt(z2min));
+    const s = [data[b + 3], data[b + 4], data[b + 5]].sort((x, y) => y - x);
+    const a = f * Math.exp(s[0]) / z, c2 = f * Math.exp(s[1]) / z;
+    const comp = Math.sqrt((a * a * c2 * c2) / ((a * a + dilate) * (c2 * c2 + dilate)));
+    const opa = (1 / (1 + Math.exp(-data[b + 13]))) / Math.max(comp, 1e-6);
+    const clamped = Math.min(1 - 1e-6, Math.max(1e-6, opa));
+    out[b + 13] = Math.log(clamped / (1 - clamped));
+  }
+  return out;
+}
+
 /** sh: optional channel-major SH rest buffer (n * 3K floats: K red coeffs,
  *  K green, K blue per splat) — the trainer's color model is EXACTLY the
  *  standard one (f_dc = (sigmoid(logit)-0.5)/C0, f_rest = raw coeffs), so
