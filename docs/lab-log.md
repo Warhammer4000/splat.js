@@ -2402,3 +2402,24 @@ suite green after all of it.
 - **Camping 1920 solve**: first-ever 113/113 registration; trajectory-tail
   disagreement vs server COLMAP grows (0.42% vs 0.19% @1600) — later
   settled by the in-app A/B (see 08-28): the tail drift is ours.
+
+### 2026-09-13c — the mouth relight artifact, confirmed and gone
+
+User report on avatar 5647 (app pipeline, before the interior cull): a
+lighting artifact on the mouth when the head turns away from the light, the
+size of the inner-mouth mesh. Read the relight normals straight out of both
+binding sidecars (`nrm:i8` block) and plotted the front 12 mm shell of the face
+through the frontal SfM camera (`scratch/mouth_normals_cmp.jpg`):
+
+- 5647: a mouth-shaped patch of normals pointing sideways/down — the splats on
+  the lips took their normal from the cavity walls behind them. Lit 55° from
+  the side, that patch lights up while the rest of the face is dark. That is
+  the artifact.
+- 5648 (same run with `cullHeadInterior`, escape-fraction cull): the patch is
+  gone, normals continuous across the lips; the side-lit map has no blob.
+
+Client renders (three-quarter + profile, relight on) agree but are subtle at
+those angles; the normal map is the ruler for this. 5648 is the assigned dev
+avatar. Tooling: `scratchpad/nrm_face2.py` (binding parser + normal/lambert
+scatter), `scratch/bindings/{id}_binding.bin` fetched from the avatar row's
+config json.
