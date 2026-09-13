@@ -81,6 +81,17 @@ client_git.
   17.9 s, landmark residual 1.0 cm, 445 correspondences, face 0.6 mm,
   bind against the fitted body 1.86 cm / 0 far (rig mesh: 2.73 cm). Dev
   avatar **5647** from the app's package (SOG + body-model binding).
+- **Walks**: the app-made avatar (5647) walks in the client — W held two
+  seconds, four frames, legs separate, arms swing (`scratch/walk_sheet.jpg`).
+- **User: "the face fit still has the eye balls and inner mouth"** — right.
+  The largest-component filter caught the eyeballs (separate spheres) and
+  the teeth/tongue, not the mouth CAVITY (connected to the lips) nor the
+  socket lining. A normal-ray test misses the cavity too (closed mouth, the
+  walls touch). `cullHeadInterior`: a head vertex is interior when < 20 % of
+  20 Fibonacci-sphere rays from it escape within 6 cm — 529 interior
+  vertices / 1402 faces on Lisa in 3.7 s; the only face landmarks that lose
+  their triangle are the lip seam and the eye slits (25 of 468). Wired into
+  the in-tab fit before the head registration.
 - Not built: `pcsync` of the driver fix; merge to main.
 
 ## 2026-09-13 (the face in the APP: a client fix, one surface, and a head that sits on hers)
