@@ -59,8 +59,13 @@ client_git.
   fixed client with a clean face at 0.55 m (`scratch/closeup_app_sheet.jpg`).
   The "Use as my avatar" button is the same upload path; sign-in needs a
   human click, so that last step is untested headless.
-- Not built: the body-fit service (rig-mesh binding until then); SOG/SH
-  choice for the ship size; `pcsync` of the driver fix; merge to main.
+- **SOG** (user: "I am sure sog is fine"): the publish stage encodes the
+  PLY with the app's own encoder in the tab (21 MB -> 3.7 MB) and uploads
+  the .sog as the splat; the client streams it and the driver's centre remap
+  handles the reorder. Dev avatar **5642** from the app's SOG package renders
+  the same face as the PLY one (5640) at 0.55 m.
+- Not built: the body-fit service (rig-mesh binding until then); `pcsync`
+  of the driver fix; merge to main.
 
 ## 2026-09-13 (the face in the APP: a client fix, one surface, and a head that sits on hers)
 
