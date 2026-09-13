@@ -64,8 +64,24 @@ client_git.
   the .sog as the splat; the client streams it and the driver's centre remap
   handles the reorder. Dev avatar **5642** from the app's SOG package renders
   the same face as the PLY one (5640) at 0.55 m.
-- Not built: the body-fit service (rig-mesh binding until then); `pcsync`
-  of the driver fix; merge to main.
+- **The body fit, ported** (user: "Port it"; 1078de9): no service. Anny's
+  shape space (624 MakeHuman macro targets, 102 MB) is sampled over the six
+  phenotypes and snapshotted as a 23-component PCA over vertices + bone
+  heads + bone tails (`tests/bench/export_anny.py`, 1.5 MB, 0.4 mm rms;
+  the variance share is a bad criterion — 2 components hold 99.9 % of the
+  variance and miss by 8 mm). `app/avatar/body/anny.js` reproduces torch's
+  forward pass to ~1 mm (rest orientation from head/tail/roll, local-bone
+  FK — root-relative, that cost one 82 cm offset — and LBS, 4.5 ms).
+  `fit.js`: Levenberg-Marquardt with a forward-difference Jacobian over
+  similarity + 30 body-bone rotations + shape (Lisa offline: landmark
+  residual 1.4 cm vs Python's 2.6, markers 2 cm from the Python fit).
+  `head.js`: correspondences from a canvas-rendered head through the same
+  face landmarker, Laplacian deformation by conjugate gradients — the
+  Python result to the last bit. In the app on the 4K orbit: body fit
+  17.9 s, landmark residual 1.0 cm, 445 correspondences, face 0.6 mm,
+  bind against the fitted body 1.86 cm / 0 far (rig mesh: 2.73 cm). Dev
+  avatar **5647** from the app's package (SOG + body-model binding).
+- Not built: `pcsync` of the driver fix; merge to main.
 
 ## 2026-09-13 (the face in the APP: a client fix, one surface, and a head that sits on hers)
 
