@@ -13,7 +13,7 @@
 // few seconds.
 // Frames: landmarks and splat arrive in the PLY frame (y down); the model
 // lives in Anny's (z up); ply -> anny is (x, z, -y).
-import { rotvecToMat, plyToAnny, annyToPly } from './anny.js';
+import { rotvecToMat, plyToAnny, annyToPly, cullHeadInterior } from './anny.js';
 
 const FINGER = /^(index|middle|pinky|ring|thumb)_/;
 
@@ -174,7 +174,11 @@ export async function fitBody(anny, o) {
   const faces = [];
   for (let t = 0; t < anny.faces.length; t += 3) { const a = remap[anny.faces[t]], b = remap[anny.faces[t + 1]], c = remap[anny.faces[t + 2]]; if (a >= 0 && b >= 0 && c >= 0) faces.push([a, b, c]); }
   const surface = { frame: 'ply (y down)', source: 'anny game_engine rig (in-tab fit)', boneLabels: anny.boneLabels, vertices, faces, boneIndices, boneWeights,
-    boneHeads: anny.boneLabels.map((n) => heads[n]), surfaceOnly: 'outer skin (largest connected component)' };
+    boneHeads: anny.boneLabels.map((n) => heads[n]), surfaceOnly: 'outer skin (largest connected component, head interior culled)' };
+  // the mouth cavity is connected to the lips and the sockets keep a lining:
+  // a ray test on the head takes those out (the user's rule: one surface)
+  const hb = anny.boneIndex.head; const hwOuter = boneIndices.map((bi, i) => bi.reduce((s, b, k) => s + (b === hb ? boneWeights[i][k] : 0), 0));
+  cullHeadInterior(surface, hwOuter);
   return { params: Array.from(p), scale: u.s, residualsM: resid, markers, landmarks: kpPly, surface, headWeightOf: (i) => anny.headWeight[i], outerRemap: remap };
 }
 

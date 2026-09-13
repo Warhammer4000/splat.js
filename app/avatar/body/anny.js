@@ -171,6 +171,58 @@ export class Anny {
   }
 }
 
+/** Strip interior geometry from a surface's head: the mouth cavity (connected
+ *  to the lips, so no component test finds it; its walls nearly touch, so a
+ *  single normal ray misses it) and the eye-socket lining. A head VERTEX is
+ *  interior when almost none of a set of rays from it escapes the mesh
+ *  within `reach` — skin sees open space in half its directions, a cavity
+ *  wall in none. Faces with an interior vertex go. Head only: elsewhere
+ *  fingers and armpits would fail the test. Mutates and returns S. */
+export function cullHeadInterior(S, headWeight, { reach = 0.06, minHead = 0.3, rays = 20, escapeMin = 0.2 } = {}) {
+  const V = S.vertices, F = S.faces; const nF = F.length, nV = V.length;
+  const headV = []; for (let i = 0; i < nV; i++) if (headWeight[i] > minHead) headV.push(i);
+  if (!headV.length) return S;
+  const headF = []; for (let i = 0; i < nF; i++) { const f = F[i]; if (headWeight[f[0]] > minHead || headWeight[f[1]] > minHead || headWeight[f[2]] > minHead) headF.push(i); }
+  const cell = 0.02; const grid = new Map();
+  for (const i of headF) { const [a, b, c] = F[i]; const xs = [V[a][0], V[b][0], V[c][0]], ys = [V[a][1], V[b][1], V[c][1]], zs = [V[a][2], V[b][2], V[c][2]];
+    for (let x = Math.floor(Math.min(...xs) / cell); x <= Math.floor(Math.max(...xs) / cell); x++) for (let y = Math.floor(Math.min(...ys) / cell); y <= Math.floor(Math.max(...ys) / cell); y++) for (let z = Math.floor(Math.min(...zs) / cell); z <= Math.floor(Math.max(...zs) / cell); z++) { const k = `${x},${y},${z}`; let arr = grid.get(k); if (!arr) { arr = []; grid.set(k, arr); } arr.push(i); } }
+  const vertFaces = Array.from({ length: nV }, () => []); for (const i of headF) for (const v of F[i]) vertFaces[v].push(i);
+  const hits = (o, d, skip) => {
+    const steps = Math.ceil(reach / cell) + 1; const seen = new Set(skip);
+    for (let st = 0; st <= steps; st++) {
+      const px = o[0] + d[0] * st * cell, py = o[1] + d[1] * st * cell, pz = o[2] + d[2] * st * cell;
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+        const arr = grid.get(`${Math.floor(px / cell) + dx},${Math.floor(py / cell) + dy},${Math.floor(pz / cell) + dz}`); if (!arr) continue;
+        for (const i of arr) {
+          if (seen.has(i)) continue; seen.add(i);
+          const [a, b, c] = F[i]; const e1 = [V[b][0] - V[a][0], V[b][1] - V[a][1], V[b][2] - V[a][2]], e2 = [V[c][0] - V[a][0], V[c][1] - V[a][1], V[c][2] - V[a][2]];
+          const h = [d[1] * e2[2] - d[2] * e2[1], d[2] * e2[0] - d[0] * e2[2], d[0] * e2[1] - d[1] * e2[0]]; const det = e1[0] * h[0] + e1[1] * h[1] + e1[2] * h[2]; if (Math.abs(det) < 1e-12) continue;
+          const f = 1 / det; const sv = [o[0] - V[a][0], o[1] - V[a][1], o[2] - V[a][2]]; const u = f * (sv[0] * h[0] + sv[1] * h[1] + sv[2] * h[2]); if (u < 0 || u > 1) continue;
+          const q = [sv[1] * e1[2] - sv[2] * e1[1], sv[2] * e1[0] - sv[0] * e1[2], sv[0] * e1[1] - sv[1] * e1[0]]; const v = f * (d[0] * q[0] + d[1] * q[1] + d[2] * q[2]); if (v < 0 || u + v > 1) continue;
+          const t = f * (e2[0] * q[0] + e2[1] * q[1] + e2[2] * q[2]); if (t > 1e-6 && t < reach) return true;
+        }
+      }
+    }
+    return false;
+  };
+  // fixed, well-spread directions (Fibonacci sphere)
+  const dirs = []; for (let i = 0; i < rays; i++) { const y = 1 - 2 * (i + 0.5) / rays, r = Math.sqrt(1 - y * y), ph = i * 2.399963; dirs.push([r * Math.cos(ph), y, r * Math.sin(ph)]); }
+  const interior = new Uint8Array(nV); let nInt = 0;
+  for (const v of headV) {
+    let esc = 0; const o = V[v];
+    for (const d of dirs) if (!hits(o, d, vertFaces[v])) esc++;
+    if (esc / rays < escapeMin) { interior[v] = 1; nInt++; }
+  }
+  const dead = new Uint8Array(nF); let culled = 0;
+  for (let i = 0; i < nF; i++) { const f = F[i]; if (interior[f[0]] || interior[f[1]] || interior[f[2]]) { dead[i] = 1; culled++; } }
+  const used = new Uint8Array(nV); const faces = []; for (let i = 0; i < nF; i++) if (!dead[i]) { faces.push(F[i]); for (const v of F[i]) used[v] = 1; }
+  const remap = new Int32Array(nV).fill(-1); let nv = 0; for (let i = 0; i < nV; i++) if (used[i]) remap[i] = nv++;
+  S.vertices = V.filter((_, i) => used[i]); S.faces = faces.map((f) => f.map((v) => remap[v]));
+  if (S.boneIndices) S.boneIndices = S.boneIndices.filter((_, i) => used[i]); if (S.boneWeights) S.boneWeights = S.boneWeights.filter((_, i) => used[i]);
+  S.interiorCulled = { faces: culled, vertices: nV - nv, interiorVerts: nInt }; S.vertexRemap = remap;
+  return S;
+}
+
 /** Frames: the recon's PLY frame (y down) <-> Anny's (z up): A = (px, pz, -py). */
 export const plyToAnny = (p) => [p[0], p[2], -p[1]];
 export const annyToPly = (a) => [a[0], -a[2], a[1]];
