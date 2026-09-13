@@ -46,6 +46,7 @@ if (TRAIN) {
     const dbg = await page.evaluate(() => window.__avatarDebug ? JSON.stringify(window.__avatarDebug) : null).catch(() => null);
     if (dbg && !globalThis.__dbgShown) { globalThis.__dbgShown = true; log('DEBUG ' + dbg.slice(0, 1600)); writeFileSync(`${OUT}_debug.json`, dbg); }
     if (await page.$('#av-lm-yes')) { await page.screenshot({ path: `${OUT}_markers.png` }); await page.click('#av-lm-yes'); log('accepted the joints'); }
+    if (await page.$('#av-bf-yes')) { await page.screenshot({ path: `${OUT}_bodyfit.png` }); await page.click('#av-bf-yes'); log('accepted the body fit'); }
     if (await page.$('#av-go') || /failed|stopped here/.test(txt) || !(await page.$('#avcard'))) break;
   }
   await page.screenshot({ path: `${OUT}_avatar.png` });
