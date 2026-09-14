@@ -1695,17 +1695,19 @@ async function startPrep() {
       if (S.gen !== gen) return;
       await av.addPersonCrops(session, files, { log: alog, faceCams, facePoints: S._facePoints || null, headMoved: S._headMoved, progress: (d, t) => { S.prep = { stage: 'crops', done: d, total: t }; } });
       if (S.gen !== gen) return;
-      // a dense seed on the face mesh (?faceseed=0 turns it off, =N sets the count)
+      // a dense seed on the face mesh, as ready-made flat Gaussians (?faceseed=1 or =N; off
+      // by default: as points it came out worse — see app/avatar/faceseed.js)
       const fsq = new URLSearchParams(location.search).get('faceseed');
-      if (fsq !== '0' && S._lmRes) {
-        try { const pts = await av.faceSeedPoints(session, files, S._lmRes, { count: fsq ? +fsq : 20000, log: alog }); if (pts.length) session.recon.points.push(...pts); } catch (e) { alog(`face seed failed: ${e.message || e}`); }
+      S._faceSeed = null;
+      if (fsq && fsq !== '0' && S._lmRes) {
+        try { S._faceSeed = await av.faceSeedGaussians(session, files, S._lmRes, { count: +fsq > 1 ? +fsq : 20000, log: alog }); } catch (e) { alog(`face seed failed: ${e.message || e}`); }
       }
       if (S.gen !== gen) return;
     }
 
     // 3) seed + trainer
     S.prep = { stage: 'seed', done: 0, total: 1 };
-    await session.seed();
+    await session.seed(S._faceSeed ? { appendGaussians: S._faceSeed } : {});
     if (S.gen !== gen) return;
     if (S.lodPlan) session.trainer.growLimit = S.lodPlan.levels[0];
 

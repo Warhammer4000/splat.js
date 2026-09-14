@@ -419,6 +419,14 @@ export class Session {
     const v2 = this.opts.trainer && this.opts.trainer.engine === 'v2';
     this.model = initGaussians(this.recon.points, clones, undefined,
       v2 ? { dc: 'sh', randRot: true } : {});
+    // extra.appendGaussians: ready-made rows (stride 16, sigmoid-DC convention) joined to
+    // the cloud seed as they are — flat, oriented, sized (a face mesh seed, avatar mode)
+    if (extra.appendGaussians && extra.appendGaussians.n > 0) {
+      const g = extra.appendGaussians; const m = this.model; const merged = new Float32Array((m.n + g.n) * 16);
+      merged.set(m.data.subarray(0, m.n * 16), 0); merged.set(g.data.subarray(0, g.n * 16), m.n * 16);
+      this.model = { ...m, data: merged, n: m.n + g.n };
+      this._log(`+ ${g.n} seed Gaussians appended (${g.note || 'ready-made'})`);
+    }
     this._log(`initialized ${this.model.n} Gaussians (scene radius ${this.model.radius.toFixed(2)})`);
 
     if (!this.gpu) this.gpu = await createGpu({ device: this.opts.device });

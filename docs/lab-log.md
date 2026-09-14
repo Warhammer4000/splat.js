@@ -220,7 +220,19 @@ exp(scale) per splat, needle ratio = longest / shortest axis).
   Trap: the seed points went into the sparse cloud the isolate stage bounds
   the hull with — 20k on the head shrank the box to the head (package 54k
   instead of 128k); the isolate stage now drops `faceSeed` points first.
-  Default on.
+  The user saw it WORSE. Handed over as points the cloud seed sizes them by
+  nearest neighbour (dust) and orients at random; as ready-made flat discs
+  (`faceSeedGaussians`, `session.seed({ appendGaussians })`) it is neutral:
+  face splats 5,827 (none) / 7,235 (points) / 6,690 (discs) with the same
+  look (`scratch/faceseed3.jpg`). Is the mesh off? No: the triangulated
+  face points drawn over the unseeded model sit on eyes, nose and mouth
+  in every view (`scratch/face_overlay.jpg`, `scratch/overlay_face.py`),
+  median 7.0 mm from the nearest visible splat centre, -2.3 mm along the
+  view axis. The seed is placed right and then PRUNED: 20k seeded, ~1-1.5k
+  kept — the face density is set by the growth/prune equilibrium, not by
+  the start. Off by default (`?faceseed=1|N` keeps it for experiments);
+  the lever, if wanted, is protecting the seed from relocation for the
+  first thousands of iterations or a lower prune pressure on the head.
 - Still open on Filip: the back island (frames 17-30) — landmark PnP bridge;
   and the unstabilised head windows (no face seen) on the room pose.
 - Packages: `scratch/avatar_tom_final_package.zip` (20k, metric fit,

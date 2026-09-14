@@ -249,6 +249,7 @@ export async function run(ctx, manifest, hooks) {
     if (A && B) headShiftCm = +(Math.hypot(A.X[0] - B.X[0], A.X[1] - B.X[1], A.X[2] - B.X[2]) / fit.scale * 100).toFixed(2);
     log(`face: nose tip first vs last third of the orbit ${headShiftCm != null ? headShiftCm + ' cm' : 'n/a'} (the head against the room)`);
   }
+  if (typeof window !== 'undefined' && window.__avatarDebug) window.__avatarDebug.face = { points: good.map((k) => canon[k]), ids: good };   // tests: the triangulated face
   const cropCams = [];
   if (good.length > 100) {
     const obj = good.map((k) => canon[k]);
