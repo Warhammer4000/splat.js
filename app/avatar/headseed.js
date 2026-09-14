@@ -92,5 +92,8 @@ export async function headSeedGaussians(session, files, lm, { count = 50000, pro
     data[b + 10] = logit(s.rgb[0]); data[b + 11] = logit(s.rgb[1]); data[b + 12] = logit(s.rgb[2]); data[b + 13] = logit(0.6);
   }
   log(`head seed: ${count} discs on ${tris.length} head triangles (area ${(total / fit.scale / fit.scale * 1e4).toFixed(0)} cm², spacing ${(spacing / fit.scale * 1000).toFixed(1)} mm), coloured from ${groups.size} frames, protected for ${protectIters} iterations`);
-  return { data, n: count, note: `head mesh, spacing ${(spacing / fit.scale * 1000).toFixed(1)} mm`, protectIters };
+  // the head's bounding sphere: the caller clears the sparse-cloud seed inside it, so the
+  // discs are not buried under the cloud's neighbour-sized blobs (iteration 0 was fog, 2026-09-14)
+  let rad = 0; for (let i = 0; i < V.length; i++) if (headWeight[i] > 0.5) rad = Math.max(rad, norm(sub(V[i], hc)));
+  return { data, n: count, note: `head mesh, spacing ${(spacing / fit.scale * 1000).toFixed(1)} mm`, protectIters, head: { centre: hc, radius: rad } };
 }
