@@ -1863,12 +1863,16 @@ export class GSTrainer {
     // exactly what no opacity loss can reach any more. Relocating it puts the
     // capacity back on the subject instead of leaving a flare in the air.
     const hullKill = this.hullKill;
+    // protected rows (a seed the caller wants kept, e.g. a head mesh seed in avatar mode):
+    // neither relocated away nor used as donors until the window ends
+    const prot = this.protect && this.iter < this.protect.until ? this.protect : null;
     for (let i = 0; i < this.n; i++) {
       const b = i * STRIDE;
       const o = sig(params[b + 13]);
       const out = !!hullKill && hullKill(params[b], params[b + 1], params[b + 2],
         Math.exp(Math.max(params[b + 3], params[b + 4], params[b + 5])));
       if (out) outside++;
+      if (prot && i >= prot.from && i < prot.to) continue;
       if (o < deadThr || out) { deadAll++; if (canReloc) dead.push(i); }
       else if (o > 0.4) donors.push(i);   // donors are hull-clean by construction
     }

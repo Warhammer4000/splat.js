@@ -425,7 +425,8 @@ export class Session {
       const g = extra.appendGaussians; const m = this.model; const merged = new Float32Array((m.n + g.n) * 16);
       merged.set(m.data.subarray(0, m.n * 16), 0); merged.set(g.data.subarray(0, g.n * 16), m.n * 16);
       this.model = { ...m, data: merged, n: m.n + g.n };
-      this._log(`+ ${g.n} seed Gaussians appended (${g.note || 'ready-made'})`);
+      this._appendedSeed = { from: m.n, to: m.n + g.n, protectIters: g.protectIters || 0 };
+      this._log(`+ ${g.n} seed Gaussians appended (${g.note || 'ready-made'})${g.protectIters ? `, protected from relocation for ${g.protectIters} iterations` : ''}`);
     }
     this._log(`initialized ${this.model.n} Gaussians (scene radius ${this.model.radius.toFixed(2)})`);
 
@@ -474,6 +475,7 @@ export class Session {
     this._applyTrainingSplit(extra);
 
     if (masked && this.splatTest) this.trainer.hullKill = this.splatTest;
+    if (this._appendedSeed && this._appendedSeed.protectIters > 0) this.trainer.protect = { from: this._appendedSeed.from, to: this._appendedSeed.to, until: this._appendedSeed.protectIters };
     this._stage({ stage: 'seed', done: 1, total: 1, detail: { splats: this.model.n } });
     return this.model;
   }

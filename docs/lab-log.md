@@ -233,6 +233,24 @@ exp(scale) per splat, needle ratio = longest / shortest axis).
   the start. Off by default (`?faceseed=1|N` keeps it for experiments);
   the lever, if wanted, is protecting the seed from relocation for the
   first thousands of iterations or a lower prune pressure on the head.
+- **Head seed, protected** (user: "complete the head, ~50k, protect them
+  from relocation"). `app/avatar/headseed.js`: Anny fitted to the joints
+  before training (no splat pull), its head registered to the 478 face
+  points (4.5 mm), 50k flat discs on 5,698 head triangles (1,087 cm²,
+  1.5 mm spacing), each coloured from the frame that looks at it most
+  squarely; `trainer.protect = {from, to, until}` keeps the rows out of the
+  dead list and the donor list. Tom 30k, within 16 cm of the nose:
+  none 13,313 (visible 1,845) / protected 8k 14,498 (1,851) / protected all
+  30k 10,400 (2,028). With the 8k window the first refine after it declared
+  83k dead (3x the usual) — the seed was only delayed. With full protection
+  the seed splats DIED IN PLACE: opacity regularisation and decay took them
+  below the export prune (fewer rows, +10 % visible). Views: no gain on the
+  face, a slightly fuller crown from above, the fully protected face a touch
+  softer (`scratch/headseed_cmp2.jpg`). Verdict: head density is set by the
+  opacity pressure and the data's resolution (1.3 mm/px at orbit distance =
+  1-2 px per splat at 50k), not by the seed. Off by default
+  (`?headseed=N[,protectIters]`). Lever left: opacityReg per region — with
+  the blur risk of keeping half-dead splats.
 - Still open on Filip: the back island (frames 17-30) — landmark PnP bridge;
   and the unstabilised head windows (no face seen) on the room pose.
 - Packages: `scratch/avatar_tom_final_package.zip` (20k, metric fit,

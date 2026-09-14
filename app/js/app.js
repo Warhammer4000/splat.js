@@ -1702,6 +1702,12 @@ async function startPrep() {
       if (fsq && fsq !== '0' && S._lmRes) {
         try { S._faceSeed = await av.faceSeedGaussians(session, files, S._lmRes, { count: +fsq > 1 ? +fsq : 20000, log: alog }); } catch (e) { alog(`face seed failed: ${e.message || e}`); }
       }
+      // the whole head from the body model, protected from relocation (?headseed=N[,protectIters])
+      const hsq = new URLSearchParams(location.search).get('headseed');
+      if (hsq && hsq !== '0' && S._lmRes) {
+        const [hn, hp] = hsq.split(',').map((v) => +v);
+        try { S._faceSeed = await av.headSeedGaussians(session, files, S._lmRes, { count: hn > 1 ? hn : 50000, protectIters: hp || 8000, log: alog, progress: (d, t) => { S.prep = { stage: 'headseed', done: d, total: t }; } }); } catch (e) { alog(`head seed failed: ${e.message || e}`); }
+      }
       if (S.gen !== gen) return;
     }
 

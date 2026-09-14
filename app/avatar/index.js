@@ -19,7 +19,8 @@ import { cutoutsCard } from './ui/cutouts.js';
 export { isAvatar, STAGES, STAGE_LABEL, nextStage, setStage } from './manifest.js';
 export { afterTraining } from './runner.js';
 export { addPersonCrops } from './crops.js';
-export { faceSeedPoints, faceSeedGaussians } from './faceseed.js';   // a dense seed on the face mesh, next to the sparse cloud   // native windows of the person as extra cameras, between solve and seed
+export { faceSeedPoints, faceSeedGaussians } from './faceseed.js';
+export { headSeedGaussians } from './headseed.js';   // the whole head from the fitted body model, protected from relocation   // a dense seed on the face mesh, next to the sparse cloud   // native windows of the person as extra cameras, between solve and seed
 
 export async function prepareCapture(frames, source, { card, flash = () => {}, log = (m) => console.log('[avatar]', m) }) {
   const meter = (title, sub) => {
