@@ -4,6 +4,38 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-14b (invert the pipeline: train the room, cut the person out — the premise holds)
+
+The user's hunch: full-frame training beats the masked avatar recipe. Tested
+on his clip with the pieces that exist — the matte stage on the 65 frames in
+a headless page, `buildVisualHull` against the run's own reconstruction,
+`makeSplatTest` on every splat of the PLY (`scratch/cut_page.html`,
+`scratch/cut_run.mjs`), close-ups with `scratch/render_views.mjs`.
+
+| model | splats after the cut | needle ratio median | close-up |
+|---|---|---|---|
+| user's showcase scene (100k iters, 1280 px), hull cut | 95,294 of 310,043 | 130 | smooth skin, crisp eyes; colour fringe at the back of the head |
+| full scene at the DEFAULT 20k (no avatar tick), hull cut | 91,339 of 354,895 | **15** | smooth skin, some hair streaks |
+| masked avatar run, 20k + 12k face pass | 177,705 | 344 | streaks on skin |
+
+- **Same budget, no masks: the needles go from 344 to 15.** The masked
+  recipe (few seeds, random background at the silhouette, coverage/alpha
+  pressure) is what drives the spiky surface, not the clip and not the
+  iteration count alone; 100k on top adds the sharpness. The masked run's
+  12k face pass did not help it against a full-scene run with no face pass.
+- The hull cut is loose: wall colour rides along at the profile, a sliver of
+  floor can survive under the shoes. Those are the vote cut (per-splat
+  alpha-weighted inside/outside share over the views, a backward-kernel
+  variant) and a short masked polish pass, both still to build.
+- The user's downloaded PLY holds 310k splats while its recon says 1.19 M at
+  100k iterations — a pruned/LOD export; the full model may be better still.
+- Plan agreed in discussion: "Make an avatar from this scene" on a finished
+  run (session + photos + recon; COLMAP data from elsewhere qualifies too):
+  matte, face pass BEFORE the cut (crops see the real room), vote cut, short
+  polish, then the existing landmarks / body fit / bind / publish. Native
+  frames must be in the package for 4K crops. The video tick becomes one way
+  to get a base, not the only one.
+
 ## 2026-09-14 (Tom's 19 s 1080p orbit vs Lisa: the spikes are the iteration count, and three defects on the way)
 
 The user shot `tom_avatar.MOV` (iPhone, 1080x1920 portrait, H.264, 19.3 s,
