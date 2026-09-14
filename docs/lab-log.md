@@ -188,6 +188,21 @@ exp(scale) per splat, needle ratio = longest / shortest axis).
   pose (Filip: 29/29, single face again, `scratch/filip_rule.jpg`), below
   they keep the room's (Tom). Two clips — the log prints both numbers on
   every run to find the threshold.
+- **From above: the SH question** (user: heavy artifacts when the camera
+  looks down; keep the forehead highlight if possible). Tom 30k at four
+  elevations (`scratch/sh3_cmp.jpg`): the damage from 60 deg up is
+  GEOMETRY (hair streaks, the crown is a hole no camera saw); the colour
+  blotches at 30 deg are SH. **Horizontal-only SH** (new: the view direction
+  loses its component along the cameras' dominant up before the basis, in
+  training's forward and backward kernel — `session.shHorizontal`, Cam
+  struct + `shup` vec4) removes the blotches and keeps the highlight; the
+  export is stable in a plain full-SH viewer too (the vertical-only
+  coefficients never got a gradient). Now the avatar default (`?shup=0`
+  for full SH). SH0 as the "last resort" test collapsed in this pipeline
+  (92 % dead capacity at the last refine, 24k splats in the package, a
+  blurred face) — a defect of shDeg 0 with the current avatar recipe, not a
+  verdict on SH0; parked. The crown itself is a capture problem: a
+  tilt-down segment in the orbit.
 - Still open on Filip: the back island (frames 17-30) — landmark PnP bridge;
   and the unstabilised head windows (no face seen) on the room pose.
 - Packages: `scratch/avatar_tom_final_package.zip` (20k, metric fit,

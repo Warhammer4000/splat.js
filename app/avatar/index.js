@@ -71,8 +71,11 @@ export function trainingOptions(manifest, { iters = 30000 } = {}) {
     // the person trains as part of the ROOM (maskTraining false: the mattes
     // stay for the hull and the cut after the face pass) — the masked recipe
     // gave needle ratio 344 vs 15 for the same clip trained whole (2026-09-14b)
-    // ?shup=1 (experiment): SH on the horizontal part of the view direction only
-    session: { evalSplit: 0, initTarget: 100000, sfm: solveTierOpts('precise'), maskTraining: false, ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('shup') ? { shHorizontal: true } : {}) },
+    // SH on the horizontal part of the view direction only (default since 2026-09-14):
+    // an orbit never looks down at a person, so the vertical colour variation was
+    // unconstrained — blotches from above; the highlight still turns with the walk-around.
+    // ?shup=0 keeps full SH (experiment).
+    session: { evalSplit: 0, initTarget: 100000, sfm: solveTierOpts('precise'), maskTraining: false, shHorizontal: !(typeof location !== 'undefined' && new URLSearchParams(location.search).get('shup') === '0') },
     // the 600k cap is hit at 30k+ with the person crops, but lifting it to 1M only
     // grew low-opacity splats the export prunes (package 108.9k either way; 2026-09-14)
     // ?camopt=1 (experiment, 2026-09-14): photometric pose refinement of every camera
