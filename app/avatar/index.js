@@ -72,13 +72,13 @@ export function trainingOptions(manifest, { iters = 30000 } = {}) {
     // stay for the hull and the cut after the face pass) — the masked recipe
     // gave needle ratio 344 vs 15 for the same clip trained whole (2026-09-14b)
     session: { evalSplit: 0, initTarget: 100000, sfm: solveTierOpts('precise'), maskTraining: false },
-    // 30k/40k runs with the person crops hit the 600k cap (2026-09-14): the room
-    // takes most of it, the person 150k — lifted so the longer runs can grow
+    // the 600k cap is hit at 30k+ with the person crops, but lifting it to 1M only
+    // grew low-opacity splats the export prunes (package 108.9k either way; 2026-09-14)
     // ?camopt=1 (experiment, 2026-09-14): photometric pose refinement of every camera
     // during training — Filip's front views ghost (the head moved between the far
     // start and the close-up end of the orbit); the target is per-window pose
     // freedom for the crops, this is the first check that the mechanism helps
-    trainer: { maxSplats: 1000000, capMult: 8, ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('camopt') ? { camOpt: true } : {}) },
+    trainer: { maxSplats: 600000, capMult: 8, ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('camopt') ? { camOpt: true } : {}) },
     iters,
   };
 }

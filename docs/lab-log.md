@@ -143,6 +143,23 @@ exp(scale) per splat, needle ratio = longest / shortest axis).
   it reached 2,387 face splats too, but three quarters of the growth went to
   the room, and the shots got streaky (`scratch/facepass_pair2.jpg`). It
   stays off; `?faceiters=N` keeps it for experiments.
+- **Iterations for a person** (Tom, crops, 20k / 30k / 40k / 40k with a 1M
+  cap): face splats within 10 cm of the nose 3,429 / 4,711 / 4,783 / 4,767;
+  package 90k / 109k / 102k / 109k; 30k visibly sharper than 20k (skin,
+  eyes, hairline), 40k the same as 30k, the lifted cap only grew
+  low-opacity splats the export prunes. Avatar default 30k (AVATAR_ITERS in
+  app.js), cap stays 600k. `scratch/iters_cmp.jpg`, `scratch/cap_cmp.jpg`.
+- **Filip's clip** (17 s, 1080p, a second person walks through): 43/59
+  registered, frames 17-30 form their own island (usable pairs among
+  themselves, none to the rest), 31/32 are the blur dip (half the
+  features). The new gap retry (>= 5 consecutive unregistered frames ->
+  relaxed pair gate) fired and registered 38 — kept the first pass: no
+  matching threshold bridges an island, one frame of it has to be PLACED
+  (landmark PnP prior, then the chain continues by features). And the front
+  views ghost: the head moved between the far start and the close-up end of
+  the orbit — per-window pose freedom for the crops is the fix to test
+  (`?camopt=1` = the trainer's photometric pose optimisation on all
+  cameras, the first check). `scratch/filip40_views.jpg`.
 - Packages: `scratch/avatar_tom_final_package.zip` (20k, metric fit,
   correct binding), `scratch/avatar_tom3k_package.zip`,
   `scratch/avatar_lisa20k_b_package.zip`. Nothing uploaded; dev still wears

@@ -42,9 +42,10 @@ const WALL_FIRST = /splat-js2/.test(location.pathname)
 // and the model comes out over-grown for its polish time.
 const INITIAL_ITERS = 20000;
 // a person is one small object seen from every side: 30k was visibly sharper than
-// 20k on the 1080p orbit, 40k marginal (2026-09-14, docs/lab-log.md); the phone
-// budget gets measured against this later, not the other way round
-const AVATAR_ITERS = 40000;
+// 20k on the 1080p orbit (face splats 3.4k -> 4.7k), 40k added nothing with or
+// without a larger cap (2026-09-14, docs/lab-log.md); the phone budget gets
+// measured against this later, not the other way round
+const AVATAR_ITERS = 30000;
 const MORE_ITERS = 10000;
 
 // ?perf runs a short instrumented benchmark (default 1000 iterations, or
