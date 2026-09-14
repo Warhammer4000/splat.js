@@ -389,8 +389,14 @@ export class Session {
     if (!this.recon) throw new Error('solve() first');
     this._stage({ stage: 'seed', done: 0, total: 1 });
     const allPoints = this.recon.points;
-    if (extra.maskPoints !== false) this.maskPoints(extra.maskKeep ?? 0.5);
-    this._buildHull(extra);
+    // opts.maskTraining === false: the mattes stay on the frames (the hull and
+    // the cut after training read them) but training does not see them — no
+    // seed filter, no hull kill, no random background, alpha 255 in the
+    // targets. The masked recipe drove the needle look on a person (needle
+    // ratio 344 vs 15 for the same clip trained as a room, 2026-09-14b).
+    const masked = this.opts.maskTraining !== false;
+    if (masked && extra.maskPoints !== false) this.maskPoints(extra.maskKeep ?? 0.5);
+    if (masked) this._buildHull(extra);
     if (this.recon.points.length < 8) {
       // never seed from nothing: the whole cloud beats an empty model
       this._log(`subject filters left ${this.recon.points.length} points — seeding from the whole cloud instead`);
@@ -423,7 +429,7 @@ export class Session {
       // a masked set trains its empty pixels against a random background by
       // default (gs/shaders.js randBg) — the thing that keeps splats out of
       // the cleared area at full photometric strength
-      ...(this.frames && this.frames.some((f) => f.emptyFrac > 0) ? { randomBg: true } : {}),
+      ...(masked && this.frames && this.frames.some((f) => f.emptyFrac > 0) ? { randomBg: true } : {}),
       ...this.opts.trainer, ...extra.trainer,
       gpu: this.gpu,
     };
@@ -445,7 +451,7 @@ export class Session {
     // interactive canvases are usually LARGER than the training resolution
     const maxW = Math.max(this.opts.maxViewW ?? 2560, ...cams.map((c) => c.w));
     const maxH = Math.max(this.opts.maxViewH ?? 1440, ...cams.map((c) => c.h));
-    this.trainer.setup(this.model, cams, this.frames, maxW, maxH, this.model.radius);
+    this._setupTrainer(cams, this.frames, maxW, maxH, this.model.radius);
     if (this.opts.lowMem) {
       // targets now live on the GPU (packed RGBA8); the float32 CPU copies
       // are 3x that size and nothing reads them after setup
@@ -454,9 +460,19 @@ export class Session {
 
     this._applyTrainingSplit(extra);
 
-    if (this.splatTest) this.trainer.hullKill = this.splatTest;
+    if (masked && this.splatTest) this.trainer.hullKill = this.splatTest;
     this._stage({ stage: 'seed', done: 1, total: 1, detail: { splats: this.model.n } });
     return this.model;
+  }
+
+  /** trainer.setup with the frame alphas hidden when the session trains unmasked
+   *  (opts.maskTraining === false): the packed targets then carry alpha 255. */
+  _setupTrainer(cams, frames, maxW, maxH, radius) {
+    const hide = this.opts.maskTraining === false && frames && frames.some((f) => f.alpha);
+    const saved = hide ? frames.map((f) => f.alpha) : null;
+    if (hide) for (const f of frames) f.alpha = null;
+    try { this.trainer.setup(this.model, cams, frames, maxW, maxH, radius); }
+    finally { if (hide) frames.forEach((f, i) => { f.alpha = saved[i]; }); }
   }
 
   /** Which cameras train and which are scored: blur exclusions, the chart
@@ -549,7 +565,7 @@ export class Session {
       // same masked-set default as seed(): without it a continuation trained
       // its empty pixels against BLACK (2026-09-12: 200 steps from a
       // converged person grew opaque dark needles out of the subject)
-      ...(this.frames && this.frames.some((f) => f.emptyFrac > 0) ? { randomBg: true } : {}),
+      ...(this.opts.maskTraining !== false && this.frames && this.frames.some((f) => f.emptyFrac > 0) ? { randomBg: true } : {}),
       ...this.opts.trainer, ...opts.trainer,
       gpu: this.gpu,
     };
@@ -582,7 +598,7 @@ export class Session {
       this.model.data = unbakeOpacityCompensation(this.model.data, this.model.n, f0, pos, this.trainer.dilate);
       this._log(`unbaked the export's opacity compensation (f ${f0.toFixed(1)}, ${this.recon.cams.length} cams, dilate ${this.trainer.dilate})`);
     }
-    this.trainer.setup(this.model, cams, this.frames || [], maxW, maxH, radius);
+    this._setupTrainer(cams, this.frames || [], maxW, maxH, radius);
     // setup zero-fills SH (view dependence is normally learned) — a restored
     // model brings its own
     if (gaussians.sh && this.trainer.bufSH) {

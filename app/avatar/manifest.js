@@ -20,13 +20,14 @@
 //   }
 // status: 'todo' | 'running' | 'done' | 'skipped' | 'failed' | 'rejected'
 
-export const STAGES = ['matte', 'train', 'landmarks', 'facepass', 'bodyfit', 'bind', 'publish'];
+export const STAGES = ['matte', 'train', 'landmarks', 'facepass', 'cut', 'bodyfit', 'bind', 'publish'];
 
 export const STAGE_LABEL = {
   matte: 'Cut out',
   train: 'Train',
   landmarks: 'Find the joints',
   facepass: 'Sharpen the face',
+  cut: 'Isolate',
   bodyfit: 'Fit the body',
   bind: 'Bind',
   publish: 'Put on your account',

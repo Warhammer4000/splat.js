@@ -56,9 +56,12 @@ export async function run(ctx, manifest, hooks) {
     maxViewW: session.opts?.maxViewW, maxViewH: session.opts?.maxViewH,
     frames: { trainMaxDim: 1600 },
     trainer: { ...t0, maxSplats: Math.max(t0.maxSplats || 0, 1000000), capMult: 8, lrWarmup: 1000 },
+    ...(session.opts?.maskTraining === false ? { maskTraining: false } : {}),   // the room stays in the picture; the cut comes after
   });
   const bodyEntries = session.recon.cams.map((c) => byName.get(session.frames[c.imgIdx].name)).filter(Boolean);
-  await ses.load([...bodyEntries, ...cropEntries.map(({ source, mask, name }) => ({ source, mask, name }))]);
+  const entries = [...bodyEntries, ...cropEntries.map(({ source, mask, name }) => ({ source, mask, name }))];
+  await ses.load(entries);
+  ctx.sessionEntries = entries;   // the cut stage rebuilds a session from the same files
   const byName2 = new Map(ses.frames.map((f, i) => [f.name, i]));
   const cams = [];
   for (const c of session.recon.cams) {

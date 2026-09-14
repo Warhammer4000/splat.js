@@ -10,6 +10,7 @@ import { STAGES, STAGE_LABEL, setStage, nextStage } from './manifest.js';
 const LOADERS = {
   landmarks: () => import('./stages/landmarks.js'),
   facepass: () => import('./stages/facepass.js'),
+  cut: () => import('./stages/cut.js'),
   bodyfit: () => import('./stages/bodyfit.js'),
   bind: () => import('./stages/bind.js'),
   publish: () => import('./stages/publish.js'),

@@ -67,7 +67,10 @@ export function trainingOptions(manifest, { iters = 30000 } = {}) {
     // the precise solve tier: an orbit around a person is a small, low-texture
     // scene, and the quick/standard tiers collapsed a 1080p orbit into a
     // rotation-only solution once (2026-09-13) — nothing downstream survives that
-    session: { evalSplit: 0, initTarget: 100000, sfm: solveTierOpts('precise') },
+    // the person trains as part of the ROOM (maskTraining false: the mattes
+    // stay for the hull and the cut after the face pass) — the masked recipe
+    // gave needle ratio 344 vs 15 for the same clip trained whole (2026-09-14b)
+    session: { evalSplit: 0, initTarget: 100000, sfm: solveTierOpts('precise'), maskTraining: false },
     trainer: { maxSplats: 600000, capMult: 8 },
     iters,
   };
