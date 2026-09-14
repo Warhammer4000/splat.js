@@ -70,13 +70,17 @@ export async function review(ctx, manifest, hooks) {
   const body = hooks.body?.(); const S = ctx.surface; if (!body || !S) return true;
   const lm = manifest.stages.landmarks; const { session, frames } = ctx; const byName = new Map(frames.map((f) => [f.name, f]));
   const strip = document.createElement('div'); strip.className = 'av-overlay';
+  // triangles spanning more than ~13 cm of depth are skipped (a poor man's back-face
+  // cull) — in scene units through the fit scale, or on a 15 units/m scene it is 3 mm
+  // and the face draws as holes (the user's 'leaky' overlay, 2026-09-14)
+  const depthCut = 0.13 * (manifest.stages.bodyfit.scale || 1);
   const draw = async (img, cam, scale, crop) => {
     const cv = document.createElement('canvas'); const g = cv.getContext('2d');
     cv.width = img.width * scale; cv.height = img.height * scale; g.drawImage(img, 0, 0, cv.width, cv.height);
     g.strokeStyle = 'rgba(25,227,194,.55)'; g.lineWidth = 1;
     const P = S.vertices.map((v) => { const x = cam.R[0] * v[0] + cam.R[1] * v[1] + cam.R[2] * v[2] + cam.t[0], y = cam.R[3] * v[0] + cam.R[4] * v[1] + cam.R[5] * v[2] + cam.t[1], z = cam.R[6] * v[0] + cam.R[7] * v[1] + cam.R[8] * v[2] + cam.t[2]; return z > 0 ? [((cam.f * x / z + cam.cx) - (crop ? crop.x0 : 0)) * scale, (((cam.fy ?? cam.f) * y / z + cam.cy) - (crop ? crop.y0 : 0)) * scale, z] : null; });
     g.beginPath();
-    for (const [a, b, c] of S.faces) { const pa = P[a], pb = P[b], pc = P[c]; if (!pa || !pb || !pc) continue; if (Math.abs(pa[2] - pb[2]) > 0.05 || Math.abs(pa[2] - pc[2]) > 0.05) continue; g.moveTo(pa[0], pa[1]); g.lineTo(pb[0], pb[1]); g.lineTo(pc[0], pc[1]); g.lineTo(pa[0], pa[1]); }
+    for (const [a, b, c] of S.faces) { const pa = P[a], pb = P[b], pc = P[c]; if (!pa || !pb || !pc) continue; if (Math.abs(pa[2] - pb[2]) > depthCut || Math.abs(pa[2] - pc[2]) > depthCut) continue; g.moveTo(pa[0], pa[1]); g.lineTo(pb[0], pb[1]); g.lineTo(pc[0], pc[1]); g.lineTo(pa[0], pa[1]); }
     g.stroke(); cv.style.height = '200px'; cv.style.width = `${cv.width / cv.height * 200}px`; strip.appendChild(cv);
   };
   const cams = (lm.cropCams || []).slice().sort((a, b) => b.facePx - a.facePx).slice(0, 2);
