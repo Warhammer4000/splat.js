@@ -154,7 +154,15 @@ struct Cam {
   misc2: vec4f,   // x = trainMode (1/0), y = camera index, z = numCams, w = exposure bias
   misc3: vec4f,   // x = active SH degree, z = fy (0 = fx; cameras with
                   //     fx != fy: non-uniformly resized datasets, COLMAP PINHOLE)
+  shup: vec4f,    // xyz = the scene's up axis, w = 1: SH sees only the view direction's
+                  //     horizontal part (an avatar seen from above has no training views
+                  //     there — the vertical colour variation is unconstrained, 2026-09-14)
 };
+fn shDir(v: vec3f) -> vec3f {
+  if (cam.shup.w < 0.5) { return v; }
+  let h = v - cam.shup.xyz * dot(v, cam.shup.xyz);
+  return h / max(length(h), 1e-6);
+}
 @group(0) @binding(0) var<uniform> cam: Cam;
 const TILEF = ${TILE}.0;
 const SHSORT = ${SHARED_SORT}u;
@@ -325,7 +333,7 @@ ${shDeg > 0 ? /* wgsl */ `
   // view-dependent color: SH rest bands added to the sigmoid DC, clamp at 0
   {
     let un = vec3f(params[b], params[b + 1u], params[b + 2u]) - camPosWorld();
-    let v = un / max(length(un), 1e-9);
+    let v = shDir(un / max(length(un), 1e-9));
     var Y = shBasis(v);
     let aK = shActiveK();
     let sb = i * ${3 * shRestCoefs(shDeg)}u;
@@ -1287,7 +1295,7 @@ ${shDeg > 0 ? /* wgsl */ `
   {
     let un = vec3f(params[b], params[b + 1u], params[b + 2u]) - camPosWorld();
     let ulen = max(length(un), 1e-9);
-    let v = un / ulen;
+    let v = shDir(un / ulen);
     var Y = shBasis(v);
     var D = shBasisGrad(v);
     let aK = shActiveK();

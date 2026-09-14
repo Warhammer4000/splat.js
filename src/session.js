@@ -424,8 +424,13 @@ export class Session {
     if (!this.gpu) this.gpu = await createGpu({ device: this.opts.device });
     this.gpu.onLost = (info) => this._deviceLost(info);
     const gi = this.gpu.info || {};
+    // opts.shHorizontal: SH evaluated on the view direction's horizontal part only —
+    // the up axis is the cameras' dominant up (minus each R's second row)
+    const shUp = this.opts.shHorizontal ? this._camerasUp() : null;
+    if (shUp) this._log(`SH on the horizontal view direction only (up ${shUp.map((v) => v.toFixed(2)).join(', ')})`);
     const trainerOpts = {
       maxIters: this.opts.maxIters ?? 60000,
+      ...(shUp ? { shUp } : {}),
       // a masked set trains its empty pixels against a random background by
       // default (gs/shaders.js randBg) — the thing that keeps splats out of
       // the cleared area at full photometric strength
@@ -463,6 +468,13 @@ export class Session {
     if (masked && this.splatTest) this.trainer.hullKill = this.splatTest;
     this._stage({ stage: 'seed', done: 1, total: 1, detail: { splats: this.model.n } });
     return this.model;
+  }
+
+  /** the cameras' dominant up axis (unit, world) */
+  _camerasUp() {
+    const u = [0, 0, 0];
+    for (const c of this.recon.cams) { u[0] -= c.R[3]; u[1] -= c.R[4]; u[2] -= c.R[5]; }
+    const l = Math.hypot(u[0], u[1], u[2]) || 1; return [u[0] / l, u[1] / l, u[2] / l];
   }
 
   /** trainer.setup with the frame alphas hidden when the session trains unmasked
@@ -560,8 +572,10 @@ export class Session {
 
     if (!this.gpu) this.gpu = await createGpu({ device: this.opts.device });
     this.gpu.onLost = (info) => this._deviceLost(info);
+    const shUp2 = this.opts.shHorizontal && this.recon?.cams?.length ? this._camerasUp() : null;
     const trainerOpts = {
       maxIters: this.opts.maxIters ?? 60000,
+      ...(shUp2 ? { shUp: shUp2 } : {}),
       // same masked-set default as seed(): without it a continuation trained
       // its empty pixels against BLACK (2026-09-12: 200 steps from a
       // converged person grew opaque dark needles out of the subject)

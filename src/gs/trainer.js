@@ -356,8 +356,8 @@ export class GSTrainer {
       this.uniSHAdam = buf(48, B.UNIFORM | B.COPY_DST, 'uniSHAdam');
     }
 
-    this.uniTrain = buf(144, B.UNIFORM | B.COPY_DST, 'uniTrain');
-    this.uniView = buf(144, B.UNIFORM | B.COPY_DST, 'uniView');
+    this.uniTrain = buf(160, B.UNIFORM | B.COPY_DST, 'uniTrain');
+    this.uniView = buf(160, B.UNIFORM | B.COPY_DST, 'uniView');
     this.uniAdam = buf(144, B.UNIFORM | B.COPY_DST, 'uniAdam');
 
     // phase-2 refine: 16 bytes/splat gathered for the CPU decision, a plan of
@@ -493,8 +493,8 @@ export class GSTrainer {
       // raster passes at ssaa x need their own scaled cam uniforms; the fwd
       // one carries trainMode 0 (render + walk-end only, loss lives in the
       // downsample pass), the bwd one trainMode 1
-      this.uniTrain2f = buf(144, B.UNIFORM | B.COPY_DST, 'uniTrain2f');
-      this.uniTrain2b = buf(144, B.UNIFORM | B.COPY_DST, 'uniTrain2b');
+      this.uniTrain2f = buf(160, B.UNIFORM | B.COPY_DST, 'uniTrain2f');
+      this.uniTrain2b = buf(160, B.UNIFORM | B.COPY_DST, 'uniTrain2b');
       this.bgProject2 = bgProject(this.uniTrain2f);
       this.bgScan2 = bgScan(this.uniTrain2f);
       this.bgScatter2 = bgScatter(this.uniTrain2f);
@@ -722,7 +722,9 @@ export class GSTrainer {
   }
 
   _camUniform({ R, t, f, fy, cx, cy, w, h, g = 0, b = 0, bg = null }, trainMode, offset, camIdx = 0) {
-    const u = new Float32Array(36);
+    const u = new Float32Array(40);
+    // shup: horizontal-only SH (opts.shUp = the scene's up axis, unit)
+    if (this.opts.shUp) { u[36] = this.opts.shUp[0]; u[37] = this.opts.shUp[1]; u[38] = this.opts.shUp[2]; u[39] = 1; }
     u.set([R[0], R[1], R[2], 0], 0);
     u.set([R[3], R[4], R[5], 0], 4);
     u.set([R[6], R[7], R[8], 0], 8);
