@@ -41,6 +41,10 @@ const WALL_FIRST = /splat-js2/.test(location.pathname)
 // 10k horizon the growth phase is squeezed against too few settle iterations
 // and the model comes out over-grown for its polish time.
 const INITIAL_ITERS = 20000;
+// a person is one small object seen from every side: 30k was visibly sharper than
+// 20k on the 1080p orbit, 40k marginal (2026-09-14, docs/lab-log.md); the phone
+// budget gets measured against this later, not the other way round
+const AVATAR_ITERS = 40000;
 const MORE_ITERS = 10000;
 
 // ?perf runs a short instrumented benchmark (default 1000 iterations, or
@@ -641,7 +645,7 @@ async function openCaptureSet(rec = null) {
   });
   // an avatar capture restores as an avatar run (the manifest names the stages done so far)
   S.avatar = rec.avatar && rec.avatar.kind === 'avatar' ? rec.avatar : null;
-  S.avatarOpts = S.avatar ? (await import('../avatar/index.js')).trainingOptions(S.avatar, { iters: S.settings.iters || INITIAL_ITERS }) : null;
+  S.avatarOpts = S.avatar ? (await import('../avatar/index.js')).trainingOptions(S.avatar, { iters: S.settings.iters || AVATAR_ITERS }) : null;
   await sortByCapture(files);
   if (S.ownUrls) S.ownUrls.forEach(URL.revokeObjectURL);
   S.ownUrls = files.map((f) => URL.createObjectURL(f));
@@ -1115,7 +1119,7 @@ async function useOwnVideo(file) {
     if (avatarWanted) {
       const av = await import('../avatar/index.js');
       const manifest = await av.prepareCapture(frames, { video: file.name, picks: frames.length, duration, ...videoMeta }, { card, flash });
-      if (manifest) { S.avatar = manifest; S.avatarOpts = av.trainingOptions(manifest, { iters: S.settings.iters || INITIAL_ITERS }); }
+      if (manifest) { S.avatar = manifest; S.avatarOpts = av.trainingOptions(manifest, { iters: S.settings.iters || AVATAR_ITERS }); }
     }
     if (S.ownUrls) S.ownUrls.forEach(URL.revokeObjectURL);
     S.ownUrls = frames.map((f) => URL.createObjectURL(f.source));

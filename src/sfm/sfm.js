@@ -2082,8 +2082,16 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
   const first = await runSfMOnce(images, log, sampleColor, opts);
   const n = images.length;
   const relaxable = opts.pairRelax !== false && opts.pairMinInliers == null && opts.pairMinInliersAdj == null && !opts.rigs && n >= 6;
-  if (!relaxable || first.cams.length >= 0.7 * n) return first;
-  log(`registration ${first.cams.length}/${n} < 70 % — retrying with the absolute pair gate (100 / neighbours 15)`);
+  // a video is a chain: a run of unregistered frames in capture order is a
+  // broken bridge, not scattered misses — Filip's orbit registered 43/59
+  // (over the 70 % bar) with frames 17-32 missing, the whole back of the
+  // person (2026-09-14). The relaxed gate is what mends such a gap.
+  const reg = new Set(first.cams.map((c) => c.imgIdx)); let gap = 0, run = 0;
+  for (let i = 0; i < n; i++) { run = reg.has(i) ? 0 : run + 1; if (run > gap) gap = run; }
+  if (!relaxable || (first.cams.length >= 0.7 * n && gap < 5)) return first;
+  log(first.cams.length >= 0.7 * n
+    ? `registration ${first.cams.length}/${n} with a gap of ${gap} consecutive frames — retrying with the absolute pair gate (100 / neighbours 15)`
+    : `registration ${first.cams.length}/${n} < 70 % — retrying with the absolute pair gate (100 / neighbours 15)`);
   let second = null;
   try {
     second = await runSfMOnce(images, log, sampleColor, { ...opts, pairMinInliers: 100, pairMinInliersAdj: 15, _feats: first._feats });
