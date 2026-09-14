@@ -258,6 +258,21 @@ exp(scale) per splat, needle ratio = longest / shortest axis).
   1,918 visible within 16 cm vs 13,313 / 1,845), views the same
   (`scratch/headseed_cmp3.jpg`). Lever left: opacityReg per region — with
   the blur risk of keeping half-dead splats.
+- **Frozen head seed only** (user: "fix the number of splats to the seed,
+  only train these, keep positions fixed"). `scratch/head_only.html`: the
+  50k discs alone, `posLrScale 0`, no growth/relocation (`growUntil` /
+  `relocUntil` 0, cap = count), 8k iterations on 65 native head windows
+  (a square around the projected head sphere in every frame), the room
+  masked out by the matte, splat size capped at ~1.2 cm (first pass without
+  the matte and the cap: streaks to the walls, 41 % of the discs dead).
+  Result: a head from every side, including behind and the crown (the mesh
+  is closed), but soft everywhere — 24,435 of 50k survive the export, only
+  22 % above opacity 0.3; the optimisation dims discs that sit off the true
+  surface (the Anny scalp has no hair volume, the face is 4-7 mm off in
+  places), and frozen positions cannot correct that. Worse than the
+  pipeline's head in every view except that the crown is filled (with
+  blur). `scratch/headonly_cmp2.jpg`. Closes the seeding line: the fitted
+  head is a good ANCHOR, not a good final surface.
 - Still open on Filip: the back island (frames 17-30) — landmark PnP bridge;
   and the unstabilised head windows (no face seen) on the room pose.
 - Packages: `scratch/avatar_tom_final_package.zip` (20k, metric fit,
