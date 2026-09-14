@@ -178,12 +178,12 @@ export class Anny {
  *  within `reach` — skin sees open space in half its directions, a cavity
  *  wall in none. Faces with an interior vertex go. Head only: elsewhere
  *  fingers and armpits would fail the test. Mutates and returns S. */
-export function cullHeadInterior(S, headWeight, { reach = 0.06, minHead = 0.3, rays = 20, escapeMin = 0.2 } = {}) {
+export function cullHeadInterior(S, headWeight, { reach = 0.06, cell = 0.02, minHead = 0.3, rays = 20, escapeMin = 0.2 } = {}) {   // reach, cell: the mesh's units
   const V = S.vertices, F = S.faces; const nF = F.length, nV = V.length;
   const headV = []; for (let i = 0; i < nV; i++) if (headWeight[i] > minHead) headV.push(i);
   if (!headV.length) return S;
   const headF = []; for (let i = 0; i < nF; i++) { const f = F[i]; if (headWeight[f[0]] > minHead || headWeight[f[1]] > minHead || headWeight[f[2]] > minHead) headF.push(i); }
-  const cell = 0.02; const grid = new Map();
+  const grid = new Map();
   for (const i of headF) { const [a, b, c] = F[i]; const xs = [V[a][0], V[b][0], V[c][0]], ys = [V[a][1], V[b][1], V[c][1]], zs = [V[a][2], V[b][2], V[c][2]];
     for (let x = Math.floor(Math.min(...xs) / cell); x <= Math.floor(Math.max(...xs) / cell); x++) for (let y = Math.floor(Math.min(...ys) / cell); y <= Math.floor(Math.max(...ys) / cell); y++) for (let z = Math.floor(Math.min(...zs) / cell); z <= Math.floor(Math.max(...zs) / cell); z++) { const k = `${x},${y},${z}`; let arr = grid.get(k); if (!arr) { arr = []; grid.set(k, arr); } arr.push(i); } }
   const vertFaces = Array.from({ length: nV }, () => []); for (const i of headF) for (const v of F[i]) vertFaces[v].push(i);

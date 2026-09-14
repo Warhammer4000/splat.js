@@ -1994,6 +1994,18 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
     }
   };
   await searchPass();
+  // A search that registers almost none of its subsample ranks focals on
+  // noise: Lisa's 4K orbit (208 frames, every 5th) put 5-6 of 42 cameras on
+  // EVERY candidate, and the pixel median picked 1.20x maxDim for a 0.69x
+  // ultra-wide clip — the final pass then registered 201/208 cameras with the
+  // person triangulated to 108 points (2026-09-14). Densify the subsample
+  // (every 2nd frame) when the best candidate holds under a third of it.
+  if (candidates.length && searchSet && Math.max(...candidates.map((r) => r.cams.length)) < nS / 3 && Math.ceil(n / 48) > 2) {
+    searchSet = new Set(); for (let i = 0; i < n; i += 2) searchSet.add(i);
+    nS = searchSet.size; fi = 0; candidates.length = 0;
+    log(`focal search: the best candidate held under a third of the subsample — searching again on ${nS} of ${n} images (every 2nd)`);
+    await searchPass();
+  }
   if (!candidates.length && searchSet) {
     // a subsample too sparse to chain (a forward walk sampled every k-th
     // frame): search on every image instead

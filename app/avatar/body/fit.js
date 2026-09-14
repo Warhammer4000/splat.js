@@ -51,7 +51,10 @@ class PointGrid {
  */
 export async function fitBody(anny, o) {
   const log = o.log || (() => {}); const progress = o.progress || (() => {});
-  const iters1 = o.iters1 ?? 40, iters2 = o.iters2 ?? 20, huber = o.huber ?? 0.05, poseReg = o.poseReg ?? 0.003, shapeReg = o.shapeReg ?? 0.003;
+  const iters1 = o.iters1 ?? 40, iters2 = o.iters2 ?? 20, huber = o.huber ?? 0.13, poseReg = o.poseReg ?? 0.02, shapeReg = o.shapeReg ?? 0.02;
+  // residuals are in metres (scene units / the current scale): a scene's unit is arbitrary
+  // (Lisa's orbit solved to ~3 m per unit, Tom's to 7 cm), so every threshold below is metric.
+  // The values reproduce what Lisa's frame had validated (huber 0.05 units at scale 0.38).
   const B = anny.B, K = anny.K;
   const body = []; anny.boneLabels.forEach((n, i) => { if (!FINGER.test(n)) body.push(i); });
   const names = anny.kp.map((k) => k.name).filter((n) => o.landmarks[n]);
@@ -100,13 +103,13 @@ export async function fitBody(anny, o) {
   const residuals = (q, stage) => {
     const { u, out, kp } = forward(q); const r = [];
     for (let i = 0; i < names.length; i++) {
-      const X = xf(u, kp[names[i]]); const d = [X[0] - target[i][0], X[1] - target[i][1], X[2] - target[i][2]]; const n = Math.hypot(...d);
+      const X = xf(u, kp[names[i]]); const d = [(X[0] - target[i][0]) / u.s, (X[1] - target[i][1]) / u.s, (X[2] - target[i][2]) / u.s]; const n = Math.hypot(...d);
       const w = Math.sqrt(conf[i]) * (n > huber ? Math.sqrt(huber / n) : 1) * (stage === 2 ? Math.SQRT1_2 : 1);   // Huber as IRLS weight
       r.push(w * d[0], w * d[1], w * d[2]);
     }
     if (stage === 2 && grid) {
       const wS = 1 / Math.sqrt(vsub.length) * 3;
-      for (const i of vsub) { const X = xf(u, [out.verts[i * 3], out.verts[i * 3 + 1], out.verts[i * 3 + 2]]); r.push(wS * grid.nearest(X[0], X[1], X[2])); }
+      for (const i of vsub) { const X = xf(u, [out.verts[i * 3], out.verts[i * 3 + 1], out.verts[i * 3 + 2]]); r.push(wS * grid.nearest(X[0], X[1], X[2]) / u.s); }
     }
     for (let i = 0; i < body.length * 3; i++) r.push(Math.sqrt(poseReg) * q[7 + i]);
     for (let k = 0; k < K; k++) r.push(Math.sqrt(shapeReg) * q[7 + body.length * 3 + k] / (anny.sigma[k] || 1));
@@ -146,7 +149,7 @@ export async function fitBody(anny, o) {
   // outputs
   const { u, out, kp } = forward(p);
   const resid = {}; let sum = 0;
-  names.forEach((n, i) => { const X = xf(u, kp[n]); resid[n] = Math.hypot(X[0] - target[i][0], X[1] - target[i][1], X[2] - target[i][2]); sum += resid[n]; });
+  names.forEach((n, i) => { const X = xf(u, kp[n]); resid[n] = Math.hypot(X[0] - target[i][0], X[1] - target[i][1], X[2] - target[i][2]) / u.s; sum += resid[n]; });
   log(`body fit: scale ${u.s.toFixed(3)}, landmark residual mean ${(sum / names.length * 100).toFixed(1)} cm`);
   const toPly = (X) => annyToPly(xf(u, X));
   const vertsPly = new Float32Array(anny.V * 3); for (let i = 0; i < anny.V; i++) vertsPly.set(toPly([out.verts[i * 3], out.verts[i * 3 + 1], out.verts[i * 3 + 2]]), i * 3);
@@ -178,7 +181,7 @@ export async function fitBody(anny, o) {
   // the mouth cavity is connected to the lips and the sockets keep a lining:
   // a ray test on the head takes those out (the user's rule: one surface)
   const hb = anny.boneIndex.head; const hwOuter = boneIndices.map((bi, i) => bi.reduce((s, b, k) => s + (b === hb ? boneWeights[i][k] : 0), 0));
-  cullHeadInterior(surface, hwOuter);
+  cullHeadInterior(surface, hwOuter, { reach: 0.16 * u.s, cell: 0.05 * u.s });   // 16 cm reach in scene units
   return { params: Array.from(p), scale: u.s, residualsM: resid, markers, landmarks: kpPly, surface, headWeightOf: (i) => anny.headWeight[i], outerRemap: remap };
 }
 

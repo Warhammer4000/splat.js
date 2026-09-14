@@ -53,7 +53,7 @@ export async function run(ctx, manifest, hooks) {
       const { corr } = headCorrespondences(surface, headWeight, cam, landmarker);
       landmarker.close();
       log(`head: ${corr.size} correspondences on the rendered head (crop ${cam.name})`);
-      if (corr.size > 200) { deformHead(surface, headWeight, corr, face, log); head = surface.headRegistered; }
+      if (corr.size > 200) { deformHead(surface, headWeight, corr, face, log, fit.scale); head = surface.headRegistered; }
     } catch (e) { log(`head registration skipped: ${e.message || e}`); }
   }
   // the rig fit from the fitted skeleton's markers (asymmetric: the body kept her stance)

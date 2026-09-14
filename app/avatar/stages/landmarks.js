@@ -226,7 +226,7 @@ export async function run(ctx, manifest, hooks) {
   const fit = markersToFit(avatar, markers, { asym: false });
   fit.source = { tool: 'avatar-mode', framesUsed: cams.length };
   const resid = Object.values(fit.residualsM); const meanRes = resid.reduce((a, b) => a + b, 0) / resid.length;
-  log(`fit: scale ${fit.scale.toFixed(3)}, marker residual mean ${(meanRes * 100).toFixed(1)} cm`);
+  log(`fit: scale ${fit.scale.toFixed(3)}, marker residual mean ${(meanRes / fit.scale * 100).toFixed(1)} cm`);
 
   // face: canonical 3D face + head-stabilised crop cameras
   const canon = []; const good = [];

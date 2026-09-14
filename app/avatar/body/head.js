@@ -65,7 +65,7 @@ export function headCorrespondences(S, headWeight, cam, landmarker) {
 }
 
 /** Deform the head region of S onto the face points. face: Map(id -> [x,y,z]) PLY frame. Mutates S.vertices. */
-export function deformHead(S, headWeight, corr, face, log = () => {}) {
+export function deformHead(S, headWeight, corr, face, log = () => {}, scale = 1) {   // scale: scene units per metre
   const V = S.vertices.map((v) => v.slice()); const n = V.length;
   const pins = []; for (const [id, c] of corr) if (face.has(id)) pins.push({ tri: c.tri, bary: c.bary, P: face.get(id) });
   const src = (Vv) => pins.map((p) => [0, 1, 2].map((a) => p.bary[0] * Vv[p.tri[0]][a] + p.bary[1] * Vv[p.tri[1]][a] + p.bary[2] * Vv[p.tri[2]][a]));
@@ -79,9 +79,9 @@ export function deformHead(S, headWeight, corr, face, log = () => {}) {
   const R = mul3(mul3(U, [[D[0], 0, 0], [0, D[1], 0], [0, 0, D[2]]]), Vt); const sc = (Sv[0] * D[0] + Sv[1] * D[1] + Sv[2] * D[2]) / sq;
   const t = [0, 1, 2].map((k) => mp[k] - sc * (R[k][0] * ms[0] + R[k][1] * ms[1] + R[k][2] * ms[2]));
   for (let i = 0; i < n; i++) { const w = headWeight[i]; if (!w) continue; const v = V[i]; const q = [0, 1, 2].map((k) => sc * (R[k][0] * v[0] + R[k][1] * v[1] + R[k][2] * v[2]) + t[k]); V[i] = [v[0] + w * (q[0] - v[0]), v[1] + w * (q[1] - v[1]), v[2] + w * (q[2] - v[2])]; }
-  const d1 = dist(src(V)); const med = [...d1].sort((a, b) => a - b)[d1.length >> 1]; const cut = Math.max(0.012, 2.5 * med);
+  const d1 = dist(src(V)); const med = [...d1].sort((a, b) => a - b)[d1.length >> 1]; const cut = Math.max(0.032 * scale, 2.5 * med);
   const keep = pins.filter((_, i) => d1[i] < cut);
-  log(`head: ${pins.length} correspondences, mean ${(mean(d0) * 1000).toFixed(1)} -> ${(mean(d1) * 1000).toFixed(1)} mm after the similarity; ${keep.length} pins kept`);
+  log(`head: ${pins.length} correspondences, mean ${(mean(d0) / scale * 1000).toFixed(1)} -> ${(mean(d1) / scale * 1000).toFixed(1)} mm after the similarity; ${keep.length} pins kept`);
   // Laplacian deformation of the free (head) vertices, pins soft, neck fixed
   const free = []; const idx = new Int32Array(n).fill(-1); for (let i = 0; i < n; i++) if (headWeight[i] > 0.3) { idx[i] = free.length; free.push(i); }
   const adj = Array.from({ length: n }, () => new Set()); for (const [a, b, c] of S.faces) { adj[a].add(b).add(c); adj[b].add(a).add(c); adj[c].add(a).add(b); }
@@ -103,8 +103,8 @@ export function deformHead(S, headWeight, corr, face, log = () => {}) {
   let maxMove = 0;
   for (let i = 0; i < nf; i++) { const v = free[i]; const q = [X[0][i], X[1][i], X[2][i]]; maxMove = Math.max(maxMove, Math.hypot(q[0] - V[v][0], q[1] - V[v][1], q[2] - V[v][2])); V[v] = q; }
   const d2 = dist(src(V));
-  log(`head: after the Laplacian deformation mean ${(mean(d2) * 1000).toFixed(1)} mm, max vertex move ${(maxMove * 1000).toFixed(0)} mm`);
-  S.vertices = V; S.headRegistered = { pins: keep.length, meanMm: mean(d2) * 1000 };
+  log(`head: after the Laplacian deformation mean ${(mean(d2) / scale * 1000).toFixed(1)} mm, max vertex move ${(maxMove / scale * 1000).toFixed(0)} mm`);
+  S.vertices = V; S.headRegistered = { pins: keep.length, meanMm: mean(d2) / scale * 1000 };
   return S;
 }
 

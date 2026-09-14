@@ -343,6 +343,12 @@ export class Session {
     const dropped = before - this.recon.points.length;
     this._log(`subject mask: seeding from ${this.recon.points.length} of ${before} points `
       + `(${(100 * dropped / before).toFixed(0)}% of the sparse cloud was background)`);
+    // a solve that registered the room but not the person (a wrong focal
+    // winner: Lisa's 4K orbit put 108 of 13741 points on her once, seeded 14,
+    // and trained 2,814 splats for 20k iterations, 2026-09-14) must stop
+    // here — nothing downstream can recover a subject that was never seeded
+    if (before >= 2000 && this.recon.points.length < Math.max(150, 0.01 * before))
+      throw new Error(`the solve missed the person: only ${this.recon.points.length} of ${before} sparse points land on the subject — try again, or shoot a slower orbit at arm's length`);
     return dropped;
   }
 

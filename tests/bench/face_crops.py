@@ -85,6 +85,7 @@ for ci, c in enumerate(cams):
     L = fres.face_landmarks[0]
     lm2d[ci] = np.array([[p.x * win + x0, p.y * win + y0] for p in L], np.float64)
 print(f'face landmarks in {len(lm2d)}/{len(cams)} cams ({time.time() - t0:.0f}s)')
+json.dump({str(ci): p.round(2).tolist() for ci, p in lm2d.items()}, open(os.path.join(ROOT, 'scratch', 'face_lm2d.json'), 'w'))   # 2D obs at 4K, for the JS triangulation test
 NL = 478
 
 # --- 2. canonical 3D face: robust DLT per landmark across the body cams -------

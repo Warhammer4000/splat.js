@@ -4,6 +4,81 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-14 (Tom's 19 s 1080p orbit vs Lisa: the spikes are the iteration count, and three defects on the way)
+
+The user shot `tom_avatar.MOV` (iPhone, 1080x1920 portrait, H.264, 19.3 s,
+579 frames, office with backlit windows) and ran avatar mode: "fine, but the
+surface is quite spiky — is it worse because of missing data?" Ran the same
+e2e (`tests/e2e/avatar_mode.mjs`, now with `--iters/--faceiters`) on both
+clips at the app defaults (20k + 12k face) and at the quick setting (3k +
+1.5k), and measured the OUTPUT distributions (scratchpad `splat_shape.py`:
+exp(scale) per splat, needle ratio = longest / shortest axis).
+
+| run | frames / registered | train res | splats | needle ratio median | >10 | body fit | face |
+|---|---|---|---|---|---|---|---|
+| Tom 1080p, 20k+12k | 65 / 62 | 1263 px | 177,705 | **344** | 81 % | 3.1 cm | 4.7 mm |
+| Tom 1080p, 3k+1.5k | 65 / 62 | 1263 px | 103,749 | 3.6 | 16 % | 2.0 cm | 4.5 mm |
+| Lisa 4K, 3k+1.5k (= dev avatar 5648) | 208 / 207 | 706 px | 78,878 | 3.0 | 7 % | 2.6 cm | 2.4 mm |
+| Lisa 4K, 20k+12k | 208 / 206 | 706 px | 153,437 | 44 | 81 % | 2.6 cm | 2.3 mm |
+| Lisa bench v3 SH3 (40k, CLI) | 186 | — | 336,674 | 583 | 99 % | — | — |
+
+(body fit / face in REAL cm / mm, see the units defect below; the old
+"1.0 cm" on Lisa was 2.6 cm.)
+
+- **Verdict: not the data.** The avatar the user compares against (dev 5648)
+  is the e2e's QUICK run — 3,020 iterations — and at 3k every model is a
+  smooth blob (needle ratio ~3). At the app default the trainer's needle
+  defaults (minScale 1e-5, anisoReg 0, 2026-09-08) take over: Tom 344, Lisa
+  44, the CLI 40k Lisa 583. Close-ups in the app viewer from each run's own
+  frontal camera (`scratch/spiky_cmp.jpg`, `scratch/render_views.mjs`)
+  show the streaks on Lisa 20k exactly as on Tom 20k, and Tom 3k as soft as
+  the dev Lisa. Tom's 20k face is the SHARPEST of the four: 65 frames train
+  at 1263 px, Lisa's 208 frames at 706 px (the tab's frame budget divides
+  the resolution by the frame count), and the face pass reached 29.4 dB.
+  So a 19 s 1080p orbit is enough; the spikes are the same hair-edge needle
+  streaks listed as open since 09-13 and now visible on skin at arm's
+  length. Next: an avatar-mode aniso cell (trainingOptions in
+  app/avatar/index.js: a scale floor / anisoReg for the person, judged on
+  the needle-ratio distribution AND the close-ups).
+- **Defect 1: scene units.** A solve's unit is arbitrary — Lisa's orbit came
+  out at 0.32-0.38 units per metre (3 m per unit), Tom's at 15-19 (7 cm per
+  unit). The body fitter (Huber 0.05, pose/shape regs), the head registration
+  (pin floor 0.012), the interior cull (reach 0.06, cell 0.02) and every
+  "cm/mm" report took scene units for metres, so on Tom the Huber was 3 mm,
+  the cull reach 4 mm (nothing culled — the mouth cavity was back), and the
+  fit read "105 cm". Now everything goes through the fit scale (residuals in
+  metres inside the LM, thresholds x scale), with constants chosen to
+  reproduce what Lisa's frame had validated (huber 0.13 m, regs 0.02, cull
+  reach 0.16 m / cell 0.05 m, pin floor 0.032 m). Tom: 6.4 -> 3.1 cm real
+  landmark residual, head 6.5 -> 4.7 mm. Lisa unchanged (2.6 cm / 2.3 mm).
+  export-binding-core was NOT touched: it already divides by the fit scale
+  (rig metres) — a first patch there smoothed weights over 1.35 m and leaked
+  4.9 % between the legs; reverted (leak 0.1 %, mean near 1.67 cm).
+- **Defect 2: the solve can lose the person.** Lisa 4K at 20k collapsed
+  once: the focal search subsample (every 5th of 208) registered only 5-6
+  of 42 cameras for EVERY candidate, the pixel median picked 1.20x maxDim
+  for a 0.69x ultra-wide clip, the final pass still registered 201/208 (so
+  the < 70 % retry never fired), and the mask filter kept 108 of 13,741
+  sparse points on her: 14 seeds, 2,814 splats after 20k iterations, body
+  fit and head garbage. The good runs got 0.69x only because the first
+  pass registered 137/208 and the relaxed retry re-searched. Two changes in
+  `src/sfm/sfm.js` / `src/session.js`: when the best search candidate holds
+  under a third of the subsample, search again on every 2nd frame (Lisa:
+  0.69x wins 71/104 vs 15/104 for 1.20x, +10 s; Tom's every-2nd search is
+  untouched), and a masked run whose subject keeps < max(150, 1 %) of the
+  sparse points stops with "the solve missed the person" instead of
+  training. Verified: the rerun took the densified path and solved 206/208
+  at 0.72 px.
+- **Defect 3 (small):** `tests/e2e/avatar_mode.mjs` hard-coded 3k/1.5k, so
+  the dev avatars 5647/5648 are quick runs — `--iters=20000 --faceiters=12000`
+  now reproduces the app. Note for the record: the Git Bash shell rewrites a
+  leading-slash argument into `C:/Program Files/Git/...` (MSYS path
+  conversion) — pass paths without the slash or set MSYS_NO_PATHCONV=1.
+- Packages: `scratch/avatar_tom_final_package.zip` (20k, metric fit,
+  correct binding), `scratch/avatar_tom3k_package.zip`,
+  `scratch/avatar_lisa20k_b_package.zip`. Nothing uploaded; dev still wears
+  5648.
+
 ## 2026-09-13b (avatar mode in the Splat.js app — feature/avatar-mode)
 
 User: "design a nicely separated pipeline that fits into the Splat.js app …
