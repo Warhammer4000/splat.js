@@ -12,7 +12,10 @@ import { createSession } from '../../../src/index.js';
 
 export const id = 'facepass';
 export const needs = ['landmarks'];
-const EXTRA_ITERS = +((typeof location !== 'undefined' && new URLSearchParams(location.search).get('faceiters')) || 12000);   // ?faceiters= for tests
+// OFF by default since 2026-09-14: on a room-trained model (maskTraining false) the
+// user saw no sharpness gain from the pass and streaks around the head — the 1263 px
+// room training already resolves the face. ?faceiters=N runs it (tests, experiments).
+const EXTRA_ITERS = +((typeof location !== 'undefined' && new URLSearchParams(location.search).get('faceiters')) || 0);
 const CROP_WEIGHT = 3;
 // The face pass on a room-trained model grew streaks around the head (needle ratio
 // median 32); the anisotropy regulariser at 0.01 takes them out (2.8) and keeps the
@@ -43,6 +46,7 @@ export async function run(ctx, manifest, hooks) {
   const { session, frames } = ctx; const log = hooks.log || (() => {});
   const lm = manifest.stages.landmarks;
   const crops = lm.cropCams || [];
+  if (!(EXTRA_ITERS > 0)) return { note: 'off — the room training resolves the face', skipped: true };
   if (crops.length < 6) return { note: `${crops.length} face views — skipped`, skipped: true };
   const byName = new Map(frames.map((f) => [f.name, f]));
   // 1. cut the windows

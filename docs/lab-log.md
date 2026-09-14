@@ -114,7 +114,11 @@ exp(scale) per splat, needle ratio = longest / shortest axis).
   32): anisotropy regulariser 0.01 on the face session -> 2.8 with the same
   sharpness in the close-ups (`scratch/facepass_cmp.jpg`); scale floor 1e-3
   -> 7.7, streaks remain; no face pass -> 15 but softer. anisoReg 0.01 is now
-  the face-pass default. Still open: the viewer keeps showing the room after
+  the face-pass default — and then the user's review: no visible sharpness
+  gain from the pass on the room-trained model, so the face pass is OFF by
+  default (`?faceiters=N` runs it); the isolate stage's fallback (a session
+  rebuilt from the capture files) verified, 56,160 of 119,567 splats, bind
+  0 far. Still open: the viewer keeps showing the room after
   the run (the app's view stays on the first session); the loose hull cut.
 - Packages: `scratch/avatar_tom_final_package.zip` (20k, metric fit,
   correct binding), `scratch/avatar_tom3k_package.zip`,
