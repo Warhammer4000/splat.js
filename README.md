@@ -22,6 +22,12 @@ step: the whole pipeline is vanilla ES modules on WebGPU, running in a tab.
   differences. Scales past 4,000,000 splats.
 - **A standard `.ply` export.** INRIA layout, spherical harmonics included,
   opacity compensation baked in, so it opens in any splat viewer.
+- **Video in.** Every frame of a clip is decoded through WebCodecs and scored
+  for sharpness and camera motion; the sharpest frame of each motion window
+  becomes a photograph. A phone walk yields about four frames a second, an
+  orbit closes its windows by motion. On a 34 s phone walk the picks train to
+  25.3 dB against 25.5 dB for a server-side extraction at 3.3 fps, scored on
+  the same 15 held-out photos.
 
 ## Try it
 
@@ -33,6 +39,12 @@ test sets. The gear next to **Start training** holds one-knob presets
 (*Draft* for a fast first look, *Showcase* for a long high-detail run) and the
 knobs they drive: resolution, spherical harmonics, splat budget, cycles,
 optimizer. The splat budget sizes itself from the cycle budget and the device.
+
+A video gets a review step before anything is saved: the scan's sharpness
+curve, blur dips, cuts and picks on a timeline, a range to trim or slide, the
+frame under the pointer, and a filmstrip of what will be used.
+
+![The video review card](docs/img/video-review.jpg)
 
 ### Finished results
 
