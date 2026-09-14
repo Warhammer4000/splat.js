@@ -129,10 +129,25 @@ export async function addPersonCrops(session, files, { log = () => {}, headWeigh
   // random background). The body frames keep the room; the crops then cannot be
   // pinned to it, which is what per-window pose freedom needs (2026-09-14).
   const personOnly = !(typeof location !== 'undefined' && new URLSearchParams(location.search).get('cropmask') === '0');   // ?cropmask=0: crops keep the room (experiment)
+  // ?croperode=px: the crops supervise only the person's INTERIOR — the matte is eroded
+  // by that many training-scale pixels, so the error-prone silhouette band is left to the
+  // room frames (the user's idea, 2026-09-14: the face-only run was clean because its
+  // loss never touched an edge)
+  const erode = +((typeof location !== 'undefined' && new URLSearchParams(location.search).get('croperode')) || 0);
   for (const fr of frames) {
     if (!personOnly || !fr.alpha) continue;
-    for (let p = 0; p < fr.tw * fr.th; p++) if (fr.alpha[p] <= 48) fr.rgb[p * 3] = -1;
+    const n = fr.tw * fr.th; let inside = fr.alpha;
+    if (erode > 0) {
+      // chamfer distance to the background over the binary matte, then keep pixels farther than `erode`
+      const W = fr.tw, H = fr.th; const d = new Float32Array(n); const INF = 1e9;
+      for (let p = 0; p < n; p++) d[p] = fr.alpha[p] > 48 ? INF : 0;
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const p = y * W + x; if (d[p] === 0) continue; let m = d[p]; if (x > 0) m = Math.min(m, d[p - 1] + 1); if (y > 0) { m = Math.min(m, d[p - W] + 1); if (x > 0) m = Math.min(m, d[p - W - 1] + 1.4142); if (x < W - 1) m = Math.min(m, d[p - W + 1] + 1.4142); } d[p] = m; }
+      for (let y = H - 1; y >= 0; y--) for (let x = W - 1; x >= 0; x--) { const p = y * W + x; if (d[p] === 0) continue; let m = d[p]; if (x < W - 1) m = Math.min(m, d[p + 1] + 1); if (y < H - 1) { m = Math.min(m, d[p + W] + 1); if (x < W - 1) m = Math.min(m, d[p + W + 1] + 1.4142); if (x > 0) m = Math.min(m, d[p + W - 1] + 1.4142); } d[p] = m; }
+      inside = new Uint8Array(n); for (let p = 0; p < n; p++) inside[p] = d[p] > erode ? 255 : 0;
+    }
+    for (let p = 0; p < n; p++) if (inside[p] <= 48) fr.rgb[p * 3] = -1;
   }
+  if (erode > 0) log(`crops: mattes eroded by ${erode} px (training scale) — the crops supervise the interior only`);
   const base = session.frames.length; session.frames.push(...frames);
   let added = 0;
   for (let i = 0; i < frames.length; i++) {

@@ -4,6 +4,45 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-15 (the face polish stage: the transplant works, the seam does not — opt-in, off)
+
+The user asked for "the discs again with the smoothed skin like before that
+only had the halo issue": the face-only disc model (20k flat discs on the
+triangulated face mesh, trained on the 33 native head crops with the loss
+inside the landmark hull) as a stage that puts its face into the avatar.
+`app/avatar/stages/facepolish.js`, after the cut, `?facepolish=1`. Eight
+runs on Tom 30k, close-ups with `scratch/render_views.mjs`
+(`scratch/facepolish_cmp*.jpg`):
+
+| run | face model | transplant / stitch | result |
+|---|---|---|---|
+| fp2 | anisoReg on | 20 mm | discs go round (needle 1.1), blurry |
+| fp3 | flat discs | 20 mm | haze: the halo of unsupervised discs rides in |
+| fp4 | flat discs, opacity > 0.2 | 20 mm | the face itself is thrown out |
+| fp5 | **masked** (random background outside the hull, `maskTraining`) | keep 30 mm, replace 25 mm, opacity ≥ 0.05, no stitch | halo gone, smoothest face yet; hard seam along the mask edge; 13,037 face splats replace 8,033 |
+| fp6 | as fp5 | 1,500 stitch iterations on the full frames | fog (the cut-out model cannot explain the room) |
+| fp7 | as fp5 | stitch on person pixels only (sentinel) | seam softer, bloom OUTSIDE the silhouette |
+| fp8 | as fp5 | stitch with `maskTraining` + person crops, growth and relocation off | bloom gone, seam softer at eye level; from 30°/60° above the face is still a mask with a rim at the forehead and hollow eye sockets |
+
+Face(10 cm) rows: default 5,827 (775 visible), fp8 14,123 (3,030 visible),
+needle median 75 → 53. Frontal and side close-ups of fp8 are the smoothest
+skin of the whole 09-14 series, and the numbers say the face has more
+material. But the ruler is the user's eyes over all views, and from above
+the transplant loses to the default: the face-only model never sees a view
+from above (an eye-level orbit), so its shell has no roof, and the replaced
+25 mm band takes the avatar's own forehead and hairline splats with it.
+A feathered replacement band would soften the rim, not put the roof on.
+
+- **Verdict**: the stage stays in the pipeline, opt-in and off by default.
+  What it proves: a face trained alone IS smoother, the smoothness comes
+  from not serving hair, silhouette and room; and a masked face model has
+  no halo. What is missing is supervision of the transplant from above —
+  the same gap the crown has in every orbit clip (capture guidance).
+- Mask erosion (`?croperode=px`, chamfer on the person crops' sentinel,
+  24 px tested): neutral to slightly smoother, no seam; off by default.
+- Committed with this entry: facepolish stage, manifest/runner wiring,
+  crop erosion switch.
+
 ## 2026-09-14b (invert the pipeline: train the room, cut the person out — the premise holds)
 
 The user's hunch: full-frame training beats the masked avatar recipe. Tested

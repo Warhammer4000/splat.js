@@ -11,6 +11,7 @@ const LOADERS = {
   landmarks: () => import('./stages/landmarks.js'),
   facepass: () => import('./stages/facepass.js'),
   cut: () => import('./stages/cut.js'),
+  facepolish: () => import('./stages/facepolish.js'),
   bodyfit: () => import('./stages/bodyfit.js'),
   bind: () => import('./stages/bind.js'),
   publish: () => import('./stages/publish.js'),
@@ -63,6 +64,7 @@ export async function afterTraining(ctx) {
     if (s === 'matte' || s === 'train') { setStage(manifest, s, { status: 'done' }); continue; }
     const loader = LOADERS[s];
     if (!loader) { setStage(manifest, s, { status: 'skipped', note: 'not built yet' }); continue; }
+    if (s === 'facepolish' && !(typeof location !== 'undefined' && new URLSearchParams(location.search).get('facepolish'))) { setStage(manifest, s, { status: 'skipped', note: 'off' }); continue; }   // experiment: ?facepolish=1
     let mod;
     try { mod = await loader(); } catch (e) { setStage(manifest, s, { status: 'skipped', note: 'not built yet' }); paint(); continue; }
     setStage(manifest, s, { status: 'running' }); paint(`${STAGE_LABEL[s]} …`);
