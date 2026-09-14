@@ -177,6 +177,17 @@ exp(scale) per splat, needle ratio = longest / shortest axis).
   keeps far more splats after the cut (Filip 87k -> 133k, Tom 153k ->
   225k). The joints card is reviewed after training (reviewPending). Knobs
   kept for experiments: `?camopt=1|crop`, `?cropmask=0`.
+- **When to take the face pose** (user: "Tom head stabilised got worse"):
+  not head motion — the nose tip triangulated from the first vs last third
+  of the face views shifts 0.58 cm on Tom and 0.59 cm on Filip (the earlier
+  "2 cm" came from the body landmarks with a sloppy frame mapping); not the
+  per-frame pose difference either (median 2.8 / 3.0 px on both). What
+  separates them is how well the room's poses agree on the PERSON: the pose
+  landmarks' multi-view nose residual, 1.8 px on Tom vs 3.2 px on Filip
+  (feature scale). Rule: above 2.5 px the head windows take the face-PnP
+  pose (Filip: 29/29, single face again, `scratch/filip_rule.jpg`), below
+  they keep the room's (Tom). Two clips — the log prints both numbers on
+  every run to find the threshold.
 - Still open on Filip: the back island (frames 17-30) — landmark PnP bridge;
   and the unstabilised head windows (no face seen) on the room pose.
 - Packages: `scratch/avatar_tom_final_package.zip` (20k, metric fit,

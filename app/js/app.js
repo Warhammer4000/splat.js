@@ -1684,10 +1684,16 @@ async function startPrep() {
         const lm = await import('../avatar/stages/landmarks.js');
         const res = await lm.run({ session, frames: files }, S.avatar, { log: alog, progress: (d, t) => { S.prep = { stage: 'landmarks', done: d, total: t }; } });
         av.setStage(S.avatar, 'landmarks', { status: 'done', ...res, reviewPending: true });
-        faceCams = res.cropCams || null;
+        faceCams = res.cropCams || null; S._facePoints = res.face && res.face.points || null; // the nose tip shifts under 1 cm over the orbit on BOTH clips, so head motion is not
+        // what separates them; what does is how well the room's poses agree on the person:
+        // the pose landmarks' multi-view residual (nose) is 1.8 px on Tom, 3.2 px on Filip
+        // (feature scale). Above 2.5 px the head windows take the face-PnP pose.
+        const noseErr = res.report && res.report.nose && res.report.nose.err;
+        S._headMoved = noseErr != null ? +noseErr > 2.5 : null;
+        alog(`head windows: ${S._headMoved ? 'face-PnP poses' : 'room poses'} (nose residual ${noseErr} px, head shift ${res.headShiftCm} cm)`);
       } catch (e) { alog(`landmarks before training failed: ${e.message || e} — after training instead`); }
       if (S.gen !== gen) return;
-      await av.addPersonCrops(session, files, { log: alog, faceCams, progress: (d, t) => { S.prep = { stage: 'crops', done: d, total: t }; } });
+      await av.addPersonCrops(session, files, { log: alog, faceCams, facePoints: S._facePoints || null, headMoved: S._headMoved, progress: (d, t) => { S.prep = { stage: 'crops', done: d, total: t }; } });
       if (S.gen !== gen) return;
     }
 

@@ -237,6 +237,18 @@ export async function run(ctx, manifest, hooks) {
       canon.push(r ? r.X : null); if (r && r.err < 20) good.push(k);
     }
   }
+  // did the head move against the room over the orbit? The nose tip triangulated
+  // from the first and the last third of the face views (by capture order); the
+  // room's poses are consistent with the room, so a shift here is the head's own.
+  // Filip 1.7-2.5 cm (his face doubled), Tom's did not move (2026-09-14).
+  let headShiftCm = null;
+  if (faceObs.size >= 2 * MIN_VIEWS) {
+    const order = [...faceObs.keys()].sort((a, b) => a - b); const third = Math.floor(order.length / 3);
+    const seg = (idx) => { const rows = []; for (const ci of idx) { const a = faceObs.get(ci); rows.push({ P: Ps[ci], u: a[2], v: a[3] }); } return triangulate(rows, 1.5); };   // landmark 1 = nose tip
+    const A = seg(order.slice(0, Math.max(MIN_VIEWS, third))), B = seg(order.slice(-Math.max(MIN_VIEWS, third)));
+    if (A && B) headShiftCm = +(Math.hypot(A.X[0] - B.X[0], A.X[1] - B.X[1], A.X[2] - B.X[2]) / fit.scale * 100).toFixed(2);
+    log(`face: nose tip first vs last third of the orbit ${headShiftCm != null ? headShiftCm + ' cm' : 'n/a'} (the head against the room)`);
+  }
   const cropCams = [];
   if (good.length > 100) {
     const obj = good.map((k) => canon[k]);
@@ -266,7 +278,7 @@ export async function run(ctx, manifest, hooks) {
   return {
     markers, floorY, landmarks: pts, report, fit,
     face: { points: good.map((k) => canon[k].map((v) => +v.toFixed(5))), ids: good },
-    cropCams,
+    cropCams, headShiftCm,
     note: `${Object.keys(markers).length} markers · ${cropCams.length} face views`,
   };
 }

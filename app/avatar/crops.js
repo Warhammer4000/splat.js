@@ -58,7 +58,7 @@ async function cut(bmp, mask, win, name) {
 /** Append person tiles and head windows to a SOLVED session (between solve and seed).
  *  @param {import('../../src/session.js').Session} session
  *  @param {Array<{name:string, source?:Blob, mask?:Blob}|File>} files  the picked frames with their mattes */
-export async function addPersonCrops(session, files, { log = () => {}, headWeight = 2, tileMax = TILE_MAX, progress, faceCams = null } = {}) {
+export async function addPersonCrops(session, files, { log = () => {}, headWeight = 2, tileMax = TILE_MAX, progress, faceCams = null, facePoints = null, stabMinPx = 3, headMoved = null } = {}) {
   const byName = new Map(files.map((f) => [f.name, f]));
   // head-stabilised windows from the landmarks stage (pose by PnP on the face, not the room's SfM pose)
   const faceByName = new Map((faceCams || []).map((c) => [c.name, c]));
@@ -87,8 +87,28 @@ export async function addPersonCrops(session, files, { log = () => {}, headWeigh
     // the head window: the landmarks' head-stabilised crop when the face was seen, else around the matte's head
     const fc = faceByName.get(fr.name);
     if (fc) {
+      // the landmark pose is worth taking only where it DISAGREES with the room's pose
+      // beyond its own noise: a head that did not move (Tom) only gains landmark
+      // jitter from it (the user saw Tom get worse, 2026-09-14). Median shift of the
+      // face points between the two poses, native px, against the PnP residual.
+      let take = true, shift = 0;
+      if (facePoints && facePoints.length) {
+        const sN = W / fr.fw; const f0 = c.f * sN, fy0 = (c.fy != null ? c.fy : c.f) * sN, cx0 = c.cx * sN - fc.x0, cy0 = c.cy * sN - fc.y0;
+        const d = [];
+        for (const X of facePoints) {
+          const za = c.R[6] * X[0] + c.R[7] * X[1] + c.R[8] * X[2] + c.t[2], zb = fc.R[6] * X[0] + fc.R[7] * X[1] + fc.R[8] * X[2] + fc.t[2]; if (za <= 0 || zb <= 0) continue;
+          const ua = f0 * (c.R[0] * X[0] + c.R[1] * X[1] + c.R[2] * X[2] + c.t[0]) / za + cx0, va = fy0 * (c.R[3] * X[0] + c.R[4] * X[1] + c.R[5] * X[2] + c.t[1]) / za + cy0;
+          const ub = fc.f * (fc.R[0] * X[0] + fc.R[1] * X[1] + fc.R[2] * X[2] + fc.t[0]) / zb + fc.cx, vb = fc.fy * (fc.R[3] * X[0] + fc.R[4] * X[1] + fc.R[5] * X[2] + fc.t[1]) / zb + fc.cy;
+          d.push(Math.hypot(ua - ub, va - vb));
+        }
+        d.sort((p, q) => p - q); shift = d.length ? d[d.length >> 1] : 0;
+        // per frame the two poses differ by ~3 px on BOTH clips (the inconsistency
+        // is between orbit segments, not per frame) — the clip-level verdict from
+        // the landmarks stage decides when it is known
+        take = headMoved != null ? headMoved : shift > Math.max(stabMinPx, 1.5 * (fc.medPx || 0));
+      }
       const hw = { x0: fc.x0, y0: fc.y0, w: fc.side, h: fc.side };
-      entries.push(await cut(bmp, mask, hw, `hcrop_${fr.name}`)); wins.push({ ci, win: hw, weight: headWeight, W, pose: fc });
+      entries.push(await cut(bmp, mask, hw, `hcrop_${fr.name}`)); wins.push({ ci, win: hw, weight: headWeight, W, pose: take ? fc : null, shift });
     } else {
       const side = Math.round(0.3 * bh);
       const hw = clampWin(box.headX - side / 2, box.headY - side / 2, side, W, H);
@@ -130,6 +150,6 @@ export async function addPersonCrops(session, files, { log = () => {}, headWeigh
     const cam = { R: c.R, t: c.t, imgIdx: base + i, f: fN * sC, fy: fyN * sC, cx: cxN * sC, cy: cyN * sC, crop: true };
     for (let k = 0; k < weight; k++) { session.recon.cams.push(cam); added++; }
   }
-  log(`crops: ${frames.length} native windows on ${bodyCams.length} frames (${wins.filter((w) => w.weight === 1).length} person tiles, ${wins.filter((w) => w.weight > 1).length} head windows x${headWeight}, ${wins.filter((w) => w.pose).length} of them head-stabilised) — ${added} extra camera samples`);
+  log(`crops: ${frames.length} native windows on ${bodyCams.length} frames (${wins.filter((w) => w.weight === 1).length} person tiles, ${wins.filter((w) => w.weight > 1).length} head windows x${headWeight}, ${wins.filter((w) => w.pose).length} of them head-stabilised, ${wins.filter((w) => w.shift != null && !w.pose).length} kept the room pose; median shift ${(() => { const a = wins.filter((w) => w.shift != null).map((w) => w.shift).sort((p, q) => p - q); return a.length ? a[a.length >> 1].toFixed(1) : '-'; })()} px) — ${added} extra camera samples`);
   return frames.length;
 }
