@@ -1434,6 +1434,7 @@ struct AdamU {
   flg: vec4f,   // x = regs only on splats that rendered this step (>0.5),
                 // y = opacity logit floor (0 = cl.z), z = opacity decay, w = proj tail (compact)
   bc: vec4f,    // x = 1/(1-beta1^t), y = 1/(1-beta2^t) — computed once per step on the CPU (speed plan #6)
+                // z, w = rows [z, w) keep their POSITION (a seed the caller pins, avatar head seed; 0,0 = none)
 };
 @group(0) @binding(0) var<uniform> au: AdamU;
 @group(0) @binding(1) var<storage, read_write> params: array<f32>;
@@ -1448,6 +1449,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u,
   let j = gid.x + gid.y * nw.x * 256u;
   if (j >= u32(au.cl.w)) { return; }
   let slot = j % 16u;
+  if (slot < 3u && au.bc.w > au.bc.z) { let row = f32(j / 16u); if (row >= au.bc.z && row < au.bc.w) { return; } }   // pinned positions
   var lr: f32;
   if (slot < 4u) { lr = au.lr0[slot]; }
   else if (slot < 8u) { lr = au.lr1[slot - 4u]; }

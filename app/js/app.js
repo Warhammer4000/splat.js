@@ -1705,9 +1705,10 @@ async function startPrep() {
       // the whole head from the body model, protected from relocation (?headseed=N[,protectIters])
       const hsq = new URLSearchParams(location.search).get('headseed');
       if (hsq && hsq !== '0' && S._lmRes) {
-        const [hn, hp] = hsq.split(',').map((v) => +v);
+        const [hn, hp, hf] = hsq.split(','); const hnN = +hn, hpN = +hp;
         try {
-          S._faceSeed = await av.headSeedGaussians(session, files, S._lmRes, { count: hn > 1 ? hn : 50000, protectIters: hp || 8000, log: alog, progress: (d, t) => { S.prep = { stage: 'headseed', done: d, total: t }; } });
+          S._faceSeed = await av.headSeedGaussians(session, files, S._lmRes, { count: hnN > 1 ? hnN : 50000, protectIters: hpN || 8000, log: alog, progress: (d, t) => { S.prep = { stage: 'headseed', done: d, total: t }; } });
+          if (S._faceSeed && hf === 'f') S._faceSeed.freezePos = true;   // ?headseed=N,P,f — the discs keep their positions
           if (S._faceSeed && S._faceSeed.head) {   // the cloud seed leaves the head to the discs
             const { centre: hc, radius: hr } = S._faceSeed.head; const before = session.recon.points.length;
             session.recon.points = session.recon.points.filter((p) => Math.hypot(p.X[0] - hc[0], p.X[1] - hc[1], p.X[2] - hc[2]) > 1.3 * hr);

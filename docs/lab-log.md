@@ -273,6 +273,19 @@ exp(scale) per splat, needle ratio = longest / shortest axis).
   pipeline's head in every view except that the crown is filled (with
   blur). `scratch/headonly_cmp2.jpg`. Closes the seeding line: the fitted
   head is a good ANCHOR, not a good final surface.
+- **Default run + head seed with PINNED positions** (user: "train the
+  default in full, only protect the head seed positions"). New: the Adam
+  kernel skips the position slots for a row range (`AdamU.bc.zw`,
+  `trainer.setFreezePos`), the rows are also kept out of relocation for the
+  whole run. Tom 30k: within 16 cm 11,183 rows / 3,724 visible (vs 13,313 /
+  1,845) — twice the visible splats and a clearly WORSE face: dark and
+  coloured blotches on the cheeks and chin, a mottled forehead from above
+  (`scratch/headpin_cmp.jpg`). Pinned discs that sit off the true surface
+  (4-7 mm on the face, no hair volume on the scalp) cannot move out of the
+  way; they stay visible with colours from views where they are occluded,
+  and the free splats have to paint around them. This is the last variant
+  of the seeding idea; all of them lose to the plain sparse-cloud start.
+  Tooling kept (`?headseed=N,P,f`).
 - Still open on Filip: the back island (frames 17-30) — landmark PnP bridge;
   and the unstabilised head windows (no face seen) on the room pose.
 - Packages: `scratch/avatar_tom_final_package.zip` (20k, metric fit,

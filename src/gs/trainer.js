@@ -654,7 +654,7 @@ export class GSTrainer {
     // training length (default matches main.js auto-stop) instead of a
     // hardcoded 30k that predates the longer default runs
     this.horizon = this.opts.maxIters ?? 60000;
-    this.adamData = new Float32Array(36);   // 8 vec4 + bc (bias corrections, _adamBias())
+    this.adamData = new Float32Array(36);   // 8 vec4 + bc (bias corrections, _adamBias(); z,w = pinned position rows)
     const r = sceneRadius;
     // posLrScale: experiment knob — the reference implementations run their
     // position lr 20-60x LOWER relative to scene extent (median vs our P90,
@@ -1119,6 +1119,9 @@ export class GSTrainer {
       this._applyCamGrads();
     }
   }
+
+  /** Rows [from, to) keep their position through every Adam step (the seed's discs stay on the mesh). */
+  setFreezePos(from, to) { this.adamData[34] = from || 0; this.adamData[35] = to || 0; }
 
   /** Read the accumulated per-camera gradients and take one Adam step on
    *  every camera pose (R <- exp(dw)R, t += dt) plus the shared log-focal.
