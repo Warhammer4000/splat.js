@@ -1665,6 +1665,15 @@ async function startPrep() {
       flash(`${placed} of ${S.photos.length} images placed — the ones tagged in the strip never connected.`, 9000);
     }
 
+    // avatar mode: native-resolution windows of the person join the cameras
+    // before the seed (app/avatar/crops.js) — the person trains at full pixel
+    // density inside the room's run
+    if (S.avatar) {
+      const av = await import('../avatar/index.js');
+      await av.addPersonCrops(session, files, { log: (m) => console.log('[avatar]', m), progress: (d, t) => { S.prep = { stage: 'crops', done: d, total: t }; } });
+      if (S.gen !== gen) return;
+    }
+
     // 3) seed + trainer
     S.prep = { stage: 'seed', done: 0, total: 1 };
     await session.seed();

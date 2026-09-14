@@ -275,7 +275,7 @@ export async function run(ctx, manifest, hooks) {
 export async function review(ctx, manifest, hooks) {
   const st = manifest.stages.landmarks; const body = hooks.body?.(); if (!body) return true;
   const { session, frames } = ctx; const byName = new Map(frames.map((f) => [f.name, f]));
-  const cams = session.recon.cams; const picks = [0, cams.length >> 2, cams.length >> 1].map((i) => cams[i]);
+  const cams = session.recon.cams.filter((c) => !c.crop); const picks = [0, cams.length >> 2, cams.length >> 1].map((i) => cams[i]);
   const strip = document.createElement('div'); strip.className = 'av-overlay';
   for (const c of picks) {
     const fr = session.frames[c.imgIdx]; const entry = byName.get(fr.name); if (!entry) continue;

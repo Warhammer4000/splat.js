@@ -18,6 +18,7 @@ import { cutoutsCard } from './ui/cutouts.js';
 
 export { isAvatar, STAGES, STAGE_LABEL, nextStage } from './manifest.js';
 export { afterTraining } from './runner.js';
+export { addPersonCrops } from './crops.js';   // native windows of the person as extra cameras, between solve and seed
 
 export async function prepareCapture(frames, source, { card, flash = () => {}, log = (m) => console.log('[avatar]', m) }) {
   const meter = (title, sub) => {

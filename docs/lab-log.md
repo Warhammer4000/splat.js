@@ -120,6 +120,29 @@ exp(scale) per splat, needle ratio = longest / shortest axis).
   rebuilt from the capture files) verified, 56,160 of 119,567 splats, bind
   0 far. Still open: the viewer keeps showing the room after
   the run (the app's view stays on the first session); the loose hull cut.
+- **Person and head crops as extra cameras, from the start** (the user's
+  design: "we still train on the full scene, but add cropped images to train
+  with full res on the avatar"). `app/avatar/crops.js`, between solve and
+  seed: per picked frame the matte's box at native scale, split into tiles
+  of <= 1024 px (145 on Tom) plus a square head window of 0.3 x box height
+  around the matte's mass in the top rows (62, sampled x2); a crop camera is
+  the frame's pose with the principal point moved by the window origin, at
+  the crop's own feature scale. Two decoder traps: the app's buffer factor
+  (`trainScale` 0.67) and the per-set cap taken from the FIRST image (frame 1
+  has the person far away) both shrank the crops to 685 px — no trainScale,
+  largest window first. Tom 20k, one run, no face pass: face splats within
+  8 cm of the nose 1,554 -> 2,389 (visible 543 -> 699), median longest axis
+  6.2 -> 5.0 mm, person after the cut 79,726 -> 105,263; the close-ups are
+  visibly crisper (eyes, nose, lips) with no streaks (`scratch/crops_cmp.jpg`).
+  Not the doubling yet: the total splat count is fixed by the growth
+  schedule (367k in both runs, growth stops at 75 % of the horizon), the
+  crops only redirect it — a larger seed / growth rate for avatar runs is the
+  next knob. Peak memory: the crops decode as float copies next to the
+  frames (~0.6 GB on this clip); phones will need a stride.
+- The face pass as a continuation cannot do this: with its own growth window
+  it reached 2,387 face splats too, but three quarters of the growth went to
+  the room, and the shots got streaky (`scratch/facepass_pair2.jpg`). It
+  stays off; `?faceiters=N` keeps it for experiments.
 - Packages: `scratch/avatar_tom_final_package.zip` (20k, metric fit,
   correct binding), `scratch/avatar_tom3k_package.zip`,
   `scratch/avatar_lisa20k_b_package.zip`. Nothing uploaded; dev still wears

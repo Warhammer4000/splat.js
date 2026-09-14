@@ -89,7 +89,7 @@ export async function review(ctx, manifest, hooks) {
     const bmp = await createImageBitmap(entry.source); const c = new OffscreenCanvas(cam.side, cam.side); c.getContext('2d').drawImage(bmp, cam.x0, cam.y0, cam.side, cam.side, 0, 0, cam.side, cam.side); bmp.close();
     await draw(c, { ...cam }, 400 / cam.side, { x0: 0, y0: 0 });
   }
-  const bc = session.recon.cams[session.recon.cams.length >> 2]; const fr = session.frames[bc.imgIdx]; const entry = byName.get(fr.name);
+  const bodyCams = session.recon.cams.filter((c) => !c.crop); const bc = bodyCams[bodyCams.length >> 2]; const fr = session.frames[bc.imgIdx]; const entry = byName.get(fr.name);
   if (entry) { const bmp = await createImageBitmap(entry.source); const s = fr.fw / bmp.width; const c = new OffscreenCanvas(fr.fw, fr.fh); c.getContext('2d').drawImage(bmp, 0, 0, fr.fw, fr.fh); bmp.close(); await draw(c, bc, 400 / fr.fh, null); void s; }
   return new Promise((resolve) => {
     body.innerHTML = ''; body.appendChild(strip);
