@@ -768,8 +768,9 @@ async function localRunTiles() {
     // the capture, then the stats line
     const desc = r.status === 'finished'
       ? `Trained on this device from ${r.frames ? `${fmt(r.frames)} photos` : 'your photos'}` +
-        `${r.iter ? `, ${fmt(r.iter)} cycles` : ''}${r.minutes ? ` in ${r.minutes} min` : ''}. Never uploaded.`
+        `${r.iter ? `, ${fmt(r.iter)} cycles` : ''}${r.minutes ? ` in ${r.minutes} min` : ''}. ${r.spaceId ? 'Shared — anyone with the link can view it.' : 'Never uploaded.'}`
       : '';
+    if (r.spaceId) b.dataset.spaceId = r.spaceId;
     b.innerHTML = `
       <button class="run-menu" title="Options">⋯</button>
       <span class="galname">${esc(r.name || 'Training run')}</span>
@@ -799,7 +800,8 @@ async function localRunTiles() {
     tileMenu(b.querySelector('.run-menu'), [
       viewable && { label: 'View', act: r.sog ? openRun : () => viewFromState(r) },
       (r.sog || retrainable || (r.state && r.recon)) && { label: 'Train', act: () => { S._localRun = r; trainLocalChoice(); } },
-      r.sog && r.recon && { label: 'Share', act: () => shareDialog(r) },
+      r.spaceId && { label: 'Copy link', act: async () => { try { await navigator.clipboard.writeText(shareLinkOf(r.spaceId)); flash('Link copied.', 2500); } catch { flash(shareLinkOf(r.spaceId), 8000); } } },
+      r.sog && r.recon && !r.spaceId && { label: 'Share', act: () => shareDialog(r) },
       { label: 'Delete', danger: true, act: async () => { await deleteRun(r.id); b.remove(); } },
     ]);
     b.addEventListener('click', () => {
@@ -3346,6 +3348,12 @@ function shareDialog(rec = null, { downloadsOnly = false, link = false } = {}) {
         onStatus: (m) => flash(m, 120000),
         onProgress: (pct) => flash(`Uploading … ${pct}%`, 120000),
       });
+      // the run on this device is now that scene: same name, and it knows its space
+      try {
+        const runId = rec ? rec.id : S.runId;
+        if (runId) { const { patchRun } = await import('./store.js'); await patchRun(runId, { name: title, spaceId }); }
+        if (!rec && S.preset) S.preset.name = title;
+      } catch (e) { console.warn('run record not updated', e); }
       flash(`${title} is shared`, 300000, [
         { label: 'View link', href: link },
         { label: 'Enter the space ↗', href: spaceUrl, blank: true },
@@ -3675,8 +3683,9 @@ function saveWallState() {
 // there, the scroll is not — put the visitor back where they were
 window.addEventListener('pageshow', (e) => {
   if (!e.persisted || !document.getElementById('walltabs')) return;
-  const saved = wallState();
-  if (saved) selectWallTab(saved.tab, { restoreY: saved.y });
+  // the wall may be stale (a share made in the viewer, a run finished): rebuild
+  // it, then land where the visitor was
+  mountWall().catch(() => {});
 });
 /** Show one wall tab. scrollToTabs: bring the tab row to the top (a switch
  *  starts the new list from its top); restoreY: land where the visitor was. */
@@ -3718,7 +3727,8 @@ async function mountWall() {
     if (capTile) own.push(capTile);
     for (const t of runTiles) own.push(t);
     // the presets are benchmarks even for the account that owns them
-    for (const it of (myShares || [])) if (!presetIds.has(String(it.id))) own.push(creationTile(it, false));
+    const runSpaces = new Set(runTiles.map((t) => t.dataset && t.dataset.spaceId).filter(Boolean));
+    for (const it of (myShares || [])) if (!presetIds.has(String(it.id)) && !runSpaces.has(String(it.id))) own.push(creationTile(it, false));
     if ((!items || !items.length) && !own.length) return;
     const host = $('gallery');
     // own public shares stay in Community too — that is how everyone else sees the wall
