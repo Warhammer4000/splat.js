@@ -203,6 +203,24 @@ exp(scale) per splat, needle ratio = longest / shortest axis).
   blurred face) — a defect of shDeg 0 with the current avatar recipe, not a
   verdict on SH0; parked. The crown itself is a capture problem: a
   tilt-down segment in the orbit.
+- **Face-mesh seed** (the user's experiment: "we know it's a face, seed all
+  of them uniformly"). Standalone first (`scratch/face_seed.html`): the 478
+  triangulated face points + MediaPipe's tessellation (1,681 triangles),
+  20k flat splats sampled by area, normals from the triangles, colours from
+  the frontal crop, trained 8k iterations on the 33 face crops alone with
+  everything outside the projected face hull masked out (invalid sentinel)
+  — a clean single face in a minute, on par with the pipeline's face region
+  in front and side views, but a halo of stretched splats where the hull
+  let hair and background through, and worse from above (only a face shell
+  was seeded); `scratch/faceseed_cmp.jpg`. Then as a SEED in the main run
+  (`app/avatar/faceseed.js`, the samples join the sparse cloud before
+  session.seed; `?faceseed=0|N`): Tom 30k face splats within 10 cm of the
+  nose 5,827 -> 7,235, median longest axis 4.7 -> 4.0 mm, skin a touch
+  smoother in the close-ups, from above unchanged (`scratch/faceseed_main.jpg`).
+  Trap: the seed points went into the sparse cloud the isolate stage bounds
+  the hull with — 20k on the head shrank the box to the head (package 54k
+  instead of 128k); the isolate stage now drops `faceSeed` points first.
+  Default on.
 - Still open on Filip: the back island (frames 17-30) — landmark PnP bridge;
   and the unstabilised head windows (no face seen) on the room pose.
 - Packages: `scratch/avatar_tom_final_package.zip` (20k, metric fit,

@@ -1684,7 +1684,7 @@ async function startPrep() {
         const lm = await import('../avatar/stages/landmarks.js');
         const res = await lm.run({ session, frames: files }, S.avatar, { log: alog, progress: (d, t) => { S.prep = { stage: 'landmarks', done: d, total: t }; } });
         av.setStage(S.avatar, 'landmarks', { status: 'done', ...res, reviewPending: true });
-        faceCams = res.cropCams || null; S._facePoints = res.face && res.face.points || null; // the nose tip shifts under 1 cm over the orbit on BOTH clips, so head motion is not
+        S._lmRes = res; faceCams = res.cropCams || null; S._facePoints = res.face && res.face.points || null; // the nose tip shifts under 1 cm over the orbit on BOTH clips, so head motion is not
         // what separates them; what does is how well the room's poses agree on the person:
         // the pose landmarks' multi-view residual (nose) is 1.8 px on Tom, 3.2 px on Filip
         // (feature scale). Above 2.5 px the head windows take the face-PnP pose.
@@ -1694,6 +1694,12 @@ async function startPrep() {
       } catch (e) { alog(`landmarks before training failed: ${e.message || e} — after training instead`); }
       if (S.gen !== gen) return;
       await av.addPersonCrops(session, files, { log: alog, faceCams, facePoints: S._facePoints || null, headMoved: S._headMoved, progress: (d, t) => { S.prep = { stage: 'crops', done: d, total: t }; } });
+      if (S.gen !== gen) return;
+      // a dense seed on the face mesh (?faceseed=0 turns it off, =N sets the count)
+      const fsq = new URLSearchParams(location.search).get('faceseed');
+      if (fsq !== '0' && S._lmRes) {
+        try { const pts = await av.faceSeedPoints(session, files, S._lmRes, { count: fsq ? +fsq : 20000, log: alog }); if (pts.length) session.recon.points.push(...pts); } catch (e) { alog(`face seed failed: ${e.message || e}`); }
+      }
       if (S.gen !== gen) return;
     }
 

@@ -26,6 +26,9 @@ export async function run(ctx, manifest, hooks) {
   const raw = await src.exportRawState();
   // 1. bounds + hull from the mattes (session.maskPoints / _buildHull mutate
   //    recon.points — training is over, the seed is not needed again)
+  // the face-mesh seed points are not sparse-cloud evidence: with 20k of them on the
+  // head the hull's median-and-MAD bounds shrank to the head (2026-09-14)
+  src.recon.points = src.recon.points.filter((p) => !p.faceSeed);
   const before = src.recon.points.length;
   src.maskPoints(0.5);
   const hull = src._buildHull({});
