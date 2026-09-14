@@ -106,6 +106,16 @@ exp(scale) per splat, needle ratio = longest / shortest axis).
   now reproduces the app. Note for the record: the Git Bash shell rewrites a
   leading-slash argument into `C:/Program Files/Git/...` (MSYS path
   conversion) — pass paths without the slash or set MSYS_NO_PATHCONV=1.
+- **Step 1 built** (abc5d61 + 7e49ffd): avatar mode trains the room
+  (session `maskTraining: false`), the face pass runs on the room, a new
+  `cut` stage isolates the person with the hull splat test into a fresh
+  session, then body fit / bind / publish. Tom 20k+12k: 76,857 splats, bind
+  0 far. The face pass brought streaks back around the head (needle median
+  32): anisotropy regulariser 0.01 on the face session -> 2.8 with the same
+  sharpness in the close-ups (`scratch/facepass_cmp.jpg`); scale floor 1e-3
+  -> 7.7, streaks remain; no face pass -> 15 but softer. anisoReg 0.01 is now
+  the face-pass default. Still open: the viewer keeps showing the room after
+  the run (the app's view stays on the first session); the loose hull cut.
 - Packages: `scratch/avatar_tom_final_package.zip` (20k, metric fit,
   correct binding), `scratch/avatar_tom3k_package.zip`,
   `scratch/avatar_lisa20k_b_package.zip`. Nothing uploaded; dev still wears

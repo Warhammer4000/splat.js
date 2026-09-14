@@ -14,9 +14,11 @@ export const id = 'facepass';
 export const needs = ['landmarks'];
 const EXTRA_ITERS = +((typeof location !== 'undefined' && new URLSearchParams(location.search).get('faceiters')) || 12000);   // ?faceiters= for tests
 const CROP_WEIGHT = 3;
-// ?faceaniso= / ?faceminscale= (tests): the face pass on a room-trained model grew streaks
-// around the head (2026-09-14) — knobs for the anisotropy regulariser and the scale floor
-const FACE_TRAINER = (() => { const q = typeof location !== 'undefined' ? new URLSearchParams(location.search) : null; const o = {}; if (q && q.get('faceaniso')) o.anisoReg = +q.get('faceaniso'); if (q && q.get('faceminscale')) o.minScale = +q.get('faceminscale'); return o; })();
+// The face pass on a room-trained model grew streaks around the head (needle ratio
+// median 32); the anisotropy regulariser at 0.01 takes them out (2.8) and keeps the
+// sharpness — a scale floor of 1e-3 only halved them (7.7). Measured on Tom's clip,
+// 2026-09-14, close-ups from the same camera. ?faceaniso= / ?faceminscale= override.
+const FACE_TRAINER = (() => { const q = typeof location !== 'undefined' ? new URLSearchParams(location.search) : null; const o = { anisoReg: 0.01 }; if (q && q.get('faceaniso')) o.anisoReg = +q.get('faceaniso'); if (q && q.get('faceminscale')) o.minScale = +q.get('faceminscale'); return o; })();
 
 async function cutCrop(entry, cam) {
   const bmp = await createImageBitmap(entry.source);
