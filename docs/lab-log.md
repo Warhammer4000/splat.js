@@ -249,7 +249,14 @@ exp(scale) per splat, needle ratio = longest / shortest axis).
   softer (`scratch/headseed_cmp2.jpg`). Verdict: head density is set by the
   opacity pressure and the data's resolution (1.3 mm/px at orbit distance =
   1-2 px per splat at 50k), not by the seed. Off by default
-  (`?headseed=N[,protectIters]`). Lever left: opacityReg per region — with
+  (`?headseed=N[,protectIters]`). Iteration 0 rendered
+  (`scratch/seed_iter0.jpg`, `scratch/seed_view.html`): the 50k discs alone
+  are a complete, well-shaped head; in the real initial model they were
+  buried in the cloud seed's neighbour-sized blobs (fog). With the cloud
+  seed cleared inside the head sphere (1.3x the fitted head, 1,239 points)
+  the discs start alone — still pruned to the equilibrium (15,379 rows /
+  1,918 visible within 16 cm vs 13,313 / 1,845), views the same
+  (`scratch/headseed_cmp3.jpg`). Lever left: opacityReg per region — with
   the blur risk of keeping half-dead splats.
 - Still open on Filip: the back island (frames 17-30) — landmark PnP bridge;
   and the unstabilised head windows (no face seen) on the room pose.
