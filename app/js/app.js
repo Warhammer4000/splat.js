@@ -1675,7 +1675,19 @@ async function startPrep() {
     // density inside the room's run
     if (S.avatar) {
       const av = await import('../avatar/index.js');
-      await av.addPersonCrops(session, files, { log: (m) => console.log('[avatar]', m), progress: (d, t) => { S.prep = { stage: 'crops', done: d, total: t }; } });
+      const alog = (m) => console.log('[avatar]', m);
+      // the joints and the face need only the solve: run them now, so the head
+      // windows get the head-stabilised poses (the head moves against the room —
+      // Filip's orbit ghosted by ~2 cm); the joints card is reviewed after training
+      let faceCams = null;
+      try {
+        const lm = await import('../avatar/stages/landmarks.js');
+        const res = await lm.run({ session, frames: files }, S.avatar, { log: alog, progress: (d, t) => { S.prep = { stage: 'landmarks', done: d, total: t }; } });
+        av.setStage(S.avatar, 'landmarks', { status: 'done', ...res, reviewPending: true });
+        faceCams = res.cropCams || null;
+      } catch (e) { alog(`landmarks before training failed: ${e.message || e} — after training instead`); }
+      if (S.gen !== gen) return;
+      await av.addPersonCrops(session, files, { log: alog, faceCams, progress: (d, t) => { S.prep = { stage: 'crops', done: d, total: t }; } });
       if (S.gen !== gen) return;
     }
 

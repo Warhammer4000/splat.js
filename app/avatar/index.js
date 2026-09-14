@@ -16,7 +16,7 @@ import { newManifest, setStage } from './manifest.js';
 import { solveTierOpts } from '../../src/sfm/sfm.js';
 import { cutoutsCard } from './ui/cutouts.js';
 
-export { isAvatar, STAGES, STAGE_LABEL, nextStage } from './manifest.js';
+export { isAvatar, STAGES, STAGE_LABEL, nextStage, setStage } from './manifest.js';
 export { afterTraining } from './runner.js';
 export { addPersonCrops } from './crops.js';   // native windows of the person as extra cameras, between solve and seed
 
@@ -78,7 +78,7 @@ export function trainingOptions(manifest, { iters = 30000 } = {}) {
     // during training — Filip's front views ghost (the head moved between the far
     // start and the close-up end of the orbit); the target is per-window pose
     // freedom for the crops, this is the first check that the mechanism helps
-    trainer: { maxSplats: 600000, capMult: 8, ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('camopt') ? { camOpt: true } : {}) },
+    trainer: { maxSplats: 600000, capMult: 8, ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('camopt') ? { camOpt: true, ...(new URLSearchParams(location.search).get('camopt') === 'crop' ? { camOptOnly: 'crop' } : {}) } : {}) },
     iters,
   };
 }

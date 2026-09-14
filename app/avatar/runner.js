@@ -50,6 +50,14 @@ export async function afterTraining(ctx) {
     body: () => card.querySelector('#av-body'),
     log, flash,
   };
+  // stages that ran before training (landmarks, for the head windows) still get
+  // their look — the joints card — before the rest continues
+  for (const s0 of STAGES) {
+    const st = manifest.stages[s0]; if (!st || st.status !== 'done' || !st.reviewPending || ctx.cancelled) continue;
+    delete st.reviewPending;
+    let mod = null; try { mod = LOADERS[s0] ? await LOADERS[s0]() : null; } catch (e) { mod = null; }
+    if (mod && mod.review) { paint(); const ok = await mod.review(ctx, manifest, hooks); if (!ok) { setStage(manifest, s0, { status: 'rejected' }); paint('stopped here — adjust and run again'); return manifest; } paint(); }
+  }
   let s;
   while ((s = nextStage(manifest)) && !ctx.cancelled) {
     if (s === 'matte' || s === 'train') { setStage(manifest, s, { status: 'done' }); continue; }

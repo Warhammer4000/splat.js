@@ -160,6 +160,25 @@ exp(scale) per splat, needle ratio = longest / shortest axis).
   the orbit — per-window pose freedom for the crops is the fix to test
   (`?camopt=1` = the trainer's photometric pose optimisation on all
   cameras, the first check). `scratch/filip40_views.jpg`.
+- **Head-stabilised head windows** (the person as anchor, part 1). Filip's
+  nose triangulated from the start / middle / end of the orbit sits within
+  1.7-2.5 cm — enough to double the eyes at arm's length, and the trainer's
+  photometric pose optimisation on all cameras did nothing (every camera
+  also sees the room, which pins it). Person-only crops (pixels outside the
+  matte carry the invalid sentinel) neither helped nor hurt at 30k; free
+  crop cameras (`camOptOnly: 'crop'`, new trainer option) made the eyes
+  worse. What works: the landmarks stage now runs right after the solve and
+  its head-stabilised crop cameras (per-frame PnP on the 468-point face
+  triangulated from the frames) become the head windows — Filip's frontal
+  face goes from doubled to single (`scratch/filip_stab.jpg`, 29 of 43
+  head windows stabilised; the mouth still smears from the right, the
+  windows without a face keep the room pose); Tom neutral to slightly
+  better, face splats 4,711 -> 5,632 (`scratch/tom_stab.jpg`); the person
+  keeps far more splats after the cut (Filip 87k -> 133k, Tom 153k ->
+  225k). The joints card is reviewed after training (reviewPending). Knobs
+  kept for experiments: `?camopt=1|crop`, `?cropmask=0`.
+- Still open on Filip: the back island (frames 17-30) — landmark PnP bridge;
+  and the unstabilised head windows (no face seen) on the room pose.
 - Packages: `scratch/avatar_tom_final_package.zip` (20k, metric fit,
   correct binding), `scratch/avatar_tom3k_package.zip`,
   `scratch/avatar_lisa20k_b_package.zip`. Nothing uploaded; dev still wears

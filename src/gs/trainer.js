@@ -1159,9 +1159,14 @@ export class GSTrainer {
       // captures with real auto-exposure drift via opts.expComp.
       const expLr = 5e-3;
       const doExp = this.opts.expComp ?? false;
+      // opts.camOptOnly === 'crop': only crop cameras (cams flagged crop: true — a
+      // person's native windows, avatar mode) move; the frames that solved the room
+      // stay the anchor and the shared focal is left alone (2026-09-14)
+      const cropOnly = this.opts.camOptOnly === 'crop';
       for (let r = 1; full && r < this.camMeta.length; r++) { // cam 0 pinned (gauge + exposure anchor)
         if (r === this.holdout) continue;
         const meta = this.camMeta[r];
+        if (cropOnly && !meta.crop) continue;
         const dw = [-step(r, 0, rotLr), -step(r, 1, rotLr), -step(r, 2, rotLr)];
         meta.R = Array.from(m3mul(rodrigues(dw), meta.R));
         meta.t = [
@@ -1178,7 +1183,7 @@ export class GSTrainer {
         }
       }
       const nr = this.camMeta.length;
-      if (full) this.logfScale = Math.max(-0.3, Math.min(0.3, this.logfScale - step(nr, 0, focLr)));
+      if (full && !cropOnly) this.logfScale = Math.max(-0.3, Math.min(0.3, this.logfScale - step(nr, 0, focLr)));
       if (this.opts.aspectOpt ?? false) {
         // ±3 %: real non-square pixels are well under 1 %; more is error absorption
         this.logAspect = Math.max(-0.03, Math.min(0.03, this.logAspect - step(nr, 1, aspLr)));

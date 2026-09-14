@@ -58,8 +58,10 @@ async function cut(bmp, mask, win, name) {
 /** Append person tiles and head windows to a SOLVED session (between solve and seed).
  *  @param {import('../../src/session.js').Session} session
  *  @param {Array<{name:string, source?:Blob, mask?:Blob}|File>} files  the picked frames with their mattes */
-export async function addPersonCrops(session, files, { log = () => {}, headWeight = 2, tileMax = TILE_MAX, progress } = {}) {
+export async function addPersonCrops(session, files, { log = () => {}, headWeight = 2, tileMax = TILE_MAX, progress, faceCams = null } = {}) {
   const byName = new Map(files.map((f) => [f.name, f]));
+  // head-stabilised windows from the landmarks stage (pose by PnP on the face, not the room's SfM pose)
+  const faceByName = new Map((faceCams || []).map((c) => [c.name, c]));
   const entries = [], wins = [];
   const bodyCams = session.recon.cams.slice();
   for (let ci = 0; ci < bodyCams.length; ci++) {
@@ -82,10 +84,16 @@ export async function addPersonCrops(session, files, { log = () => {}, headWeigh
       if (win.w < 32 || win.h < 32) continue;
       entries.push(await cut(bmp, mask, win, `pcrop_${fr.name}_${k}`)); wins.push({ ci, win, weight: 1, W });
     }
-    // the head window
-    const side = Math.round(0.3 * bh);
-    const hw = clampWin(box.headX - side / 2, box.headY - side / 2, side, W, H);
-    if (hw.w >= 64) { entries.push(await cut(bmp, mask, hw, `hcrop_${fr.name}`)); wins.push({ ci, win: hw, weight: headWeight, W }); }
+    // the head window: the landmarks' head-stabilised crop when the face was seen, else around the matte's head
+    const fc = faceByName.get(fr.name);
+    if (fc) {
+      const hw = { x0: fc.x0, y0: fc.y0, w: fc.side, h: fc.side };
+      entries.push(await cut(bmp, mask, hw, `hcrop_${fr.name}`)); wins.push({ ci, win: hw, weight: headWeight, W, pose: fc });
+    } else {
+      const side = Math.round(0.3 * bh);
+      const hw = clampWin(box.headX - side / 2, box.headY - side / 2, side, W, H);
+      if (hw.w >= 64) { entries.push(await cut(bmp, mask, hw, `hcrop_${fr.name}`)); wins.push({ ci, win: hw, weight: headWeight, W }); }
+    }
     bmp.close();
     progress?.(ci + 1, bodyCams.length, `cutting the person windows · ${ci + 1} / ${bodyCams.length}`);
     await new Promise((r) => setTimeout(r, 0));
@@ -96,10 +104,25 @@ export async function addPersonCrops(session, files, { log = () => {}, headWeigh
   const order = entries.map((_, i) => i).sort((i, j) => Math.max(wins[j].win.w, wins[j].win.h) - Math.max(wins[i].win.w, wins[i].win.h));
   const sortedEntries = order.map((i) => entries[i]), sortedWins = order.map((i) => wins[i]);
   const frames = await decodeFrames(sortedEntries, { ...(session.opts.frames || {}), trainScale: undefined, trainMaxDim: tileMax, log });
+  // a crop trains on the person only: pixels outside the matte get the trainer's
+  // invalid sentinel (rgb -1, excluded from the loss — not the masked recipe's
+  // random background). The body frames keep the room; the crops then cannot be
+  // pinned to it, which is what per-window pose freedom needs (2026-09-14).
+  const personOnly = !(typeof location !== 'undefined' && new URLSearchParams(location.search).get('cropmask') === '0');   // ?cropmask=0: crops keep the room (experiment)
+  for (const fr of frames) {
+    if (!personOnly || !fr.alpha) continue;
+    for (let p = 0; p < fr.tw * fr.th; p++) if (fr.alpha[p] <= 48) fr.rgb[p * 3] = -1;
+  }
   const base = session.frames.length; session.frames.push(...frames);
   let added = 0;
   for (let i = 0; i < frames.length; i++) {
-    const { ci, win, weight, W } = sortedWins[i]; const c = bodyCams[ci]; const fr0 = session.frames[c.imgIdx]; const fr = frames[i];
+    const { ci, win, weight, W, pose } = sortedWins[i]; const c = bodyCams[ci]; const fr0 = session.frames[c.imgIdx]; const fr = frames[i];
+    if (pose) {   // head-stabilised: intrinsics already window-relative at native scale
+      const sH = fr.fw / win.w;
+      const camH = { R: pose.R, t: pose.t, imgIdx: base + i, f: pose.f * sH, fy: pose.fy * sH, cx: pose.cx * sH, cy: pose.cy * sH, crop: true, head: true };
+      for (let k = 0; k < weight; k++) { session.recon.cams.push(camH); added++; }
+      continue;
+    }
     // the base camera at its frame's native scale (fw is the feature-scale width), moved into the window, then to the crop's own feature scale
     const scaleN = W / fr0.fw;
     const fN = c.f * scaleN, fyN = (c.fy != null ? c.fy : c.f) * scaleN, cxN = (c.cx != null ? c.cx : fr0.fw / 2) * scaleN - win.x0, cyN = (c.cy != null ? c.cy : fr0.fh / 2) * scaleN - win.y0;
@@ -107,6 +130,6 @@ export async function addPersonCrops(session, files, { log = () => {}, headWeigh
     const cam = { R: c.R, t: c.t, imgIdx: base + i, f: fN * sC, fy: fyN * sC, cx: cxN * sC, cy: cyN * sC, crop: true };
     for (let k = 0; k < weight; k++) { session.recon.cams.push(cam); added++; }
   }
-  log(`crops: ${frames.length} native windows on ${bodyCams.length} frames (${wins.filter((w) => w.weight === 1).length} person tiles, ${wins.filter((w) => w.weight > 1).length} head windows x${headWeight}) — ${added} extra camera samples`);
+  log(`crops: ${frames.length} native windows on ${bodyCams.length} frames (${wins.filter((w) => w.weight === 1).length} person tiles, ${wins.filter((w) => w.weight > 1).length} head windows x${headWeight}, ${wins.filter((w) => w.pose).length} of them head-stabilised) — ${added} extra camera samples`);
   return frames.length;
 }
