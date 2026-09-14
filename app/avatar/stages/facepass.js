@@ -14,6 +14,9 @@ export const id = 'facepass';
 export const needs = ['landmarks'];
 const EXTRA_ITERS = +((typeof location !== 'undefined' && new URLSearchParams(location.search).get('faceiters')) || 12000);   // ?faceiters= for tests
 const CROP_WEIGHT = 3;
+// ?faceaniso= / ?faceminscale= (tests): the face pass on a room-trained model grew streaks
+// around the head (2026-09-14) — knobs for the anisotropy regulariser and the scale floor
+const FACE_TRAINER = (() => { const q = typeof location !== 'undefined' ? new URLSearchParams(location.search) : null; const o = {}; if (q && q.get('faceaniso')) o.anisoReg = +q.get('faceaniso'); if (q && q.get('faceminscale')) o.minScale = +q.get('faceminscale'); return o; })();
 
 async function cutCrop(entry, cam) {
   const bmp = await createImageBitmap(entry.source);
@@ -55,7 +58,7 @@ export async function run(ctx, manifest, hooks) {
     maxIters: iter0 + EXTRA_ITERS, evalSplit: 0, holdout: -1,
     maxViewW: session.opts?.maxViewW, maxViewH: session.opts?.maxViewH,
     frames: { trainMaxDim: 1600 },
-    trainer: { ...t0, maxSplats: Math.max(t0.maxSplats || 0, 1000000), capMult: 8, lrWarmup: 1000 },
+    trainer: { ...t0, maxSplats: Math.max(t0.maxSplats || 0, 1000000), capMult: 8, lrWarmup: 1000, ...FACE_TRAINER },
     ...(session.opts?.maskTraining === false ? { maskTraining: false } : {}),   // the room stays in the picture; the cut comes after
   });
   const bodyEntries = session.recon.cams.map((c) => byName.get(session.frames[c.imgIdx].name)).filter(Boolean);
