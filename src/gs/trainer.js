@@ -163,7 +163,7 @@ export class GSTrainer {
       // anisoReg default 0.005 (was 0.02): with SIFT-grade poses the needle
       // pathology is gone (camping p99 ratio 42:1) and the stronger pull
       // toward isotropy measurably blurs edges (-0.8dB holdout on train-84)
-      compute: { module: mk(makeChainSrc(this.opts.anisoReg ?? 0, this.shDeg, this.dcMode, this.opts.statMax ?? false, this.dilate, this.mipComp, false, this.camGrads), 'chain'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
+      compute: { module: mk(makeChainSrc(this.opts.anisoReg ?? 0, this.shDeg, this.dcMode, this.opts.statMax ?? false, this.dilate, this.mipComp, false, this.camGrads, this.opts.needleReg ?? 0, this.opts.needleRatio ?? 3), 'chain'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
     });
     this.pipeAdam = d.createComputePipeline({
       label: 'adam', layout: 'auto',
@@ -180,7 +180,7 @@ export class GSTrainer {
       this.pipeVisCount = cp('vis-count', VIS_COUNT_SRC);
       this.pipeVisScan = cp('vis-scan', VIS_SCAN_SRC);
       this.pipeVisScatter = cp('vis-scatter', VIS_SCATTER_SRC);
-      this.pipeChainC = cp('chain-compact', makeChainSrc(this.opts.anisoReg ?? 0, this.shDeg, this.dcMode, this.opts.statMax ?? false, this.dilate, this.mipComp, true, this.camGrads), { FIXED: this.gradFixed });
+      this.pipeChainC = cp('chain-compact', makeChainSrc(this.opts.anisoReg ?? 0, this.shDeg, this.dcMode, this.opts.statMax ?? false, this.dilate, this.mipComp, true, this.camGrads, this.opts.needleReg ?? 0, this.opts.needleRatio ?? 3), { FIXED: this.gradFixed });
       this.pipeAdamC = cp('adam-compact', makeAdamSrc('compact'));
       this.pipeAdamI = cp('adam-invisible', makeAdamSrc('invis'));
       if (this.shK) this.pipeSHAdamC = cp('sh-adam-compact', makeSHAdamSrc('compact'));

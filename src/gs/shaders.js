@@ -1063,8 +1063,10 @@ export const makeRenderSrc = (E, A, tileGrad, subgroups, mode, ssimW, ssaa, D, s
   return pvec ? projVec(s) : s;
 };
 
-export const makeChainSrc = (AREG = 0.02, shDeg = 0, dc = 'sigmoid', statMax = false, D = 0.3, C = true, compact = false, camGrad = true) => CAM_STRUCT + /* wgsl */ `
+export const makeChainSrc = (AREG = 0.02, shDeg = 0, dc = 'sigmoid', statMax = false, D = 0.3, C = true, compact = false, camGrad = true, NREG = 0, NRATIO = 3) => CAM_STRUCT + /* wgsl */ `
 const AREG = ${AREG.toExponential()};
+const NREG = ${NREG.toExponential()};
+const NLOGT = ${Math.log(NRATIO).toExponential()};
 const DILATE = ${D.toExponential()};
 const MIPCOMP = ${C ? 'true' : 'false'};
 ` + /* wgsl */ `
@@ -1261,9 +1263,24 @@ ${camGrad ? /* wgsl */ `
     clamp(params[b + 4u], -12.0, 6.0),
     clamp(params[b + 5u], -12.0, 6.0));
   let mls = (ls.x + ls.y + ls.z) / 3.0;
-  gradF[b + 3u] = dsv.x * g.s.x + AREG * (ls.x - mls);
-  gradF[b + 4u] = dsv.y * g.s.y + AREG * (ls.y - mls);
-  gradF[b + 5u] = dsv.z * g.s.z + AREG * (ls.z - mls);
+  // Needle regularizer (NREG > 0): a needle has ONE long axis — longest over
+  // middle beyond NRATIO — while a disc has two. Only the excess of the longest
+  // over the middle axis is pulled in (the longest down, the middle up), so
+  // flat discs are untouched and needles widen into discs. The anisotropy
+  // term above pulls every axis to the mean and made face discs round (2026-09-15).
+  var nr = vec3f(0.0);
+  if (NREG > 0.0) {
+    var imax = 0u; var vmax = ls.x; if (ls.y > vmax) { imax = 1u; vmax = ls.y; } if (ls.z > vmax) { imax = 2u; vmax = ls.z; }
+    var imin = 0u; var vmin = ls.x; if (ls.y < vmin) { imin = 1u; vmin = ls.y; } if (ls.z < vmin) { imin = 2u; vmin = ls.z; }
+    if (imin == imax) { imin = (imax + 1u) % 3u; }
+    let imid = 3u - imax - imin;
+    let vmid = select(select(ls.x, ls.y, imid == 1u), ls.z, imid == 2u);
+    let ex = max(0.0, vmax - vmid - NLOGT);
+    if (ex > 0.0) { nr[imax] = NREG * ex; nr[imid] = -NREG * ex; }
+  }
+  gradF[b + 3u] = dsv.x * g.s.x + AREG * (ls.x - mls) + nr.x;
+  gradF[b + 4u] = dsv.y * g.s.y + AREG * (ls.y - mls) + nr.y;
+  gradF[b + 5u] = dsv.z * g.s.z + AREG * (ls.z - mls) + nr.z;
 
   // dL/dR = dM * diag(s)
   let dR0 = dM0 * g.s;

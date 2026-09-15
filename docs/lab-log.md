@@ -4,6 +4,31 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-15f (a needle regulariser that leaves discs alone)
+
+The user: "at close up, every needle destroys the illusion". The old
+anisotropy term pulled all three log-scales to their mean and turned the
+face discs into round blobs (fp2). New `trainer.needleReg` (+ `needleRatio`,
+default 3) in the chain kernel: only the excess of the LONGEST axis over the
+MIDDLE one beyond the ratio is pulled in (longest down, middle up), so a
+disc (two long axes) is untouched and a needle widens into a disc. Avatar
+switch `?needle=W[,T]`. Tom 30k at opacity pressure 0.003, visible splats
+(opacity > 0.3), needle = longest/middle > 3 with middle/shortest < 2:
+
+| needle weight | face visible | face needles | face discs | body visible | body needles |
+|---|---|---|---|---|---|
+| 0 | 2,319 | 5.3 % | 32.9 % | 45,427 | 13.1 % |
+| 0.01 | 2,274 | 2.8 % | 34.2 % | 46,515 | 6.0 % |
+| 0.03 | 2,216 | 1.5 % | 33.3 % | 47,304 | 3.7 % |
+
+- The needle share falls 3.5x on the face and on the body while the disc
+  share and the visible count stay: the term does what it says and nothing
+  else. Sheet `scratch/needle_cmp1.jpg`: at eye level the three are close,
+  0.03 has the fewest fine streaks on the forehead from 30° above; the crown
+  from 60° is the same mess in all three (supervision, not shape).
+- Needles are not at zero; the next rung is weight 0.1 or ratio 2.5, and
+  the question whether the remaining 1.5 % still show in the user's close-up.
+
 ## 2026-09-15e (100k at the new default 0.004: sharper at eye level, the crown pays)
 
 Avatar default opacity pressure 0.004 (75b1abd). Tom 100k, corrected SH
