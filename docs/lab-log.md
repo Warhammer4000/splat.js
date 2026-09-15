@@ -28,6 +28,8 @@ hides it. Sets up to 120 images now search on every image (sfm.js).
   cameras and lower pixel error — is satisfied by a wrong wide focal on a
   person orbit. Next: verify a bracket winner with a full BA solve against
   the grid winner and keep the one that registers more frames.
+- The user on the 0.55x Tom (`scratch/ab_tom_g_pkg`): "the middle tom row
+  looks stunning" — the reference model of the day.
 
 ## 2026-09-15k (the feet were cut; the e2e's hidden face pass; Lisa's 4K cut)
 
