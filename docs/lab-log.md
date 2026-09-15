@@ -4,6 +4,31 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-15e (100k at the new default 0.004: sharper at eye level, the crown pays)
+
+Avatar default opacity pressure 0.004 (75b1abd). Tom 100k, corrected SH
+gradient; 7.5 min of training on the 5080 (30k: 95 s).
+
+| run | package | face rows / visible (10 cm) | median face opacity | face long axis | needles | body visible |
+|---|---|---|---|---|---|---|
+| 0.01, 30k (old default) | 119,504 | 6,198 / 1,107 | 0.14 | 6.7 mm | 4.2 % | 16,090 |
+| 0.003, 30k | 179,778 | 8,225 / 2,319 | 0.18 | 4.5 mm | 5.3 % | 45,427 |
+| 0.004, 100k | 164,680 | 8,317 / 1,560 | 0.15 | 5.0 mm | 2.1 % | 30,905 |
+
+- Eye level: the cleanest frontal and three-quarter face of the series,
+  crisp eyes, fewer needles (sheet `scratch/long_cmp1.jpg`).
+- From 30° above the forehead is rougher than at 30k and a grey patch sits
+  on the temple; from 60° above the crown is a coloured streak field, worse
+  than every 30k run; the hair from behind streaks. More iterations
+  extrapolate harder where nothing looks down (growth runs to 50k there).
+- The pressure accumulates with length: at 0.004 for 100k the visible face
+  count (1,560) sits below 0.003 for 30k (2,319). A per-iteration pull
+  toward transparency is a function of the horizon, not a constant —
+  candidate: apply it only during the growth phase (it exists to prune),
+  or scale it by 30k/horizon.
+- Open: the crown needs a view from above (capture guidance) or a rule for
+  the unsupervised region; the horizontal-SH decision is still the user's.
+
 ## 2026-09-15d (the opacity pressure IS the face-density lever)
 
 The face-only model had four times the visible face splats of the default
