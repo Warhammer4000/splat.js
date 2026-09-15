@@ -1080,6 +1080,40 @@ const MIPCOMP = ${C ? 'true' : 'false'};
 @group(0) @binding(5) var<storage, read_write> gradCam: array<atomic<i32>>;
 ${shDeg > 0 ? `@group(0) @binding(6) var<storage, read> sh: array<f32>;
 @group(0) @binding(7) var<storage, read_write> shGrad: array<f32>;` : ''}
+// the face-skin field (trainer opts.skinField; a 1-cell dummy with par.w = 0 when absent):
+// per cell 8 floats [signed distance, normal xyz, weight, pad x3] over a grid
+// origin/cell/dims; par = (wNorm, thickness, dref, on)
+struct SkinU { origin: vec4f, dims: vec4f, par: vec4f };
+@group(0) @binding(8) var<uniform> su: SkinU;
+@group(0) @binding(9) var<storage, read> skin: array<f32>;
+struct SkinS { d: f32, n: vec3f, w: f32 };
+fn skinCell(ix: i32, iy: i32, iz: i32) -> vec4f {
+  let dx = i32(su.dims.x); let dy = i32(su.dims.y); let dz = i32(su.dims.z);
+  if (ix < 0 || iy < 0 || iz < 0 || ix >= dx || iy >= dy || iz >= dz) { return vec4f(0.0); }
+  let o = u32((iz * dy + iy) * dx + ix) * 8u;
+  return vec4f(skin[o], skin[o + 4u], skin[o + 1u], skin[o + 2u]);   // d, w, nx, ny (nz below)
+}
+fn skinNz(ix: i32, iy: i32, iz: i32) -> f32 {
+  let dx = i32(su.dims.x); let dy = i32(su.dims.y); let dz = i32(su.dims.z);
+  if (ix < 0 || iy < 0 || iz < 0 || ix >= dx || iy >= dy || iz >= dz) { return 0.0; }
+  return skin[u32((iz * dy + iy) * dx + ix) * 8u + 3u];
+}
+fn skinSample(p: vec3f) -> SkinS {
+  var out: SkinS; out.d = 0.0; out.n = vec3f(0.0); out.w = 0.0;
+  let c = (p - su.origin.xyz) / su.origin.w - 0.5;
+  let f0 = floor(c); let fr = c - f0; let i0 = vec3i(f0);
+  var d = 0.0; var w = 0.0; var n = vec3f(0.0);
+  for (var k = 0; k < 8; k++) {
+    let ox = k & 1; let oy = (k >> 1) & 1; let oz = (k >> 2) & 1;
+    let wt = (select(1.0 - fr.x, fr.x, ox == 1)) * (select(1.0 - fr.y, fr.y, oy == 1)) * (select(1.0 - fr.z, fr.z, oz == 1));
+    let v = skinCell(i0.x + ox, i0.y + oy, i0.z + oz);
+    d += wt * v.x; w += wt * v.y; n += wt * vec3f(v.z, v.w, skinNz(i0.x + ox, i0.y + oy, i0.z + oz));
+  }
+  let nl = length(n);
+  if (nl < 1e-6 || w <= 0.0) { return out; }
+  out.d = d; out.n = n / nl; out.w = w;
+  return out;
+}
 
 fn camAdd(idx: u32, v: f32) {
   atomicAdd(&gradCam[idx], i32(clamp(v * FIXCAM, -1.0e9, 1.0e9)));
@@ -1301,6 +1335,31 @@ ${camGrad ? /* wgsl */ `
     let d = dot(n, vdir);
     let dn = -OREG * select(-1.0, 1.0, d >= 0.0) * vdir;   // d(1 - |d|)/dn
     dR0[imin] += dn.x; dR1[imin] += dn.y; dR2[imin] += dn.z;
+  }
+
+  // Skin term (su.par.w > 0.5): a splat inside the face-skin field pays for its
+  // signed distance to the skin (both sides) and for its extent along the skin
+  // normal beyond a thickness — the face trains as a skin, not a volume (the
+  // user's idea, 2026-09-15). Loss per splat, w the field's weight (0 off the
+  // face, fading at the mesh boundary): wPos w (d/dref)^2 + wNorm w (max(0, sigma_n - t)/dref)^2
+  // with sigma_n^2 = sum_k s_k^2 (n . r_k)^2, r_k the columns of R.
+  if (su.par.w > 0.5) {
+    let sk = skinSample(vec3f(params[b], params[b + 1u], params[b + 2u]));
+    if (sk.w > 0.0) {
+      let dref2 = su.par.z * su.par.z;
+      let gpos = (2.0 * su.dims.w * sk.w * sk.d / dref2) * sk.n;
+      gradF[b] += gpos.x; gradF[b + 1u] += gpos.y; gradF[b + 2u] += gpos.z;
+      let nr = vec3f(dot(sk.n, vec3f(g.r0.x, g.r1.x, g.r2.x)), dot(sk.n, vec3f(g.r0.y, g.r1.y, g.r2.y)), dot(sk.n, vec3f(g.r0.z, g.r1.z, g.r2.z)));
+      let s2 = g.s * g.s; let sig = sqrt(max(dot(s2, nr * nr), 1e-12));
+      let ex = max(0.0, sig - su.par.y);
+      if (ex > 0.0) {
+        let dL = 2.0 * su.par.x * sk.w * ex / dref2;
+        let gs = dL * s2 * nr * nr / sig;              // d sigma / d log s_k
+        gradF[b + 3u] += gs.x; gradF[b + 4u] += gs.y; gradF[b + 5u] += gs.z;
+        let gk = dL * s2 * nr / sig;                   // d sigma / d r_k = s_k^2 (n.r_k) n / sigma
+        dR0 += sk.n.x * gk; dR1 += sk.n.y * gk; dR2 += sk.n.z * gk;
+      }
+    }
   }
 
   // quaternion backward (normalized q = (w,x,y,z))

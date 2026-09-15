@@ -1732,6 +1732,19 @@ async function startPrep() {
       // frames keep their poses for the hull and the cut (with ?cropmask=0 the windows keep
       // the room around the person: rectangular, no mask)
       if (new URLSearchParams(location.search).get('cropsonly') === '1') { session.opts.lossCams = (c) => !!c.crop; alog('crops only: the room frames leave the training loss'); }
+      // ?skin=wPos,wNorm[,thickMm] (experiment, 2026-09-15, the user's idea): the face-skin
+      // field — splats near the face are pulled onto the triangulated face mesh and flattened
+      // along its normal (a skin, not a volume); hair and everything past the face oval untouched
+      const skinQ = new URLSearchParams(location.search).get('skin');
+      if (skinQ && S._lmRes) {
+        const [wPos, wNorm, thickMm] = skinQ.split(',').map(Number);
+        try {
+          const { buildFaceSkinField } = await import('../avatar/faceskin.js');
+          const field = await buildFaceSkinField(S._lmRes, session.recon.cams, { log: alog });
+          if (field) session.opts.trainer = { ...(session.opts.trainer || {}), skinField: field, skin: { wPos: wPos || 0, wNorm: wNorm || 0, thickMm: thickMm > 0 ? thickMm : 2 } };
+          alog(`skin term: position ${wPos || 0}, normal extent ${wNorm || 0}, thickness ${thickMm > 0 ? thickMm : 2} mm`);
+        } catch (e) { alog(`skin field failed: ${e.message || e}`); }
+      }
       // ?blob=R&blobface=1 (experiment, 2026-09-15): the blob clamp on the FACE only — blobs on
       // the skin (no edge-on lines in the close-up), discs everywhere else (clean oblique views)
       if (new URLSearchParams(location.search).get('blobface') === '1' && S._facePoints && S._facePoints.length > 50) {

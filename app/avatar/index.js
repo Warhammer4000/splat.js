@@ -99,7 +99,8 @@ export function trainingOptions(manifest, { iters = 30000, shHorizontal = false 
     // an orbit never looks down at a person, so the vertical colour variation was
     // unconstrained — blotches from above; the highlight still turns with the walk-around.
     // viewers and the client evaluate SH on the full direction, so 'on' needs the export refit to ship faithfully.
-    session: { evalSplit: 0, initTarget: 100000, sfm: solveTierOpts('precise'), maskTraining: false, shHorizontal: shHorizontal || (typeof location !== 'undefined' && new URLSearchParams(location.search).get('shup') === '1') },
+    // ?sfmall=1: the focal search on every image even above 120 frames (experiment, 2026-09-15)
+    session: { evalSplit: 0, initTarget: 100000, sfm: { ...solveTierOpts('precise'), ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('sfmall') === '1' ? { searchSubset: false } : {}) }, maskTraining: false, shHorizontal: shHorizontal || (typeof location !== 'undefined' && new URLSearchParams(location.search).get('shup') === '1') },
     // the 600k cap is hit at 30k+ with the person crops, but lifting it to 1M only
     // grew low-opacity splats the export prunes (package 108.9k either way; 2026-09-14)
     // ?camopt=1 (experiment, 2026-09-14): photometric pose refinement of every camera

@@ -361,7 +361,19 @@ export class GSTrainer {
     this.uniTrain = buf(160, B.UNIFORM | B.COPY_DST, 'uniTrain');
     this.uniView = buf(160, B.UNIFORM | B.COPY_DST, 'uniView');
     this.uniAdam = buf(144, B.UNIFORM | B.COPY_DST, 'uniAdam');
-    this.uniShape = buf(16, B.UNIFORM | B.COPY_DST, 'uniShape');   // shape clamp region (opts.blobRegion {centre, radius}; radius 0 = everywhere)
+    this.uniShape = buf(16, B.UNIFORM | B.COPY_DST, 'uniShape');
+    // the face-skin field (opts.skinField {origin, cell, dims, data, scale} + opts.skin {wPos, wNorm, thickMm}); a dummy when absent
+    this.uniSkin = buf(48, B.UNIFORM | B.COPY_DST, 'uniSkin');
+    {
+      const F = this.opts.skinField, K = this.opts.skin || {};
+      const on = F && F.data && F.data.length >= 8 && (K.wPos > 0 || K.wNorm > 0);
+      this.bufSkin = buf(on ? F.data.byteLength : 32, B.STORAGE | B.COPY_DST, 'bufSkin');
+      if (on) {
+        d.queue.writeBuffer(this.bufSkin, 0, F.data.buffer, F.data.byteOffset, F.data.byteLength);
+        const sc = F.scale || 1;
+        d.queue.writeBuffer(this.uniSkin, 0, new Float32Array([F.origin[0], F.origin[1], F.origin[2], F.cell, F.dims[0], F.dims[1], F.dims[2], K.wPos || 0, K.wNorm || 0, (K.thickMm ?? 2) / 1000 * sc, 0.01 * sc, 1]));
+      } else d.queue.writeBuffer(this.uniSkin, 0, new Float32Array(12));
+    }   // shape clamp region (opts.blobRegion {centre, radius}; radius 0 = everywhere)
 
     // phase-2 refine: 16 bytes/splat gathered for the CPU decision, a plan of
     // 32-byte ops back, executed GPU-side (no params/moments round trip).
@@ -563,6 +575,8 @@ export class GSTrainer {
           { binding: 6, resource: { buffer: this.bufSH } },
           { binding: 7, resource: { buffer: this.bufSHGrad } },
         ] : []),
+        { binding: 8, resource: { buffer: this.uniSkin } },
+        { binding: 9, resource: { buffer: this.bufSkin } },
       ],
     });
     this.bgAdam = d.createBindGroup({
@@ -640,6 +654,8 @@ export class GSTrainer {
           { binding: 4, resource: { buffer: this.bufGradF } },
           { binding: 5, resource: { buffer: this.bufCamGrad } },
           ...(this.shK ? [{ binding: 6, resource: { buffer: this.bufSH } }, { binding: 7, resource: { buffer: this.bufSHGrad } }] : []),
+          { binding: 8, resource: { buffer: this.uniSkin } },
+          { binding: 9, resource: { buffer: this.bufSkin } },
         ],
       });
       this.bgAdamC = bg(this.pipeAdamC, [this.uniAdam, this.bufParams, this.bufGradF, this.bufM, this.bufV, this.bufProj]);
