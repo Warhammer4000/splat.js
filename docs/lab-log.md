@@ -4,6 +4,36 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-16b (the skin term: works as a mechanism, no visual gain at 30k)
+
+The user's idea (09-15 night): pull face splats onto the face mesh and
+flatten them along its normal, hair untouched. Built as
+`app/avatar/faceskin.js` (a signed-distance field: 39x40x40 cells of 5.5 mm
+over 1,681 face triangles, weight fading at the face oval and beyond
+2.5 cm, 0.7 s) + a term in the chain kernel (`trainer.skinField`/`skin`,
+avatar `?skin=wPos,wNorm[,thickMm]`), derivatives checked numerically.
+Tom 30k on the default (pressure stop at 15k):
+
+| weight | package | face visible | needles | edge-on (frontal cam) | thinnest | longest |
+|---|---|---|---|---|---|---|
+| off | 175,035 | 2,700 | 3.0 % | 20.2 % | 0.12 mm | 4.2 mm |
+| 1 / 1 | 178,159 | 3,068 | 2.4 % | 20.9 % | 0.05 mm | 4.2 mm |
+| 10 / 10 | 175,062 | 4,058 | 1.7 % | 23.7 % | 0.04 mm | 4.0 mm |
+| 50 / 50 | 169,686 | 5,035 | 1.6 % | 25.6 % | 0.04 mm | 4.0 mm |
+
+- The term bites with weight: visible face nearly doubles at 50, needles
+  halve, splats thin out (the normal-extent penalty). But the views do not
+  improve (`scratch/skin2_views.jpg`, `_ears.jpg`): frontal and profile at
+  the default's level, from 30° above dark rings around the eyes at 10 and
+  50, from below blotchier at 50. The edge-on share measured against the
+  frontal camera RISES, which is expected of discs lying in the cheek's
+  skin (edge-on from the front by construction) — that metric cannot judge
+  skin alignment; a normal-vs-skin metric would need the field offline.
+- Verdict: stays off. The face-only disc model of 09-14 was smooth because
+  nothing else shared its splats; pulling the default's splats onto the
+  skin does not reproduce that. The idea survives as a tool for the long
+  run (untested at 100k) and for a future face-only stage.
+
 ## 2026-09-16 (Lisa at 100k; the avatar's solve options never reached the solver)
 
 Lisa, 100k + horizontal SH + needle off (the user's recipe, pressure stop
