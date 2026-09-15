@@ -279,7 +279,7 @@ body { overflow: hidden; }
 .prep-sub { font: 400 12px var(--mono); color: var(--dim); }
 .prep-meter { height: 5px; background: var(--panel-2); border-radius: var(--pill); overflow: hidden; margin-top: 9px; position: relative; }
 .prep-meter i { display: block; height: 100%; background: var(--accent); transition: width .12s linear; }
-.prep-cut { display: block; margin: 10px auto 2px; height: 150px; max-width: 100%; border-radius: 8px; background: var(--panel-2); opacity: 0; transition: opacity .3s; }
+.prep-cut { display: block; margin: 12px auto 2px; height: 320px; max-width: 100%; border-radius: 8px; background: var(--panel-2); opacity: 0; transition: opacity .3s; }
 .prep-cut.on { opacity: 1; }
 /* compositor-driven liveness sweep: transform/opacity animations keep
    running through main-thread JS bursts (BA, RANSAC), so the meter visibly
@@ -1046,7 +1046,12 @@ a.cbtn { text-decoration: none; }
 .vid-avatar { display: flex; align-items: center; gap: 8px; margin: 6px 0 2px; font: 500 13px var(--sans, system-ui); color: var(--paper); cursor: pointer; }
 .vid-avatar input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); }
 .vid-avatar small { color: var(--muted); font-weight: 400; }
-.av-strip { display: flex; gap: 6px; overflow-x: auto; padding: 8px 0 4px; }
+.av-strip { display: flex; gap: 6px; overflow-x: auto; padding: 8px 0 8px; scroll-snap-type: x proximity; cursor: grab; scrollbar-width: thin; touch-action: pan-x; user-select: none; }
+.av-strip:active { cursor: grabbing; }
+.av-strip canvas { flex: 0 0 auto; scroll-snap-align: start; border-radius: 4px; }
+.av-fine { margin: 6px 0 0; color: var(--dim); font-size: 13.5px; }
+.av-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+@media (max-width: 640px) { .av-actions .btn { flex: 1; } }
 .av-strip canvas { height: 160px !important; width: auto !important; border-radius: 6px; background: #fff; flex: none; }
 .av-stages { list-style: none; margin: 8px 0 4px; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 4px 10px; }
 .av-stages li { display: flex; justify-content: space-between; gap: 6px; font: 500 12px var(--sans, system-ui); color: var(--muted); padding: 4px 8px; border-radius: 6px; background: var(--panel-2); }

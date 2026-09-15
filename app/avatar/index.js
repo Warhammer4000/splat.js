@@ -27,7 +27,7 @@ export async function prepareCapture(frames, source, { card, flash = () => {}, l
     card.innerHTML = `
       <div class="vid-head"><b>${title}</b><span class="prep-sub" id="av-sub">${sub}</span></div>
       <div class="prep-meter"><i id="av-bar" style="width:0%"></i></div>
-      <canvas class="prep-cut" id="av-cut" width="300" height="300"></canvas>`;
+      <canvas class="prep-cut" id="av-cut" width="640" height="640"></canvas>`;
   };
   meter('Cutting the person out', 'loading the matting model …');
   // the frame just cut, shown while the matte runs (photo x matte over the panel colour);
@@ -38,7 +38,7 @@ export async function prepareCapture(frames, source, { card, flash = () => {}, l
     drawing = true;
     try {
       const [bmp, mask] = await Promise.all([createImageBitmap(f.source), createImageBitmap(f.mask)]);
-      const h = 300, w = Math.round((bmp.width / bmp.height) * h);
+      const h = 640, w = Math.round((bmp.width / bmp.height) * h);   // drawn at 2x, shown 320 px tall (the user: at least double, 2026-09-15)
       if (cv.width !== w) { cv.width = w; cv.style.width = `${w / 2}px`; }
       const tmp = new OffscreenCanvas(w, h); const t = tmp.getContext('2d');
       t.drawImage(bmp, 0, 0, w, h); t.globalCompositeOperation = 'destination-in';
