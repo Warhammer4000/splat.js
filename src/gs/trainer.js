@@ -1059,6 +1059,16 @@ export class GSTrainer {
       const f = Math.min(this.opts.opaRegRefMax ?? 1, this.opts.opaRegRefN / Math.max(1, this.n));
       this.adamData[24] = this.opaRegBase * f;
     }
+    // opts.opaRegUntil: the opacity pressure stops at this iteration (a fraction
+    // of the horizon when <= 1). The pressure exists to prune while the model
+    // grows; as a per-iteration pull it otherwise scales with the run length —
+    // an avatar at 100k kept half the visible face splats of the 30k run
+    // (2026-09-15e). After the cut-off the reg weight is 0.
+    if (this.opts.opaRegUntil != null) {
+      const until = this.opts.opaRegUntil <= 1 ? this.opts.opaRegUntil * this.horizon : this.opts.opaRegUntil;
+      if (this.iter >= until) this.adamData[24] = 0;
+      else if (!(this.opts.opaRegRefN > 0)) this.adamData[24] = this.opaRegBase;
+    }
     if (this.v2) { // log-scale 1e-2 -> 6e-3 exponential
       const sLr = 1e-2 * Math.pow(0.6, Math.min(1, this.iter / this.horizon));
       this.adamData[3] = this.adamData[4] = this.adamData[5] = sLr;

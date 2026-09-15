@@ -127,6 +127,8 @@ export function trainingOptions(manifest, { iters = 30000, shHorizontal = false 
       ...(typeof location !== 'undefined' && +new URLSearchParams(location.search).get('blob') > 1 ? { blobRatio: +new URLSearchParams(location.search).get('blob') } : {}),
       // ?camlr=N (experiment, 2026-09-15): multiplier on the pose learning rates of ?camopt
       ...(typeof location !== 'undefined' && +new URLSearchParams(location.search).get('camlr') > 0 ? { camLr: +new URLSearchParams(location.search).get('camlr') } : {}),
+      // ?opuntil=F (experiment, 2026-09-15): the opacity pressure stops at F x the run length
+      ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('opuntil') != null ? { opaRegUntil: +new URLSearchParams(location.search).get('opuntil') } : {}),
       // ?opreg=N (experiment, 2026-09-15): the opacity pressure (trainer default 0.01) — the visible face density lever
       ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('opreg') != null ? { opacityReg: +new URLSearchParams(location.search).get('opreg') } : {}) },
     iters,

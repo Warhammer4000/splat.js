@@ -4,6 +4,33 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-15p (the pressure stops at half the run: the long run keeps its face)
+
+The user: "produce more face splats, more sharpness" on his 100k +
+horizontal SH + needle-off recipe. New `trainer.opaRegUntil` (avatar
+`?opuntil=F`): the opacity pressure is 0 after F x the horizon — it exists to
+prune while the model grows, as a per-iteration pull it scaled with the
+run length (100k kept half the 30k's visible face).
+
+| run | package | face rows / visible | median face opacity | longest | body visible |
+|---|---|---|---|---|---|
+| default 30k | 192,906 | 6,858 / 1,383 | 0.15 | 5.5 mm | 32,323 |
+| 100k + hSH + needle off, pressure all the way | 201,181 | 8,328 / 926 | 0.13 | 7.8 mm | 23,489 |
+| same, pressure stops at 50k | 216,765 | 7,293 / **3,370** | 0.28 | 3.6 mm | 112,867 |
+| same, pressure stops at 30k | 141,828 | 4,369 / 2,455 | 0.34 | 4.6 mm | 91,055 |
+
+- Stop at 50k: 3.6x the visible face of the same run with the pressure on
+  throughout, splats half the size, skin texture and stubble readable in
+  the profile, from above calm (horizontal SH), from below detailed
+  (`scratch/opuntil_views.jpg`, `_ears.jpg`). A small bright artefact at
+  the mouth corner in the three-quarter view. The best long run of the
+  day.
+- Stop at 30k: fewer splats overall (141k, the growth phase interplays),
+  face 2,455, rougher from above and a ghost hint at the eye in the
+  three-quarter. 50k is the value.
+- Not the default yet: the 30k recipe with the pressure stopping at 15k is
+  being checked before the cut-off becomes the avatar default.
+
 ## 2026-09-15o (the redo ladder on the corrected solve)
 
 Seven Tom runs on the every-frame solve (all seven: first pass 0.78x with
