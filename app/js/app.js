@@ -1695,6 +1695,11 @@ async function startPrep() {
       if (S.gen !== gen) return;
       await av.addPersonCrops(session, files, { log: alog, faceCams, facePoints: S._facePoints || null, headMoved: S._headMoved, progress: (d, t) => { S.prep = { stage: 'crops', done: d, total: t }; } });
       if (S.gen !== gen) return;
+      // ?cropsonly=1 (experiment, 2026-09-15): registration in full, the loss on the person's
+      // native windows only — every iteration at native resolution on the person, the room
+      // frames keep their poses for the hull and the cut (with ?cropmask=0 the windows keep
+      // the room around the person: rectangular, no mask)
+      if (new URLSearchParams(location.search).get('cropsonly') === '1') { session.opts.lossCams = (c) => !!c.crop; alog('crops only: the room frames leave the training loss'); }
       // a dense seed on the face mesh, as ready-made flat Gaussians (?faceseed=1 or =N; off
       // by default: as points it came out worse — see app/avatar/faceseed.js)
       const fsq = new URLSearchParams(location.search).get('faceseed');

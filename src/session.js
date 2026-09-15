@@ -505,14 +505,24 @@ export class Session {
     // blur-aware training: the blurriest frames stay registered (their poses
     // hold the chain together) but are excluded from the loss so the model
     // doesn't learn their motion blur
+    // opts.lossCams(cam): which registered cameras carry the loss at all — the
+    // others keep their poses (hull, cut, landmarks) but never train. Avatar
+    // crops-only training (2026-09-15): the person's native windows train, the
+    // room frames do not.
+    const inLoss = typeof this.opts.lossCams === 'function' && this.recon && this.recon.cams
+      ? this.trainer.camMeta.map((m, i) => !!this.opts.lossCams(this.recon.cams[i], i)) : null;
     const sh = this.trainer.camMeta.map((m) => this.frames[m.imgIdx].sharpness);
-    const med = [...sh].sort((a, b) => a - b)[sh.length >> 1];
+    const shLoss = inLoss ? sh.filter((v, i) => inLoss[i]) : sh;
+    const med = [...shLoss].sort((a, b) => a - b)[shLoss.length >> 1];
     this.trainer.excluded = new Set();
+    let blurry = 0;
     this.trainer.camMeta.forEach((m, i) => {
-      if (sh[i] < med * 0.45) this.trainer.excluded.add(i);
+      if (inLoss && !inLoss[i]) { this.trainer.excluded.add(i); return; }
+      if (sh[i] < med * 0.45) { this.trainer.excluded.add(i); blurry++; }
     });
-    if (this.trainer.excluded.size) {
-      this._log(`excluding ${this.trainer.excluded.size} blurry cameras from the training loss ` +
+    if (inLoss) this._log(`training loss on ${inLoss.filter(Boolean).length} of ${inLoss.length} cameras (opts.lossCams; the rest keep their poses)`);
+    if (blurry) {
+      this._log(`excluding ${blurry} blurry cameras from the training loss ` +
         `(sharpness < 45% of median; poses kept)`);
     }
 

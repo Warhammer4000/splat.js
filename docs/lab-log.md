@@ -4,6 +4,35 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-15c (crops-only training: register in full, train on the person's windows)
+
+The user's proposal from the knob discussion: keep the registration on the
+full frames, put the loss only on the person crops (native rectangular
+windows, room inside them, no mask). `session.opts.lossCams(cam)` marks
+which registered cameras carry the loss (the rest keep their poses for the
+hull, the cut and the landmarks); `?cropsonly=1` sets it to the crop
+cameras. Tom 30k, corrected SH gradient in all three, one run each:
+
+| run | person after the cut | face rows / visible (10 cm) | face long axis | body visible |
+|---|---|---|---|---|
+| default (62 room frames + 269 crops) | 214,126 | 6,198 / 1,107 | 6.7 mm | 16,090 |
+| crops only, rectangular (`cropmask=0`) | 148,192 | 4,788 / 1,045 | 7.6 mm | 18,004 |
+| crops only, person pixels (sentinel) | 233,070 | 6,235 / 1,078 | 6.6 mm | 15,668 |
+
+- The visible face count does not move: 1,045–1,107 in all three. Three
+  times the visits on the head do not keep more splats alive; the visible
+  density is set by the opacity pressure and relocation, not by the
+  schedule. Sheet `scratch/cropsonly_cmp1.jpg`.
+- Rectangular crops: the room inside the windows takes 66k splats of the
+  person's budget; the face is smoother but softer (larger splats, less eye
+  detail), fewer streaks from 30° above, a dark patch under the jaw from
+  below, and the top of the head smears from 60° above (the windows are
+  cut from an eye-level orbit, nothing looks down).
+- Person-pixel crops: close to the default, slightly more streaks from
+  above.
+- The switch stays in (off by default) as the base for a later long-run
+  test; at 30k it is not a win.
+
 ## 2026-09-15b (the chin blob: a leaking position gradient in horizontal SH)
 
 The user traced a 1 cm grey blob under the chin through the screenshots of
