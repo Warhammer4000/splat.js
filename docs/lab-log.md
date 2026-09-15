@@ -4,6 +4,35 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-15o (the redo ladder on the corrected solve)
+
+Seven Tom runs on the every-frame solve (all seven: first pass 0.78x with
+48/65, retry, 0.55x with 65/65 — identical poses; decode 1583 px, crops
+capped at 240). Sheets `scratch/ladder_views.jpg` (5 views) and
+`scratch/ladder_ears.jpg` (profile + three-quarter).
+
+| rung | package | face visible (10 cm) | needles | edge-on | longest |
+|---|---|---|---|---|---|
+| default: pressure 0.004, needle 0.03, full SH, crops, 30k | 192,906 | 1,383 | 3.0 % | 20.6 % | 5.5 mm |
+| pressure 0.01 | 167,954 | 684 | 2.6 % | 20.2 % | 6.9 mm |
+| needle term off | 190,385 | 1,263 | 6.3 % | 23.8 % | 5.6 mm |
+| + face pass 1500 | 177,778 | 1,528 | 4.1 % | 23.1 % | 5.1 mm |
+| horizontal SH | 187,784 | 1,404 | 2.6 % | 31.6 % | 5.7 mm |
+| no person crops | 111,253 | 1,157 | 3.2 % | 23.5 % | 6.8 mm |
+| 100k | 212,271 | 885 | 0.9 % | 27.5 % | 5.9 mm |
+
+- With the poses right, every rung has a clean profile: the ghosting was
+  the focal, not any of these knobs. The differences are now small and
+  where they were before: pressure 0.01 halves the visible face; the
+  needle term halves the needles; the face pass softens the eyes; horizontal
+  SH keeps the skin calmer from 30°/60° above and from below (the user's
+  case for it) at a higher edge-on share; no crops is smooth at eye level
+  with 40 % fewer splats and a softer face; 100k is sharper frontal and
+  rougher from above (the crown), visible face down to 885 (the pressure
+  accumulates with the horizon, still open).
+- Nothing reopens; the default stands. Horizontal SH remains the user's
+  candidate and needs the export refit before it can be the default.
+
 ## 2026-09-15n (lens prior: logged, not trusted; thinning off; the 09-14 model identified)
 
 - **The lens as a focal**: accepted at 0.37x (62/65) and bent
