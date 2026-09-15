@@ -4,6 +4,35 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-15j (the default, decided — and the face-only clamp A/B on three people)
+
+Too many variants to choose from (the user). One recipe, one A/B. The
+avatar default is now: horizontal SH with the corrected gradient, opacity
+pressure 0.004, needle term 0.03; everything else off (blob clamp,
+orientation term, pose refinement, crops-only, face polish, seeds). The A/B:
+that default against the same plus a blob clamp (ratio 3) on the face only —
+the clamp pass takes a sphere (the landmarks' face points ×1.15, Tom 14 cm,
+Filip 12 cm) so blobs sit on the skin and discs stay elsewhere. 30k each.
+
+| person, run | face visible | needles | longest/shortest median (max) | edge-on to frontal cam | package |
+|---|---|---|---|---|---|
+| Tom, default | 1,873 | 1.7 % | 6.3 (138) | 22.9 % | 169,796 |
+| Tom, face clamp | 3,441 | 0.0 % | 2.4 (3) | 17.8 % | 178,444 |
+| Filip, default | 1,185 | 3.7 % | 5.1 (238) | 35.8 % | 87,981 |
+| Filip, face clamp | 1,524 | 0.1 % | 2.3 (8) | 27.9 % | 84,562 |
+
+- Tom (`scratch/ab_tom.jpg`): the default is the cleanest disc model of
+  the series; the face clamp removes the last eye-level lines and brings
+  the spots back from 30°/60° above and from below — the face is seen
+  obliquely too, so "face only" does not escape the trade.
+- Filip (`scratch/ab_filip.jpg`): the default is soft everywhere (the
+  orbit's island, a pose problem); the clamp breaks the mouth and spots
+  the skin. The user: Filip's default is better than the earlier runs.
+- Verdict (user agreed): the default stands, the face clamp stays an
+  experiment (`?blob=R&blobface=1`). Lisa's pair pending (her first pair
+  overflowed the 2 GB target binding: 934 crop windows from 206 4K frames;
+  fixed with a 320-window budget, 43a761f).
+
 ## 2026-09-15i (pose refinement, once more: the cameras move millimetres and the face blurs)
 
 The user's premise: needles and edge-on discs are how the optimiser
