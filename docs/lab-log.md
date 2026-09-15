@@ -28,8 +28,17 @@ range. Tom 30k at 0.003, one run:
   still. A blob has no direction to be right in; a disc has.
 - 348k of the 600k splats are the person (against 271k with discs): round
   volumes need more of them for the same surface.
-- Next rung: ratio 5 (queued) as the middle ground; a face-only clamp
-  (blobs on the skin, discs elsewhere) is the other option.
+- **Ratio 5** (same recipe): face visible 3,499, longest/shortest median
+  2.79 (max 5.00), longest 2.9 mm, shortest 1.08 mm, package 215,121.
+  Frontal and three-quarter: no lines, a touch sharper than ratio 3 (eyes,
+  brows). Off-axis the spots are the same as at ratio 3, from 30° above,
+  60° above and from below (`scratch/blob_cmp2.jpg`). The ratio between 3
+  and 5 does not buy the off-axis view back; the spots are the blob regime
+  itself (the look the disc/needle set replaced in August).
+- Verdict so far: discs give clean off-axis views and lines at eye level,
+  blobs give clean eye-level views and spots off-axis. A face-only clamp
+  would put the trade where the user looks closest; the crown is unsolved
+  in both.
 
 ## 2026-09-15g (the lines are edge-on discs, not needles)
 
