@@ -46,6 +46,7 @@ const INITIAL_ITERS = 20000;
 // without a larger cap (2026-09-14, docs/lab-log.md); the phone budget gets
 // measured against this later, not the other way round
 const AVATAR_ITERS = 30000;
+const AVATAR_MAX_FRAMES = 100;   // an orbit's frames beyond this thin evenly (see the video review hook)
 const MORE_ITERS = 10000;
 
 // ?perf runs a short instrumented benchmark (default 1000 iterations, or
@@ -337,6 +338,7 @@ function boot() {
     $('set-solve').value = st.solve === 'quick' ? 'quick' : 'standard';   // 'precise' (an alias) shows as Standard
     $('set-buf').value = String(st.buf);
     $('set-sh').value = String(st.sh);
+    $('set-shup').value = st.shup ? '1' : '0';
     $('set-iters').value = st.iters ? String(st.iters) : '';
     $('set-splats').value = st.splats ? String(st.splats) : '';
     $('set-q').value = qualityOf(st);
@@ -384,6 +386,7 @@ function boot() {
     st.solve = $('set-solve').value || 'standard';
     st.buf = parseFloat($('set-buf').value) || 1;
     st.sh = parseInt($('set-sh').value, 10);
+    st.shup = $('set-shup').value === '1';
     st.iters = parseInt($('set-iters').value, 10) || 0;
     st.splats = parseInt($('set-splats').value, 10) || 0;
     st.lod = !!$('set-lod').value && st.splats >= 1000000;
@@ -646,7 +649,7 @@ async function openCaptureSet(rec = null) {
   });
   // an avatar capture restores as an avatar run (the manifest names the stages done so far)
   S.avatar = rec.avatar && rec.avatar.kind === 'avatar' ? rec.avatar : null;
-  S.avatarOpts = S.avatar ? (await import('../avatar/index.js')).trainingOptions(S.avatar, { iters: S.settings.iters || AVATAR_ITERS }) : null;
+  S.avatarOpts = S.avatar ? (await import('../avatar/index.js')).trainingOptions(S.avatar, { iters: S.settings.iters || AVATAR_ITERS, shHorizontal: !!S.settings.shup }) : null;
   await sortByCapture(files);
   if (S.ownUrls) S.ownUrls.forEach(URL.revokeObjectURL);
   S.ownUrls = files.map((f) => URL.createObjectURL(f));
@@ -1104,6 +1107,16 @@ async function useOwnVideo(file) {
       },
       review: async (ctx) => {
         const r = await videoReview(card, ctx);
+        // an avatar orbit needs the person at resolution, not every frame: the decode
+        // budget (700 MB of targets) shrank 208 frames of 4K to 706 px, a third of a
+        // 1080p clip's per-frame detail (Lisa, 2026-09-15). Over AVATAR_MAX_FRAMES the
+        // picks thin evenly; the person's native windows carry the detail anyway.
+        if (r && r.avatar && r.picks.length > AVATAR_MAX_FRAMES) {
+          const n = r.picks.length; const keep = [];
+          for (let i = 0; i < AVATAR_MAX_FRAMES; i++) keep.push(r.picks[Math.round((i * (n - 1)) / (AVATAR_MAX_FRAMES - 1))]);
+          console.log(`[avatar] ${n} picked frames thinned to ${keep.length} for the avatar run`);
+          r.picks = keep;
+        }
         if (r) { avatarWanted = r.avatar; videoMeta = { videoW: ctx.videoW, videoH: ctx.videoH }; meter('Saving the frames', `0 / ${r.picks.length}`); }
         return r;
       },
@@ -1120,7 +1133,7 @@ async function useOwnVideo(file) {
     if (avatarWanted) {
       const av = await import('../avatar/index.js');
       const manifest = await av.prepareCapture(frames, { video: file.name, picks: frames.length, duration, ...videoMeta }, { card, flash });
-      if (manifest) { S.avatar = manifest; S.avatarOpts = av.trainingOptions(manifest, { iters: S.settings.iters || AVATAR_ITERS }); }
+      if (manifest) { S.avatar = manifest; S.avatarOpts = av.trainingOptions(manifest, { iters: S.settings.iters || AVATAR_ITERS, shHorizontal: !!S.settings.shup }); }
     }
     if (S.ownUrls) S.ownUrls.forEach(URL.revokeObjectURL);
     S.ownUrls = frames.map((f) => URL.createObjectURL(f.source));

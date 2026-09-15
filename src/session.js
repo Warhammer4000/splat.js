@@ -529,18 +529,24 @@ export class Session {
     const inLoss = typeof this.opts.lossCams === 'function' && this.recon && this.recon.cams
       ? this.trainer.camMeta.map((m, i) => !!this.opts.lossCams(this.recon.cams[i], i)) : null;
     const sh = this.trainer.camMeta.map((m) => this.frames[m.imgIdx].sharpness);
-    const shLoss = inLoss ? sh.filter((v, i) => inLoss[i]) : sh;
-    const med = [...shLoss].sort((a, b) => a - b)[shLoss.length >> 1];
+    // the blur median is taken per camera GROUP (the frames that solved the scene vs
+    // the avatar's crop windows, cams flagged crop): the groups decode at different
+    // scales and their sharpness is not comparable — one median over the mix threw
+    // out 87 of 519 cameras on a 4K orbit (2026-09-15), 1 of 208 without crops
+    const group = this.trainer.camMeta.map((m, i) => (this.recon && this.recon.cams && this.recon.cams[i] && this.recon.cams[i].crop) ? 1 : 0);
+    const medOf = (g) => { const v = sh.filter((x, i) => group[i] === g && (!inLoss || inLoss[i])).sort((a, b) => a - b); return v.length ? v[v.length >> 1] : 0; };
+    const med = [medOf(0), medOf(1)];
     this.trainer.excluded = new Set();
-    let blurry = 0;
+    const blurry = [0, 0];
     this.trainer.camMeta.forEach((m, i) => {
       if (inLoss && !inLoss[i]) { this.trainer.excluded.add(i); return; }
-      if (sh[i] < med * 0.45) { this.trainer.excluded.add(i); blurry++; }
+      if (sh[i] < med[group[i]] * 0.45) { this.trainer.excluded.add(i); blurry[group[i]]++; }
     });
     if (inLoss) this._log(`training loss on ${inLoss.filter(Boolean).length} of ${inLoss.length} cameras (opts.lossCams; the rest keep their poses)`);
-    if (blurry) {
-      this._log(`excluding ${blurry} blurry cameras from the training loss ` +
-        `(sharpness < 45% of median; poses kept)`);
+    if (blurry[0] + blurry[1]) {
+      const nCrop = group.filter((g) => g === 1).length;
+      this._log(`excluding ${blurry[0] + blurry[1]} blurry cameras from the training loss ` +
+        `(sharpness < 45% of the group median; poses kept)` + (nCrop ? ` — ${blurry[0]} of ${group.length - nCrop} frames, ${blurry[1]} of ${nCrop} crop windows` : ''));
     }
 
     // holdout: one sharp mid-sequence frame excluded from training and scored
