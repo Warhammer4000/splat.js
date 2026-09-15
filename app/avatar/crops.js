@@ -58,7 +58,7 @@ async function cut(bmp, mask, win, name) {
 /** Append person tiles and head windows to a SOLVED session (between solve and seed).
  *  @param {import('../../src/session.js').Session} session
  *  @param {Array<{name:string, source?:Blob, mask?:Blob}|File>} files  the picked frames with their mattes */
-export async function addPersonCrops(session, files, { log = () => {}, headWeight = 2, tileMax = TILE_MAX, progress, faceCams = null, facePoints = null, stabMinPx = 3, headMoved = null } = {}) {
+export async function addPersonCrops(session, files, { log = () => {}, headWeight = 2, tileMax = TILE_MAX, progress, faceCams = null, facePoints = null, stabMinPx = 3, headMoved = null, maxWindows = 320 } = {}) {
   const byName = new Map(files.map((f) => [f.name, f]));
   // head-stabilised windows from the landmarks stage (pose by PnP on the face, not the room's SfM pose)
   const faceByName = new Map((faceCams || []).map((c) => [c.name, c]));
@@ -119,6 +119,21 @@ export async function addPersonCrops(session, files, { log = () => {}, headWeigh
     await new Promise((r) => setTimeout(r, 0));
   }
   if (!entries.length) { log('crops: no mattes on the picked frames — none added'); return 0; }
+  // budget: the trainer's targets live in one GPU binding (2 GB); a 4K clip with 206
+  // frames made 934 windows (2.9 GB, 2026-09-15). Over maxWindows the head windows
+  // stay and the person tiles thin out to every k-th frame.
+  if (entries.length > maxWindows) {
+    const heads = wins.filter((w) => w.weight > 1).length; const tiles = entries.length - heads;
+    const k = Math.max(1, Math.ceil(tiles / Math.max(1, maxWindows - heads)));
+    const keep = []; const tileFrame = new Map();
+    for (let i = 0; i < entries.length; i++) {
+      if (wins[i].weight > 1) { keep.push(i); continue; }
+      if (!tileFrame.has(wins[i].ci)) tileFrame.set(wins[i].ci, tileFrame.size);
+      if (tileFrame.get(wins[i].ci) % k === 0) keep.push(i);
+    }
+    log(`crops: ${entries.length} windows over the budget of ${maxWindows} — person tiles kept on every ${k}${k === 2 ? 'nd' : k === 3 ? 'rd' : 'th'} frame (${keep.length} windows, all ${heads} head windows kept)`);
+    const e2 = keep.map((i) => entries[i]), w2 = keep.map((i) => wins[i]); entries.length = 0; wins.length = 0; entries.push(...e2); wins.push(...w2);
+  }
   // the decoder takes its per-set cap from the FIRST image: largest window first,
   // so nothing is shrunk; no trainScale (the app's buffer factor would shrink them too)
   const order = entries.map((_, i) => i).sort((i, j) => Math.max(wins[j].win.w, wins[j].win.h) - Math.max(wins[i].win.w, wins[i].win.h));
