@@ -4,6 +4,31 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-15l (the ghosting was the focal: search on every frame)
+
+The user, on every sheet of the day: "the view morphs into another face
+pose when I turn the camera — the cameras are not well matched". Traced:
+not the face pass, not solver randomness (every Tom solve ended BA at the
+same 0.811 px), not the pose optimiser (moves millimetres). The focal
+search ranked its candidates on a subsample — 33 of Tom's 65 frames — and
+chose 0.44x maxDim; searched on all 65 frames the bracket registers 65/65
+at 0.49–0.62x and the pixel median picks **0.55x**. With that solve the
+profiles are clean, the ear sits where it belongs and the face no longer
+morphs (`scratch/focal_cmp.jpg`, row 2). An orbit around a person has weak
+focal observability (the room is far, the person close), and a subsample
+hides it. Sets up to 120 images now search on every image (sfm.js).
+
+- Features at 1600 px (the user's persisted gear, probably): the poses are
+  precise where they register, but 48/65 frames registered and the front
+  of the orbit was extrapolated (row 3). 1280/1600 with the every-frame
+  search are running.
+- Lisa still fails: on her 100 thinned frames the bracket walks to 0.39x
+  (54→62 of 100 cameras registering, reproj 0.89→0.30 px) while 0.62–0.69x
+  is right (206/208 registered on the full set). The bracket's rule — more
+  cameras and lower pixel error — is satisfied by a wrong wide focal on a
+  person orbit. Next: verify a bracket winner with a full BA solve against
+  the grid winner and keep the one that registers more frames.
+
 ## 2026-09-15k (the feet were cut; the e2e's hidden face pass; Lisa's 4K cut)
 
 - **Feet cut off** (the user, from his localhost run: cut at the shins).

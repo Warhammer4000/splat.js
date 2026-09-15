@@ -1966,7 +1966,13 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
   // full registration; six candidates plus the edge bracket now cost less
   // than the old four). Rigs and small sets use every image.
   let searchSet = null;
-  if (opts.searchSubset !== false && !opts.rigs && n > 48) {
+  // Sets up to 120 images search on EVERY image (2026-09-15): an orbit thinned to
+  // 100 frames was searched on 34 (every 3rd = every 6th captured frame), and the
+  // bracket walked to 0.39x maxDim on 27/50 cameras — a wrong focal, scene radius
+  // 42 instead of 5.8, the person a ghost; the same clip searched on 104 images
+  // stopped at 0.69x. Above 120 the subsample stays (a 251-photo set is 5-25 s
+  // per candidate at full size).
+  if (opts.searchSubset !== false && !opts.rigs && n > 120) {
     const stride = Math.ceil(n / 48);
     searchSet = new Set();
     for (let i = 0; i < n; i += stride) searchSet.add(i);
