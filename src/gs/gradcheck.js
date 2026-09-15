@@ -194,8 +194,8 @@ export async function gradCheckSmall(opts = {}) {
  *  (a) the generic param check reruns (pos slots now include the dir term)
  *  and (b) sampled SH coeffs are FD-checked against bufSHGrad.
  *    (await import('./js/gs/gradcheck.js')).gradCheckSH(3) */
-export async function gradCheckSH(deg = 3, { samples = 60, tol = 0.05 } = {}) {
-  const { trainer, destroy } = await makeRig({ shDeg: deg });
+export async function gradCheckSH(deg = 3, { samples = 60, tol = 0.05, trainer: extra = {} } = {}) {
+  const { trainer, destroy } = await makeRig({ shDeg: deg, ...extra });   // extra.shUp: the horizontal-SH path
   try {
     const d = trainer.device;
     const K = trainer.shK;

@@ -4,6 +4,39 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-15b (the chin blob: a leaking position gradient in horizontal SH)
+
+The user traced a 1 cm grey blob under the chin through the screenshots of
+the last two days: every run with it trained horizontal-only SH, every clean
+run predates the switch (the logs agree: `grep 'SH on the horizontal'`
+over `scratch/avatar_tom_*_run.log`). Chin close-ups (`below:0:-25`,
+`belowR:-35:-20` in `scratch/render_views.mjs`) show the default with a grey
+smear under the chin where the pre-horizontal run has warm skin.
+
+- **Defect** (`src/gs/shaders.js`, SH backward): the forward evaluates the
+  SH on the view direction projected onto the horizontal plane; the backward
+  pushed the colour gradient into the splat position with the chain rule of
+  the UNPROJECTED direction, `(I - v v^T)/|u|`. The vertical part of the
+  gradient, which the projection should remove, leaked into the position
+  update: a colour-driven push along the up axis, strongest where the colour
+  changes fastest with the vertical view angle (the shadow under the chin,
+  the underside of the nose). Fixed with the full chain
+  `(I - u u^T)/|u| . (I - up up^T) . (I - v v^T)/|h|`; the finite-difference
+  check (`gradCheckSH` now takes `trainer: { shUp }`) passes for the full,
+  the vertical and the tilted up.
+- **Retrain** (Tom 30k, one run each): the blob under the chin is gone from
+  below and from the front; from above the run is at the level of the old
+  horizontal run (the reason horizontal SH exists). Face(10 cm) rows 6,198
+  with 1,107 visible, against 5,827 / 775 with the leaking gradient and
+  5,628 / 804 before horizontal SH.
+- **Viewer mismatch, small**: the coefficients assume the projected direction
+  but the app viewer and the client evaluate on the full direction.
+  `?shup=x,y,z` on a `?model=` view (and `--shup=auto` in render_views)
+  evaluates as trained; side by side the difference is a slightly different
+  skin tone from the front and nothing at the chin. An export refit of the
+  coefficients for full-direction viewers is the follow-up if horizontal SH
+  stays.
+
 ## 2026-09-15 (the face polish stage: the transplant works, the seam does not — opt-in, off)
 
 The user asked for "the discs again with the smoothed skin like before that

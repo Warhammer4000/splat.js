@@ -2444,11 +2444,16 @@ async function restoreSession(src) {
       });
       ses.useFrames(reconJson.frames.map((f) => ({ ...f, sampleColor: () => [0.5, 0.5, 0.5] })));
     }
+    // ?shup=x,y,z: the model was trained with horizontal-only SH about this up axis
+    // (avatar runs); the viewer evaluates its SH the same way, else the bands that
+    // depend on the vertical view angle show values they were never trained for
+    const shupQ = (new URLSearchParams(location.search).get('shup') || '').split(',').map(Number);
+    const shUp = shupQ.length === 3 && shupQ.every((v) => Number.isFinite(v)) ? shupQ : null;
     await ses.seedFrom(gaussians, {
       viewOnly: true,
       sceneRadius: reconJson ? reconJson.sceneRadius : undefined,
       iter,
-      trainer: { maxSplats: gaussians.n, capMult: 1 },
+      trainer: { maxSplats: gaussians.n, capMult: 1, ...(shUp ? { shUp } : {}) },
     });
     finishRestore(ses, reconJson, gaussians.n, !!state, gaussians);
   } catch (e) {

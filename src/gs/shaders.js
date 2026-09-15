@@ -1317,8 +1317,19 @@ ${shDeg > 0 ? /* wgsl */ `
       let w = dRGB.x * sh[sb + k] + dRGB.y * sh[sb + SHK + k] + dRGB.z * sh[sb + 2u * SHK + k];
       gv += w * D[k];
     }
-    // dL/dp through the view direction v = (p - cam)/|p - cam|
-    let shPos = (gv - v * dot(v, gv)) / ulen;
+    // dL/dp through the view direction: u = (p - cam)/|p - cam|, and with
+    // horizontal SH v = h/|h|, h = u - up (up . u). The chain is
+    // (I - u u^T)/|u| . (I - up up^T) . (I - v v^T)/|h| . gv — before 2026-09-15
+    // only the last factor was applied (with 1/|u|): the vertical part of gv
+    // leaked into the position gradient, a colour-driven push along up.
+    let u = un / ulen;
+    var g1 = gv - v * dot(v, gv);
+    if (cam.shup.w > 0.5) {
+      let hlen = max(length(u - cam.shup.xyz * dot(u, cam.shup.xyz)), 1e-6);
+      g1 = g1 / hlen;
+      g1 = g1 - cam.shup.xyz * dot(cam.shup.xyz, g1);
+    }
+    let shPos = (g1 - u * dot(u, g1)) / ulen;
     gradF[b]      += shPos.x;
     gradF[b + 1u] += shPos.y;
     gradF[b + 2u] += shPos.z;
