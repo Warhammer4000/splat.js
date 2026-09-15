@@ -25,8 +25,15 @@ at 50k), all 208 frames at 885 px, focal 0.69x (subsampled search, 206/208):
   settings tier AFTER spreading the avatar's session options, so the
   avatar's `precise` tier and the new `?sfmall=1` (every-image focal
   search above 120 frames) never reached the solver — her "sfmall" run was
-  a duplicate of the base. Fixed (the avatar's sfm merges over the tier);
-  her every-image search run is queued behind the skin-term runs.
+  a duplicate of the base. Fixed (the avatar's sfm merges over the tier).
+- **Every-image search on Lisa** (208 images, 6 candidates + bracket on all
+  of them): winner 0.78x against 0.69x subsampled, both 206/208 registered,
+  both BA rms 0.72 px, nose residual 3.41 vs 2.98 px; face visible 5,841
+  vs 5,377, edge-on 33 vs 34 %. Views (`scratch/lisa_sfmall.jpg`): the
+  cheek ghost line a little softer at 0.78x, 30° above a little rougher —
+  not decisive either way. Her clip has no lens metadata (an mp4 export);
+  without it the orbit's focal stays ambiguous between the two, unlike Tom
+  where 65/65 vs 62/65 registration separated 0.55x from the rest.
 
 ## 2026-09-15p (the pressure stops at half the run: the long run keeps its face)
 
