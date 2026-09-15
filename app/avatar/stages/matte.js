@@ -44,7 +44,7 @@ async function createSession(ort, log) {
 }
 
 /** @param {Array<{source: Blob, name: string}>} frames  capture order
- *  @param {{onProgress?: (done:number,total:number)=>void, log?: (m:string)=>void, signal?: AbortSignal}} o
+ *  @param {{onProgress?: (done:number,total:number,frame?:object)=>void, log?: (m:string)=>void, signal?: AbortSignal}} o
  *  @returns {Promise<{coverage: number, model: string}>}  and each frame gets .mask (PNG Blob) */
 export async function run(frames, o = {}) {
   const log = o.log || (() => {});
@@ -112,7 +112,7 @@ export async function run(frames, o = {}) {
     mctx.putImageData(img, 0, 0);
     f.mask = await mcv.convertToBlob({ type: 'image/png' });
     cover.push(hard / n);
-    onProgress(i + 1, frames.length);
+    onProgress(i + 1, frames.length, f);   // the frame just cut, for a live preview
   }
   try { sess.release?.(); } catch { /* fine */ }
   cover.sort((a, b) => a - b);

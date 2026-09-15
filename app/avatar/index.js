@@ -26,9 +26,30 @@ export async function prepareCapture(frames, source, { card, flash = () => {}, l
   const meter = (title, sub) => {
     card.innerHTML = `
       <div class="vid-head"><b>${title}</b><span class="prep-sub" id="av-sub">${sub}</span></div>
-      <div class="prep-meter"><i id="av-bar" style="width:0%"></i></div>`;
+      <div class="prep-meter"><i id="av-bar" style="width:0%"></i></div>
+      <canvas class="prep-cut" id="av-cut" width="300" height="300"></canvas>`;
   };
   meter('Cutting the person out', 'loading the matting model …');
+  // the frame just cut, shown while the matte runs (photo x matte over the panel colour);
+  // one draw at a time — a slow decode never queues behind the next frame
+  let drawing = false;
+  const showCut = async (f) => {
+    const cv = card.querySelector('#av-cut'); if (!cv || drawing || !f || !f.mask) return;
+    drawing = true;
+    try {
+      const [bmp, mask] = await Promise.all([createImageBitmap(f.source), createImageBitmap(f.mask)]);
+      const h = 300, w = Math.round((bmp.width / bmp.height) * h);
+      if (cv.width !== w) { cv.width = w; cv.style.width = `${w / 2}px`; }
+      const tmp = new OffscreenCanvas(w, h); const t = tmp.getContext('2d');
+      t.drawImage(bmp, 0, 0, w, h); t.globalCompositeOperation = 'destination-in';
+      const m = new OffscreenCanvas(w, h); const mg = m.getContext('2d'); mg.drawImage(mask, 0, 0, w, h);
+      const md = mg.getImageData(0, 0, w, h); const ad = mg.createImageData(w, h);
+      for (let p = 0; p < w * h; p++) ad.data[p * 4 + 3] = md.data[p * 4];
+      mg.putImageData(ad, 0, 0); t.drawImage(m, 0, 0);
+      const g = cv.getContext('2d'); g.clearRect(0, 0, w, h); g.drawImage(tmp, 0, 0);
+      bmp.close(); mask.close(); cv.classList.add('on');
+    } catch (e) { /* preview only */ } finally { drawing = false; }
+  };
   const manifest = newManifest(source);
   setStage(manifest, 'matte', { status: 'running' });
   let res;
@@ -36,10 +57,11 @@ export async function prepareCapture(frames, source, { card, flash = () => {}, l
     const { run } = await import('./stages/matte.js');
     res = await run(frames, {
       log,
-      onProgress: (d, t) => {
+      onProgress: (d, t, f) => {
         const bar = card.querySelector('#av-bar'), sub = card.querySelector('#av-sub');
         if (bar) bar.style.width = `${(d / t) * 100}%`;
         if (sub) sub.textContent = `${d} / ${t} frames`;
+        showCut(f);
       },
     });
   } catch (e) {

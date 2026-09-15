@@ -279,6 +279,8 @@ body { overflow: hidden; }
 .prep-sub { font: 400 12px var(--mono); color: var(--dim); }
 .prep-meter { height: 5px; background: var(--panel-2); border-radius: var(--pill); overflow: hidden; margin-top: 9px; position: relative; }
 .prep-meter i { display: block; height: 100%; background: var(--accent); transition: width .12s linear; }
+.prep-cut { display: block; margin: 10px auto 2px; height: 150px; max-width: 100%; border-radius: 8px; background: var(--panel-2); opacity: 0; transition: opacity .3s; }
+.prep-cut.on { opacity: 1; }
 /* compositor-driven liveness sweep: transform/opacity animations keep
    running through main-thread JS bursts (BA, RANSAC), so the meter visibly
    works even when progress numbers pause */
