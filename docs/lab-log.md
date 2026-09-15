@@ -4,6 +4,30 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-16 (Lisa at 100k; the avatar's solve options never reached the solver)
+
+Lisa, 100k + horizontal SH + needle off (the user's recipe, pressure stop
+at 50k), all 208 frames at 885 px, focal 0.69x (subsampled search, 206/208):
+
+| run | package | face rows / visible | median face opacity | needles | edge-on | longest |
+|---|---|---|---|---|---|---|
+| 30k default, full SH | 129,139 | 11,472 / 1,255 | 0.07 | 10.2 % | 29.4 % | 6.4 mm |
+| 100k + hSH + needle off | 152,727 | 11,380 / **5,377** | 0.28 | 4.2 % | 34.1 % | 3.9 mm |
+| same, no crops | 96,619 | 4,022 / 2,214 | 0.33 | 2.0 % | 42.5 % | 6.1 mm |
+
+- The long run with the pressure stop is her sharpest model (4x the visible
+  face of the 30k, `scratch/lisa_100k.jpg` row 3): eyes and skin readable,
+  a few cheek blotches and a red mark at the mouth, a ghost line on the
+  cheek in the right view — her poses again (no lens data, nose residual
+  3.0 px). Without crops she falls apart (row 4, doubled features): on a 4K
+  clip the crops are what registers the face to the training.
+- **Plumbing bug found**: `createSession` in app.js set `sfm:` from the
+  settings tier AFTER spreading the avatar's session options, so the
+  avatar's `precise` tier and the new `?sfmall=1` (every-image focal
+  search above 120 frames) never reached the solver — her "sfmall" run was
+  a duplicate of the base. Fixed (the avatar's sfm merges over the tier);
+  her every-image search run is queued behind the skin-term runs.
+
 ## 2026-09-15p (the pressure stops at half the run: the long run keeps its face)
 
 The user: "produce more face splats, more sharpness" on his 100k +

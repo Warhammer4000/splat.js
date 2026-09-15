@@ -1619,7 +1619,7 @@ async function startPrep() {
         // solve (10s+ frozen UI on phones). Training is untouched: measured
         // fine on-device, and fenceRing/gpuChunkMs (library opts) would tax
         // throughput for nothing.
-        sfm: { ...solveTierOpts(st.solve || 'quick'), workers: 3, uiYield: true },
+        sfm: { ...solveTierOpts(st.solve || 'quick'), workers: 3, uiYield: true, ...(S.avatarOpts && S.avatarOpts.session && S.avatarOpts.session.sfm || {}) },
       } : {
         // desktop solver default since 2026-09-04: 8000 SIFT features from the
         // upsampled first octave (COLMAP's default). Feature localisation is
@@ -1634,7 +1634,8 @@ async function startPrep() {
         // Since 2026-09-09 that is the 'precise' solve tier (High / Showcase);
         // Standard takes the 8000 budget at the base octave, Draft the lean
         // 3900 / octave-0 solve — see SOLVE_TIERS in the library.
-        sfm: solveTierOpts(st.solve || 'standard'),
+        // the avatar's solve options win over the settings tier (they were overridden here until 2026-09-16: the precise tier and ?sfmall never reached the solver)
+        sfm: { ...solveTierOpts(st.solve || 'standard'), ...(S.avatarOpts && S.avatarOpts.session && S.avatarOpts.session.sfm || {}) },
       }),
       // phones solve at the desktop feature resolution again: 720 was part
       // of the OOM firefight, but the real culprit was the UI bitmap cache —
