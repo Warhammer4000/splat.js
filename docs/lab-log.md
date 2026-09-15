@@ -28,8 +28,12 @@ run length (100k kept half the 30k's visible face).
 - Stop at 30k: fewer splats overall (141k, the growth phase interplays),
   face 2,455, rougher from above and a ghost hint at the eye in the
   three-quarter. 50k is the value.
-- Not the default yet: the 30k recipe with the pressure stopping at 15k is
-  being checked before the cut-off becomes the avatar default.
+- **30k check** (default recipe, pressure stops at 15k): visible face
+  1,383 -> 2,700, median face opacity 0.15 -> 0.36, longest 5.5 -> 4.2 mm,
+  body visible 32k -> 112k, package 175k. Frontal and right sharper; from
+  above and below at the default's level (`scratch/opuntil30k_views.jpg`).
+  **The cut-off at half the run is the avatar default now** (opaRegUntil
+  0.5, commit below).
 
 ## 2026-09-15o (the redo ladder on the corrected solve)
 

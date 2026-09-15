@@ -112,7 +112,10 @@ export function trainingOptions(manifest, { iters = 30000, shHorizontal = false 
     // face splats doubled at smaller sizes, at 0 the skin went waxy (Tom 30k, 2026-09-15d)
     // needle term 0.03 (2026-09-15f): needles 5.3 % -> 1.5 % on the face, discs and the
     // visible count untouched — the one shape term with no measured cost
-    trainer: { maxSplats: 600000, capMult: 8, opacityReg: 0.004, needleReg: 0.03, ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('avsh') != null ? { shDeg: +new URLSearchParams(location.search).get('avsh') } : {}), ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('camopt') ? { camOpt: true, ...(new URLSearchParams(location.search).get('camopt') === 'crop' ? { camOptOnly: 'crop' } : {}) } : {}),
+    // the opacity pressure stops at half the run (2026-09-15p): it prunes while the model
+    // grows, as a per-iteration pull it scaled with the run length — 30k: visible face
+    // 1,383 -> 2,700; 100k: 926 -> 3,370, half-size splats, readable skin
+    trainer: { maxSplats: 600000, capMult: 8, opacityReg: 0.004, opaRegUntil: 0.5, needleReg: 0.03, ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('avsh') != null ? { shDeg: +new URLSearchParams(location.search).get('avsh') } : {}), ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('camopt') ? { camOpt: true, ...(new URLSearchParams(location.search).get('camopt') === 'crop' ? { camOptOnly: 'crop' } : {}) } : {}),
       // ?needle=W[,T] (experiment, 2026-09-15): the needle regularizer — the longest axis over
       // the middle one beyond ratio T (default 3) is pulled in; discs stay ("every needle
       // destroys the illusion in a close-up")
