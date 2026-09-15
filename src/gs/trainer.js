@@ -3,7 +3,7 @@
 import {
   STRIDE, TILE, ENTRIES_CAP, makeProjectSrc, makeRenderSrc, makeChainSrc,
   SCAN_SRC, SCATTER_SRC, SORT_SRC, ADAM_SRC, SH_ADAM_SRC, BLIT_SRC, shRestCoefs,
-  VIS_COUNT_SRC, VIS_SCAN_SRC, VIS_SCATTER_SRC, makeAdamSrc, makeSHAdamSrc,
+  VIS_COUNT_SRC, VIS_SCAN_SRC, VIS_SCATTER_SRC, makeAdamSrc, makeSHAdamSrc, makeShapeClampSrc,
   GATHER_SRC, REFINE_APPLY_SRC, REFINE_PATCH_SRC, SSIM_SRC, makeSsaaLossSrc,
 } from './shaders.js';
 import { rodrigues, m3mul, makeRng } from '../sfm/geometry.js';
@@ -163,8 +163,10 @@ export class GSTrainer {
       // anisoReg default 0.005 (was 0.02): with SIFT-grade poses the needle
       // pathology is gone (camping p99 ratio 42:1) and the stronger pull
       // toward isotropy measurably blurs edges (-0.8dB holdout on train-84)
-      compute: { module: mk(makeChainSrc(this.opts.anisoReg ?? 0, this.shDeg, this.dcMode, this.opts.statMax ?? false, this.dilate, this.mipComp, false, this.camGrads, this.opts.needleReg ?? 0, this.opts.needleRatio ?? 3), 'chain'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
+      compute: { module: mk(makeChainSrc(this.opts.anisoReg ?? 0, this.shDeg, this.dcMode, this.opts.statMax ?? false, this.dilate, this.mipComp, false, this.camGrads, this.opts.needleReg ?? 0, this.opts.needleRatio ?? 3, this.opts.orientReg ?? 0), 'chain'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
     });
+    // opts.blobRatio: a hard bound on every splat's longest/shortest axis, applied after each Adam step
+    this.pipeShape = this.opts.blobRatio > 1 ? d.createComputePipeline({ label: 'shape-clamp', layout: 'auto', compute: { module: mk(makeShapeClampSrc(this.opts.blobRatio), 'shape-clamp'), entryPoint: 'main' } }) : null;
     this.pipeAdam = d.createComputePipeline({
       label: 'adam', layout: 'auto',
       compute: { module: mk(ADAM_SRC, 'adam'), entryPoint: 'main' },
@@ -180,7 +182,7 @@ export class GSTrainer {
       this.pipeVisCount = cp('vis-count', VIS_COUNT_SRC);
       this.pipeVisScan = cp('vis-scan', VIS_SCAN_SRC);
       this.pipeVisScatter = cp('vis-scatter', VIS_SCATTER_SRC);
-      this.pipeChainC = cp('chain-compact', makeChainSrc(this.opts.anisoReg ?? 0, this.shDeg, this.dcMode, this.opts.statMax ?? false, this.dilate, this.mipComp, true, this.camGrads, this.opts.needleReg ?? 0, this.opts.needleRatio ?? 3), { FIXED: this.gradFixed });
+      this.pipeChainC = cp('chain-compact', makeChainSrc(this.opts.anisoReg ?? 0, this.shDeg, this.dcMode, this.opts.statMax ?? false, this.dilate, this.mipComp, true, this.camGrads, this.opts.needleReg ?? 0, this.opts.needleRatio ?? 3, this.opts.orientReg ?? 0), { FIXED: this.gradFixed });
       this.pipeAdamC = cp('adam-compact', makeAdamSrc('compact'));
       this.pipeAdamI = cp('adam-invisible', makeAdamSrc('invis'));
       if (this.shK) this.pipeSHAdamC = cp('sh-adam-compact', makeSHAdamSrc('compact'));
@@ -572,6 +574,7 @@ export class GSTrainer {
         { binding: 4, resource: { buffer: this.bufV } },
       ],
     });
+    if (this.pipeShape) this.bgShape = d.createBindGroup({ layout: this.pipeShape.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: this.uniAdam } }, { binding: 1, resource: { buffer: this.bufParams } }] });
     this.bgGather = d.createBindGroup({
       layout: this.pipeGather.getBindGroupLayout(0),
       entries: [
@@ -1087,6 +1090,7 @@ export class GSTrainer {
       run(this.pipeAdamC, this.bgAdamC); p.dispatchWorkgroupsIndirect(this.bufVisDisp, 16);
       run(this.pipeAdamI, this.bgAdamI); dispatch1D(p, this.n * 8); // 8 lanes per splat (slots 0-5, 13)
       if (this.shK) { run(this.pipeSHAdamC, this.bgSHAdamC); p.dispatchWorkgroupsIndirect(this.bufVisDisp, 32); }
+      if (this.pipeShape && this.bgShape) { run(this.pipeShape, this.bgShape); dispatch1D(p, this.n); }
     } else {
       p.setPipeline(this.pipeChain);
       p.setBindGroup(0, this.bgChain);
@@ -1099,6 +1103,7 @@ export class GSTrainer {
         p.setBindGroup(0, this.bgSHAdam);
         dispatch1D(p, this.n * this.shK * 3);
       }
+      if (this.pipeShape && this.bgShape) { p.setPipeline(this.pipeShape); p.setBindGroup(0, this.bgShape); dispatch1D(p, this.n); }
     }
     p.end();
     d.queue.submit([enc.finish()]);

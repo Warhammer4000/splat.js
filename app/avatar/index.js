@@ -93,6 +93,14 @@ export function trainingOptions(manifest, { iters = 30000 } = {}) {
       // the middle one beyond ratio T (default 3) is pulled in; discs stay ("every needle
       // destroys the illusion in a close-up")
       ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('needle') ? (() => { const [w, t] = new URLSearchParams(location.search).get('needle').split(',').map(Number); return { needleReg: w, ...(t > 1 ? { needleRatio: t } : {}) }; })() : {}),
+      // ?orient=W (experiment, 2026-09-15): the orientation regularizer — discs turn to face
+      // the cameras that see them (a disc seen edge-on draws a line; a quarter of Tom's
+      // visible face splats were edge-on to the frontal camera)
+      ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('orient') ? { orientReg: +new URLSearchParams(location.search).get('orient') } : {}),
+      // ?blob=R (experiment, 2026-09-15): only train blobs — a hard clamp after every Adam step
+      // keeps each splat's longest axis within R x its shortest (the user's rule: no needles, no
+      // edge-on discs, a near-round volume never draws a line)
+      ...(typeof location !== 'undefined' && +new URLSearchParams(location.search).get('blob') > 1 ? { blobRatio: +new URLSearchParams(location.search).get('blob') } : {}),
       // ?opreg=N (experiment, 2026-09-15): the opacity pressure (trainer default 0.01) — the visible face density lever
       ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('opreg') != null ? { opacityReg: +new URLSearchParams(location.search).get('opreg') } : {}) },
     iters,

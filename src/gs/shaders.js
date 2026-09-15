@@ -1063,8 +1063,9 @@ export const makeRenderSrc = (E, A, tileGrad, subgroups, mode, ssimW, ssaa, D, s
   return pvec ? projVec(s) : s;
 };
 
-export const makeChainSrc = (AREG = 0.02, shDeg = 0, dc = 'sigmoid', statMax = false, D = 0.3, C = true, compact = false, camGrad = true, NREG = 0, NRATIO = 3) => CAM_STRUCT + /* wgsl */ `
+export const makeChainSrc = (AREG = 0.02, shDeg = 0, dc = 'sigmoid', statMax = false, D = 0.3, C = true, compact = false, camGrad = true, NREG = 0, NRATIO = 3, OREG = 0) => CAM_STRUCT + /* wgsl */ `
 const AREG = ${AREG.toExponential()};
+const OREG = ${OREG.toExponential()};
 const NREG = ${NREG.toExponential()};
 const NLOGT = ${Math.log(NRATIO).toExponential()};
 const DILATE = ${D.toExponential()};
@@ -1283,9 +1284,24 @@ ${camGrad ? /* wgsl */ `
   gradF[b + 5u] = dsv.z * g.s.z + AREG * (ls.z - mls) + nr.z;
 
   // dL/dR = dM * diag(s)
-  let dR0 = dM0 * g.s;
-  let dR1 = dM1 * g.s;
-  let dR2 = dM2 * g.s;
+  var dR0 = dM0 * g.s;
+  var dR1 = dM1 * g.s;
+  var dR2 = dM2 * g.s;
+  // Orientation regularizer (OREG > 0): a disc seen edge-on draws a line. The
+  // shortest axis is the disc's normal n (column imin of R); the penalty
+  // OREG * (1 - |n . v|) with v the view direction turns the disc toward the
+  // cameras that see it — over an orbit that is the surface normal. On Tom's
+  // face a quarter of the visible splats were edge-on to the frontal camera and
+  // removing them cleared the lines (2026-09-15).
+  if (OREG > 0.0) {
+    var imin = 0u; var vmin = ls.x; if (ls.y < vmin) { imin = 1u; vmin = ls.y; } if (ls.z < vmin) { imin = 2u; vmin = ls.z; }
+    let un = vec3f(params[b], params[b + 1u], params[b + 2u]) - camPosWorld();
+    let vdir = un / max(length(un), 1e-9);
+    let n = vec3f(g.r0[imin], g.r1[imin], g.r2[imin]);
+    let d = dot(n, vdir);
+    let dn = -OREG * select(-1.0, 1.0, d >= 0.0) * vdir;   // d(1 - |d|)/dn
+    dR0[imin] += dn.x; dR1[imin] += dn.y; dR2[imin] += dn.z;
+  }
 
   // quaternion backward (normalized q = (w,x,y,z))
   let qw = g.q.x; let qx = g.q.y; let qy = g.q.z; let qz = g.q.w;
@@ -1449,6 +1465,31 @@ fn main(@builtin(global_invocation_id) gid: vec3u,
 }
 `;
 
+// Shape clamp (trainer opts.blobRatio): after every Adam step the longest
+// log-scale of a splat is held within log(ratio) of its shortest — "only train
+// blobs" (the user, 2026-09-15: a disc seen edge-on draws a line, a needle
+// always does; a near-round volume never does). Both ends move toward each
+// other by half the excess so the geometric mean size is kept; the middle
+// axis is clamped into the new range. Same uniform as Adam (cl.w = n*16).
+export const makeShapeClampSrc = (ratio = 3) => /* wgsl */ `
+struct AdamU { lr0: vec4f, lr1: vec4f, lr2: vec4f, lr3: vec4f, hp: vec4f, cl: vec4f, reg: vec4f, flg: vec4f, bc: vec4f };
+@group(0) @binding(0) var<uniform> au: AdamU;
+@group(0) @binding(1) var<storage, read_write> params: array<f32>;
+const LOGR = ${Math.log(ratio).toExponential()};
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nw: vec3u) {
+  let i = gid.x + gid.y * nw.x * 256u;
+  if (i * 16u >= u32(au.cl.w)) { return; }
+  let b = i * 16u;
+  var l = vec3f(params[b + 3u], params[b + 4u], params[b + 5u]);
+  let lmax = max(l.x, max(l.y, l.z)); let lmin = min(l.x, min(l.y, l.z));
+  let ex = lmax - lmin - LOGR;
+  if (ex <= 0.0) { return; }
+  let hi = lmax - 0.5 * ex; let lo = lmin + 0.5 * ex;
+  l = clamp(l, vec3f(lo), vec3f(hi));
+  params[b + 3u] = l.x; params[b + 4u] = l.y; params[b + 5u] = l.z;
+}
+`;
 export const ADAM_SRC = /* wgsl */ `
 struct AdamU {
   lr0: vec4f,   // lr slots 0..3   (pos xyz, logScale x)

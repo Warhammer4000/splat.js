@@ -4,6 +4,36 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-15g (the lines are edge-on discs, not needles)
+
+The user, on the needle-regularised model: "so the many lines I still see
+are discs". Measured on the visible face splats (opacity > 0.3, 12 cm) of
+the 0.003 + needle 0.03 run: 24 % have their disc normal more than 75° off
+the frontal camera's view direction — a disc seen edge-on draws a line the
+width of its thinnest axis (median 0.74 mm). Test by removal
+(`scratch/edgeon_cmp1.jpg`): with those 2,463 splats taken out the lines on
+the face are gone and the face stays intact; a crude cull by the head's
+radial normal (5,276 splats) breaks the face, so the radial is not a usable
+normal there.
+
+- Shape regularisers cannot fix this: the needle term does its job (needles
+  5.3 → 1.5 %) and the lines stay. The cure is orientation. New
+  `trainer.orientReg` in the chain kernel: penalty `w (1 - |n . v|)`, n the
+  shortest axis (the disc normal), v the view direction of the camera being
+  trained — the gradient goes through the existing dR → quaternion chain.
+  Over an orbit that turns discs toward the surface normal. Avatar
+  `?orient=W`; runs at 0.01 and 0.03 on top of 0.003 + needle 0.03 queued.
+- The cull itself is view-dependent and no export fix.
+- **Orientation runs** (Tom 30k, 0.003 + needle 0.03): edge-on share of the
+  visible face splats to the frontal camera 22.6 % → 17.6 % (0.01) → 15.0 %
+  (0.03), median angle between disc normal and view 55° → 45° → 33°. The
+  term turns the discs, but the lines in the frontal close-up barely change
+  (`scratch/orient_cmp1.jpg`), and 0.03 is rougher from 30° above (a grey
+  patch on the temple) and messier at the crown. Not a cure at these
+  weights: what still draws lines is the 15 % that stay edge-on, and the
+  data gradient defends them. The hard blob clamp (`?blob=3`) is the next
+  test.
+
 ## 2026-09-15f (a needle regulariser that leaves discs alone)
 
 The user: "at close up, every needle destroys the illusion". The old
