@@ -85,7 +85,10 @@ export function trainingOptions(manifest, { iters = 30000 } = {}) {
     // start and the close-up end of the orbit); the target is per-window pose
     // freedom for the crops, this is the first check that the mechanism helps
     // ?avsh=N (experiment): the avatar run's SH degree (the app's ?sh= is not a URL switch)
-    trainer: { maxSplats: 600000, capMult: 8, ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('avsh') != null ? { shDeg: +new URLSearchParams(location.search).get('avsh') } : {}), ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('camopt') ? { camOpt: true, ...(new URLSearchParams(location.search).get('camopt') === 'crop' ? { camOptOnly: 'crop' } : {}) } : {}),
+    // opacity pressure 0.004 for a person (trainer default 0.01): the pressure dims what
+    // the loss does not defend, and on an avatar that is the face — at 0.003 the visible
+    // face splats doubled at smaller sizes, at 0 the skin went waxy (Tom 30k, 2026-09-15d)
+    trainer: { maxSplats: 600000, capMult: 8, opacityReg: 0.004, ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('avsh') != null ? { shDeg: +new URLSearchParams(location.search).get('avsh') } : {}), ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('camopt') ? { camOpt: true, ...(new URLSearchParams(location.search).get('camopt') === 'crop' ? { camOptOnly: 'crop' } : {}) } : {}),
       // ?opreg=N (experiment, 2026-09-15): the opacity pressure (trainer default 0.01) — the visible face density lever
       ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('opreg') != null ? { opacityReg: +new URLSearchParams(location.search).get('opreg') } : {}) },
     iters,
