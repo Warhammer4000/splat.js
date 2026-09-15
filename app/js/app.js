@@ -46,7 +46,7 @@ const INITIAL_ITERS = 20000;
 // without a larger cap (2026-09-14, docs/lab-log.md); the phone budget gets
 // measured against this later, not the other way round
 const AVATAR_ITERS = 30000;
-const AVATAR_MAX_FRAMES = 100;   // an orbit's frames beyond this thin evenly (see the video review hook)
+const AVATAR_MAX_FRAMES = 0;     // frame thinning is OFF (0): thinning 208 -> 100 broke Lisa's chain and 208 -> 200 broke her landmark stage (2026-09-15); ?avframes=N thins for experiments
 const MORE_ITERS = 10000;
 
 // ?perf runs a short instrumented benchmark (default 1000 iterations, or
@@ -1111,9 +1111,10 @@ async function useOwnVideo(file) {
         // budget (700 MB of targets) shrank 208 frames of 4K to 706 px, a third of a
         // 1080p clip's per-frame detail (Lisa, 2026-09-15). Over AVATAR_MAX_FRAMES the
         // picks thin evenly; the person's native windows carry the detail anyway.
-        if (r && r.avatar && r.picks.length > AVATAR_MAX_FRAMES) {
+        const maxFrames = +(new URLSearchParams(location.search).get('avframes') || 0) || AVATAR_MAX_FRAMES;   // ?avframes=N thins (experiments)
+        if (r && r.avatar && maxFrames > 1 && r.picks.length > maxFrames) {
           const n = r.picks.length; const keep = [];
-          for (let i = 0; i < AVATAR_MAX_FRAMES; i++) keep.push(r.picks[Math.round((i * (n - 1)) / (AVATAR_MAX_FRAMES - 1))]);
+          for (let i = 0; i < maxFrames; i++) keep.push(r.picks[Math.round((i * (n - 1)) / (maxFrames - 1))]);
           console.log(`[avatar] ${n} picked frames thinned to ${keep.length} for the avatar run`);
           r.picks = keep;
         }
@@ -1129,6 +1130,19 @@ async function useOwnVideo(file) {
     // ask whether that is the subject — before anything expensive runs. A
     // "no" continues as a plain scene; the masks ride on the frame entries
     // and the session takes them as its per-file mask input.
+    // the container's lens data (iPhone MOV: lens model, 35 mm-equivalent focal): every
+    // frame carries it as its EXIF, so the solver starts from a focal prior instead of
+    // its search — an orbit around a person has weak focal observability (Tom's clip
+    // solved to 0.44x, 0.55x and 0.78x maxDim at three feature resolutions, 2026-09-15)
+    try {
+      const { readVideoMeta } = await import('../../src/io/qtmeta.js');
+      const vm = await readVideoMeta(file);
+      if (vm.focal35) {
+        for (const f of frames) f.exif = { f35: vm.focal35, lens: vm.lensModel, video: true };
+        videoMeta.focal35 = vm.focal35; videoMeta.lens = vm.lensModel;
+        console.log(`[video] lens: ${vm.lensModel || '?'} · ${vm.focal35} mm (35 mm-equivalent) · f/${vm.fNumber || '?'} — focal prior for the solve`);
+      }
+    } catch (e) { console.log('[video] lens metadata: ' + (e.message || e)); }
     S.avatar = null; S.avatarOpts = null;
     if (avatarWanted) {
       const av = await import('../avatar/index.js');
@@ -1626,7 +1640,10 @@ async function startPrep() {
       // of the OOM firefight, but the real culprit was the UI bitmap cache —
       // and feature res is the measured pose-precision ceiling
       // phone default 960 — an explicit Solve-resolution choice still wins
-      frames: phoneClass ? { featMaxDim: 960, ...(frames || {}) } : frames,
+      // avatar runs on a desktop take a larger target budget (700 MB -> 1.1 GB, with the
+      // crop windows capped at 240 the trainer stays under its 2 GB binding): a 4K
+      // orbit's 208 frames decoded at 706 px under the default budget (2026-09-15)
+      frames: phoneClass ? { featMaxDim: 960, ...(frames || {}) } : (S.avatarOpts ? { targetBudgetBytes: 1.1e9, ...(frames || {}) } : frames),
       trainer: Object.keys(trainerOpts).length ? trainerOpts : undefined,
     });
     S.session = session;
@@ -1706,7 +1723,9 @@ async function startPrep() {
         alog(`head windows: ${S._headMoved ? 'face-PnP poses' : 'room poses'} (nose residual ${noseErr} px, head shift ${res.headShiftCm} cm)`);
       } catch (e) { alog(`landmarks before training failed: ${e.message || e} — after training instead`); }
       if (S.gen !== gen) return;
-      await av.addPersonCrops(session, files, { log: alog, faceCams, facePoints: S._facePoints || null, headMoved: S._headMoved, progress: (d, t) => { S.prep = { stage: 'crops', done: d, total: t }; } });
+      // ?crops=0 (experiment, 2026-09-15): no person windows — the user's 09-14 model without them held up against today's
+      if (new URLSearchParams(location.search).get('crops') === '0') alog('person crops: off (?crops=0)');
+      else await av.addPersonCrops(session, files, { log: alog, faceCams, facePoints: S._facePoints || null, headMoved: S._headMoved, progress: (d, t) => { S.prep = { stage: 'crops', done: d, total: t }; } });
       if (S.gen !== gen) return;
       // ?cropsonly=1 (experiment, 2026-09-15): registration in full, the loss on the person's
       // native windows only — every iteration at native resolution on the person, the room

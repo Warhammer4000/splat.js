@@ -42,14 +42,43 @@ const clampWin = (x, y, s, W, H) => {
   return { x0: cx, y0: cy, w: side, h: side };
 };
 
-async function cut(bmp, mask, win, name) {
-  const cv = new OffscreenCanvas(win.w, win.h); cv.getContext('2d').drawImage(bmp, win.x0, win.y0, win.w, win.h, 0, 0, win.w, win.h);
+// Undistortion of a window (und = { k1, k2, f, cx, cy, pixels(), maskPixels() } in
+// NATIVE frame pixels, principal point at the frame centre — the same convention as
+// session.undistortFrames on the body frames): every window pixel samples the
+// distorted source at f * p * (1 + k1 r² + k2 r⁴). Off by default below |k| 0.01,
+// where the session leaves the body frames raw too, so windows and frames agree
+// either way. The crop camera keeps the pinhole intrinsics (f unchanged, principal
+// point shifted by the window origin) — exact for an undistorted image.
+function remapWindow(und, win, W, H, src, out, nearest) {
+  const od = out.data, sd = src.data, k1 = und.k1, k2 = und.k2, f = und.f, cx = und.cx, cy = und.cy;
+  for (let y = 0; y < win.h; y++) {
+    for (let x = 0; x < win.w; x++) {
+      const xp = (x + win.x0 + 0.5 - cx) / f, yp = (y + win.y0 + 0.5 - cy) / f;
+      const r2 = xp * xp + yp * yp; const D = 1 + k1 * r2 + k2 * r2 * r2;
+      const rx = f * xp * D + cx - 0.5, ry = f * yp * D + cy - 0.5; const o = (y * win.w + x) * 4;
+      if (rx < 0 || ry < 0 || rx > W - 1.001 || ry > H - 1.001) { od[o] = 0; od[o + 1] = 0; od[o + 2] = 0; od[o + 3] = 255; continue; }
+      if (nearest) { const i = (Math.round(ry) * W + Math.round(rx)) * 4; od[o] = sd[i]; od[o + 1] = sd[i + 1]; od[o + 2] = sd[i + 2]; od[o + 3] = 255; continue; }
+      const x0 = rx | 0, y0 = ry | 0, fx = rx - x0, fy = ry - y0;
+      const i00 = (y0 * W + x0) * 4, i01 = i00 + 4, i10 = i00 + W * 4, i11 = i10 + 4;
+      for (let c = 0; c < 3; c++) od[o + c] = sd[i00 + c] * (1 - fx) * (1 - fy) + sd[i01 + c] * fx * (1 - fy) + sd[i10 + c] * (1 - fx) * fy + sd[i11 + c] * fx * fy;
+      od[o + 3] = 255;
+    }
+  }
+}
+
+async function cut(bmp, mask, win, name, und = null) {
+  const cv = new OffscreenCanvas(win.w, win.h); const g = cv.getContext('2d');
+  if (und) { const src = und.pixels(); const out = g.createImageData(win.w, win.h); remapWindow(und, win, bmp.width, bmp.height, src, out, false); g.putImageData(out, 0, 0); }
+  else g.drawImage(bmp, win.x0, win.y0, win.w, win.h, 0, 0, win.w, win.h);
   const source = await cv.convertToBlob({ type: 'image/jpeg', quality: 0.95 });
   let m = null;
   if (mask) {
-    const mb = await createImageBitmap(mask); const s = bmp.width / mb.width;
-    const mc = new OffscreenCanvas(win.w, win.h); const g = mc.getContext('2d'); g.imageSmoothingEnabled = true;
-    g.drawImage(mb, win.x0 / s, win.y0 / s, win.w / s, win.h / s, 0, 0, win.w, win.h); mb.close();
+    const mc = new OffscreenCanvas(win.w, win.h); const mg = mc.getContext('2d');
+    if (und) { const src = und.maskPixels(); const out = mg.createImageData(win.w, win.h); remapWindow(und, win, bmp.width, bmp.height, src, out, true); mg.putImageData(out, 0, 0); }
+    else {
+      const mb = await createImageBitmap(mask); const s = bmp.width / mb.width; mg.imageSmoothingEnabled = true;
+      mg.drawImage(mb, win.x0 / s, win.y0 / s, win.w / s, win.h / s, 0, 0, win.w, win.h); mb.close();
+    }
     m = await mc.convertToBlob({ type: 'image/png' });
   }
   return { source, mask: m, name };
@@ -58,11 +87,11 @@ async function cut(bmp, mask, win, name) {
 /** Append person tiles and head windows to a SOLVED session (between solve and seed).
  *  @param {import('../../src/session.js').Session} session
  *  @param {Array<{name:string, source?:Blob, mask?:Blob}|File>} files  the picked frames with their mattes */
-export async function addPersonCrops(session, files, { log = () => {}, headWeight = 2, tileMax = TILE_MAX, progress, faceCams = null, facePoints = null, stabMinPx = 3, headMoved = null, maxWindows = 320 } = {}) {
+export async function addPersonCrops(session, files, { log = () => {}, headWeight = 2, tileMax = TILE_MAX, progress, faceCams = null, facePoints = null, stabMinPx = 3, headMoved = null, maxWindows = 240 } = {}) {
   const byName = new Map(files.map((f) => [f.name, f]));
   // head-stabilised windows from the landmarks stage (pose by PnP on the face, not the room's SfM pose)
   const faceByName = new Map((faceCams || []).map((c) => [c.name, c]));
-  const entries = [], wins = [];
+  const entries = [], wins = []; let undistorted = 0;
   const bodyCams = session.recon.cams.slice();
   for (let ci = 0; ci < bodyCams.length; ci++) {
     const c = bodyCams[ci]; const fr = session.frames[c.imgIdx]; const file = byName.get(fr.name);
@@ -71,6 +100,21 @@ export async function addPersonCrops(session, files, { log = () => {}, headWeigh
     const W = bmp.width, H = bmp.height;
     const box = await matteBox(mask, W, H);
     if (!box) { bmp.close(); continue; }
+    // lens distortion: the session undistorts the body frames when |k| >= 0.01 (else it
+    // leaves them raw); the windows follow the same rule, in native pixels of THIS frame
+    // (?cropundistort=1 forces the remap for a check)
+    const rk = session.recon || {}; const force = typeof location !== 'undefined' && new URLSearchParams(location.search).get('cropundistort') === '1';
+    let und = null;
+    if ((Math.abs(rk.k1 || 0) >= 0.01 || Math.abs(rk.k2 || 0) >= 0.01 || force) && (rk.k1 || rk.k2)) {
+      let px = null, mpx = null;
+      und = { k1: rk.k1 || 0, k2: rk.k2 || 0, f: c.f * (W / fr.fw), cx: W / 2, cy: H / 2,
+        pixels: () => { if (!px) { const fc = new OffscreenCanvas(W, H); const fg = fc.getContext('2d', { willReadFrequently: true }); fg.drawImage(bmp, 0, 0); px = fg.getImageData(0, 0, W, H); } return px; },
+        maskPixels: () => { if (!mpx) { mpx = { width: W, height: H, data: new Uint8ClampedArray(W * H * 4) }; } return mpx; } };
+      // the matte at native size, once per frame (nearest remap reads it)
+      const mb = await createImageBitmap(mask); const mc2 = new OffscreenCanvas(W, H); const mg2 = mc2.getContext('2d', { willReadFrequently: true }); mg2.imageSmoothingEnabled = true; mg2.drawImage(mb, 0, 0, W, H); mb.close();
+      const mp = mg2.getImageData(0, 0, W, H); und.maskPixels = () => mp;
+      undistorted++;
+    }
     const bw = box.x1 - box.x0, bh = box.y1 - box.y0; const pad = 0.08 * Math.max(bw, bh);
     const X0 = Math.max(0, box.x0 - pad), Y0 = Math.max(0, box.y0 - pad), X1 = Math.min(W, box.x1 + pad), Y1 = Math.min(H, box.y1 + pad);
     // person tiles along the long side, 10 % overlap
@@ -82,7 +126,7 @@ export async function addPersonCrops(session, files, { log = () => {}, headWeigh
         ? { x0: Math.round(X0), y0: Math.round(Math.min(a, Y1 - size)), w: Math.round(X1 - X0), h: Math.round(size) }
         : { x0: Math.round(Math.min(a, X1 - size)), y0: Math.round(Y0), w: Math.round(size), h: Math.round(Y1 - Y0) };
       if (win.w < 32 || win.h < 32) continue;
-      entries.push(await cut(bmp, mask, win, `pcrop_${fr.name}_${k}`)); wins.push({ ci, win, weight: 1, W });
+      entries.push(await cut(bmp, mask, win, `pcrop_${fr.name}_${k}`, und)); wins.push({ ci, win, weight: 1, W });
     }
     // the head window: the landmarks' head-stabilised crop when the face was seen, else around the matte's head
     const fc = faceByName.get(fr.name);
@@ -108,17 +152,18 @@ export async function addPersonCrops(session, files, { log = () => {}, headWeigh
         take = headMoved != null ? headMoved : shift > Math.max(stabMinPx, 1.5 * (fc.medPx || 0));
       }
       const hw = { x0: fc.x0, y0: fc.y0, w: fc.side, h: fc.side };
-      entries.push(await cut(bmp, mask, hw, `hcrop_${fr.name}`)); wins.push({ ci, win: hw, weight: headWeight, W, pose: take ? fc : null, shift });
+      entries.push(await cut(bmp, mask, hw, `hcrop_${fr.name}`, und)); wins.push({ ci, win: hw, weight: headWeight, W, pose: take ? fc : null, shift });
     } else {
       const side = Math.round(0.3 * bh);
       const hw = clampWin(box.headX - side / 2, box.headY - side / 2, side, W, H);
-      if (hw.w >= 64) { entries.push(await cut(bmp, mask, hw, `hcrop_${fr.name}`)); wins.push({ ci, win: hw, weight: headWeight, W }); }
+      if (hw.w >= 64) { entries.push(await cut(bmp, mask, hw, `hcrop_${fr.name}`, und)); wins.push({ ci, win: hw, weight: headWeight, W }); }
     }
     bmp.close();
     progress?.(ci + 1, bodyCams.length, `cutting the person windows · ${ci + 1} / ${bodyCams.length}`);
     await new Promise((r) => setTimeout(r, 0));
   }
   if (!entries.length) { log('crops: no mattes on the picked frames — none added'); return 0; }
+  if (undistorted) log(`crops: windows undistorted on ${undistorted} frames (k1 ${(session.recon.k1 || 0).toFixed(4)}, k2 ${(session.recon.k2 || 0).toFixed(4)}) — the same remap as the body frames`);
   // budget: the trainer's targets live in one GPU binding (2 GB); a 4K clip with 206
   // frames made 934 windows (2.9 GB, 2026-09-15). Over maxWindows the head windows
   // stay and the person tiles thin out to every k-th frame.

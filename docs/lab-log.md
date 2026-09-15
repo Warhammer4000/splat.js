@@ -4,6 +4,65 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-15n (lens prior: logged, not trusted; thinning off; the 09-14 model identified)
+
+- **The lens as a focal**: accepted at 0.37x (62/65) and bent
+  (`scratch/prior_cmp.jpg`). **Narrowed search** on the lens x crop factors
+  1.0–1.55: picked 0.46x, 62/65, ghosting again (`scratch/lensgrid_cmp.jpg`).
+  The free every-frame search (0.55x, 65/65, BA 0.86 px) is the only solve
+  of the day the user calls clean. Verdict: for video the container's lens
+  is logged, the search keeps its range; the reader (`src/io/qtmeta.js`) and
+  the frame exif stamping stay for the log and for later use.
+- **Thinning off**: 208 → 100 frames broke Lisa's chain (74/100, wrong
+  focal), 208 → 200 broke her landmark stage (nose residual 1e9 px, fit
+  scale 45818, hull box 3000 units) — unthinned she solves 206/208 at 0.69x
+  with the landmarks fine. The decode budget (1.1 GB for avatars, crops
+  capped at 240) carries the resolution instead: Lisa 885 px, Tom 1583 px
+  (was 1263). Her model at that (`scratch/lisa_cmp3.jpg`) is rougher than
+  the 706 px run — her poses are the next suspect (no lens data, nose
+  residual 3.0 px), not the recipe.
+- **The model the user likes** (`ugc …/90333b40…_tom_avatar.sog`): avatar
+  5669, uploaded 2026-09-14 12:48 UTC from his app run at commit d058bc5 —
+  room training + cut at 20k, NO person crops, full SH, pressure 0.01, no
+  needle term, face pass off, the same 0.44x solve; 63k splats after
+  export. "Sharper, less contrast, not worse" → crops on/off joins the
+  redo ladder (`?crops=0`).
+- Redo ladder queued on the every-frame solve: default, pressure 0.01,
+  needle off, face pass 1500, horizontal SH, crops off, 100k.
+
+## 2026-09-15m (the focal is unobservable from a person orbit — the container knows it)
+
+Three feature resolutions, three focals on Tom's clip with the every-frame
+search: 960 px → 0.55x maxDim (the "stunning" model), 1280 px → 0.78x,
+1600 px → 0.49x (48/65 registered). The orbit has almost no focal
+observability: the room is far, the person close, the search's pixel
+median cannot tell. The user: "with this whole focal shit we can literally
+do all the things again, because the data was shit" — right: every rung of
+the 09-15 ladder (pressure, needle, orientation, blob, pose refinement,
+crops-only, face clamp) was measured on the 0.44x solve. The relative
+verdicts may hold, the absolute ones do not; the key rungs are to be redone
+on a correct solve.
+
+- **The MOV knows the lens.** The static 'mdta' items in the container
+  carry `camera.lens_model` ("iPhone 12 Pro Max back camera 1.54mm f/2.4",
+  the 0.5x ultra-wide — the user confirms), `camera.focal_length.35mm_equivalent`
+  ("14") and `camera.lens_irisfnumber` ("F2.40"). Both Tom's and Filip's
+  clips carry it; Lisa's mp4 (another phone/app) carries nothing. New
+  `src/io/qtmeta.js` reads them (moov at either end of the file).
+- **Wired as a prior**: the app stamps `exif { f35, lens, video }` on every
+  extracted frame (decodeFrames takes a caller-supplied exif), the session
+  turns it into the existing `focalPrior` (tried first, accepted at ≥ 60 %
+  registration), and for VIDEO the fallback search runs on a narrow grid
+  of crop factors 1.0–1.55 around the prior (stabilisation and the video
+  sensor crop lengthen the effective focal) instead of the whole range.
+  14 mm at 1080x1920 = 0.37x maxDim nominal; the observed 0.44–0.55x is a
+  1.2–1.5x crop of it, 0.78x is not.
+- Also in this batch, pending their runs: crop windows undistorted with
+  the body frames' convention when |k| ≥ 0.01; bracket verification (a
+  bracket winner is re-solved against the grid winner, more registered
+  frames wins); avatar decode budget 1.1 GB with crops capped at 240;
+  frame thinning only above 200.
+
 ## 2026-09-15l (the ghosting was the focal: search on every frame)
 
 The user, on every sheet of the day: "the view morphs into another face

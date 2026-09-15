@@ -2041,6 +2041,7 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
   // 88 % of the cameras and lowers the pixel median (at most five steps:
   // 0.69 -> 0.36 reaches a phone's 0.5x ultra-wide, 1.56 -> 2.7 its 3x tele).
   // The float value itself is left to BA, which converges from within ~10 %.
+  const gridWinner = best;   // the grid's pick, kept for the bracket verification below
   if (opts.focalBracket !== false && best) {
     const grid = focalScales.slice().sort((a, b) => a - b);
     const dir = best.fScale <= grid[0] ? 1 / 1.12 : best.fScale >= grid[grid.length - 1] ? 1.12 : 0;
@@ -2064,9 +2065,26 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
   // final reconstruction
   log(`focal search winner: ${(best.fScale * 1.2).toFixed(2)}x maxDim — rerunning with BA ...`);
   const t0w = performance.now();
-  const final = await finalRun(best.fScale);
+  let final = await finalRun(best.fScale);
   if (!final) throw new Error('focal winner failed on rerun (unexpected)');
   log(`  final registration + BA in ${((performance.now() - t0w) / 1000).toFixed(1)}s`);
+  // Bracket verification (2026-09-15): the bracket's rule — more cameras and a
+  // lower pixel median on the cheap pass — is satisfied by a wrong WIDE focal on
+  // an orbit around a person (Lisa: 0.62x -> 0.39x on 54 -> 62 of 100 cameras,
+  // scene radius 22 instead of 5.8). When the bracket moved, the grid's own
+  // winner gets the same full solve and the one that registers more frames
+  // stays (a tie goes to the lower BA rms).
+  if (opts.focalVerify !== false && gridWinner && best !== gridWinner) {
+    const t0v = performance.now();
+    let alt = null;
+    try { alt = await finalRun(gridWinner.fScale); } catch (e) { log(`focal check: grid winner failed on rerun (${e.message || e})`); }
+    const rms = (r) => (r && r.rmsBA != null ? r.rmsBA : r ? r.medErr : Infinity);
+    if (alt) {
+      const keepAlt = alt.cams.length > final.cams.length || (alt.cams.length === final.cams.length && rms(alt) < rms(final));
+      log(`focal check: bracket ${(best.fScale * 1.2).toFixed(2)}x registered ${final.cams.length}/${n} (rms ${rms(final).toFixed(2)}px), grid ${(gridWinner.fScale * 1.2).toFixed(2)}x registered ${alt.cams.length}/${n} (rms ${rms(alt).toFixed(2)}px) in ${((performance.now() - t0v) / 1000).toFixed(1)}s — keeping the ${keepAlt ? 'grid' : 'bracket'} winner`);
+      if (keepAlt) final = alt;
+    }
+  }
 
   log(`SfM done: ${final.cams.length}/${n} cameras registered, ${final.points.length} points, ` +
       (final.rmsBA != null ? `BA rms ${final.rmsBA.toFixed(2)}px` : `median reproj ${final.medErr.toFixed(2)}px`));

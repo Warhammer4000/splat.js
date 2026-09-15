@@ -253,6 +253,22 @@ export class Session {
           opts.focalPrior = focalPxFrom35(med, fr.fw, fr.fh);
           this._log(`EXIF focal ${med} mm (35 mm-equivalent) on ${f35s.length}/${this.frames.length} photos → ` +
             `prior ${opts.focalPrior.toFixed(1)} px at the ${fr.fw} px feature frame`);
+          // a VIDEO's 35 mm value names the lens, not the recording: stabilisation and
+          // the video sensor crop lengthen the effective focal by up to ~1.5x. The prior
+          // is tried first (accepted at >= 60 % registration); the fallback search then
+          // runs on a narrow grid of crop factors around it instead of the whole range,
+          // which on a person orbit picked three different focals at three feature
+          // resolutions (2026-09-15)
+          if (this.frames.some((f) => f.exif && f.exif.video)) {
+            // a VIDEO's 35 mm value names the lens, not the recording: taken as the
+            // focal it is accepted at >= 60 % registration and bent (Tom: 0.37x, 62/65);
+            // narrowed to crop factors 1.0-1.55 the search still picked 0.46x (62/65,
+            // ghosting) where the free search on every frame finds 0.55x with 65/65
+            // and a clean model (2026-09-15). So for video the lens is logged and the
+            // focal search keeps its own range; the every-frame search carries it.
+            opts.focalPrior = 0;
+            this._log(`video lens ${med} mm (35 mm-equivalent): noted, the focal search keeps its full range (a person orbit's effective focal is the lens x an unknown crop)`);
+          }
         } else {
           this._log(`EXIF focal varies across the set (${sorted[0]}–${sorted[sorted.length - 1]} mm) — focal search kept`);
         }
