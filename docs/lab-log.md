@@ -4,6 +4,33 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-15h (only blobs: the lines are gone, the skin goes blotchy off-axis)
+
+The user's rule: "only train blobs — the longest axis at most 3x the
+shortest". `trainer.blobRatio` (avatar `?blob=R`): a pass after every Adam
+step moves the longest and shortest log-scale toward each other by half the
+excess over log R (the size is kept), the middle axis clamped into the
+range. Tom 30k at 0.003, one run:
+
+| run | package | face visible | longest/shortest median (max) | longest / shortest axis | body visible |
+|---|---|---|---|---|---|
+| 0.003, discs allowed | 179,778 | 2,319 | 5.75 (270) | 4.5 / 0.76 mm | 45,427 |
+| 0.003 + needle 0.03 | 190,399 | 2,216 | 5.54 (207) | 4.3 / 0.74 mm | 47,304 |
+| 0.003 + blob clamp 3 | 217,794 | 3,519 | 2.38 (3.00) | 2.9 / 1.31 mm | 66,230 |
+
+- The clamp holds (max ratio exactly 3.00). Frontal and three-quarter: no
+  lines at all, the first close-up of the series without a single streak;
+  the skin reads as smooth clay, slightly softer than the disc model
+  (`scratch/blob_cmp1.jpg`).
+- Off-axis it pays: from 30° and 60° above and from below the face shows a
+  field of dark and light spots (blobs that the level views placed can no
+  longer hide behind each other as thin discs do), the crown is worse
+  still. A blob has no direction to be right in; a disc has.
+- 348k of the 600k splats are the person (against 271k with discs): round
+  volumes need more of them for the same surface.
+- Next rung: ratio 5 (queued) as the middle ground; a face-only clamp
+  (blobs on the skin, discs elsewhere) is the other option.
+
 ## 2026-09-15g (the lines are edge-on discs, not needles)
 
 The user, on the needle-regularised model: "so the many lines I still see
