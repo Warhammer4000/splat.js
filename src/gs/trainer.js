@@ -361,6 +361,7 @@ export class GSTrainer {
     this.uniTrain = buf(160, B.UNIFORM | B.COPY_DST, 'uniTrain');
     this.uniView = buf(160, B.UNIFORM | B.COPY_DST, 'uniView');
     this.uniAdam = buf(144, B.UNIFORM | B.COPY_DST, 'uniAdam');
+    this.uniShape = buf(16, B.UNIFORM | B.COPY_DST, 'uniShape');   // shape clamp region (opts.blobRegion {centre, radius}; radius 0 = everywhere)
 
     // phase-2 refine: 16 bytes/splat gathered for the CPU decision, a plan of
     // 32-byte ops back, executed GPU-side (no params/moments round trip).
@@ -574,7 +575,11 @@ export class GSTrainer {
         { binding: 4, resource: { buffer: this.bufV } },
       ],
     });
-    if (this.pipeShape) this.bgShape = d.createBindGroup({ layout: this.pipeShape.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: this.uniAdam } }, { binding: 1, resource: { buffer: this.bufParams } }] });
+    if (this.pipeShape) {
+      this.bgShape = d.createBindGroup({ layout: this.pipeShape.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: this.uniAdam } }, { binding: 1, resource: { buffer: this.bufParams } }, { binding: 2, resource: { buffer: this.uniShape } }] });
+      const reg = this.opts.blobRegion; const c = reg && reg.centre ? reg.centre : [0, 0, 0];
+      d.queue.writeBuffer(this.uniShape, 0, new Float32Array([c[0], c[1], c[2], reg && reg.radius > 0 ? reg.radius : 0]));
+    }
     this.bgGather = d.createBindGroup({
       layout: this.pipeGather.getBindGroupLayout(0),
       entries: [

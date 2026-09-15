@@ -88,7 +88,9 @@ export function trainingOptions(manifest, { iters = 30000 } = {}) {
     // opacity pressure 0.004 for a person (trainer default 0.01): the pressure dims what
     // the loss does not defend, and on an avatar that is the face — at 0.003 the visible
     // face splats doubled at smaller sizes, at 0 the skin went waxy (Tom 30k, 2026-09-15d)
-    trainer: { maxSplats: 600000, capMult: 8, opacityReg: 0.004, ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('avsh') != null ? { shDeg: +new URLSearchParams(location.search).get('avsh') } : {}), ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('camopt') ? { camOpt: true, ...(new URLSearchParams(location.search).get('camopt') === 'crop' ? { camOptOnly: 'crop' } : {}) } : {}),
+    // needle term 0.03 (2026-09-15f): needles 5.3 % -> 1.5 % on the face, discs and the
+    // visible count untouched — the one shape term with no measured cost
+    trainer: { maxSplats: 600000, capMult: 8, opacityReg: 0.004, needleReg: 0.03, ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('avsh') != null ? { shDeg: +new URLSearchParams(location.search).get('avsh') } : {}), ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('camopt') ? { camOpt: true, ...(new URLSearchParams(location.search).get('camopt') === 'crop' ? { camOptOnly: 'crop' } : {}) } : {}),
       // ?needle=W[,T] (experiment, 2026-09-15): the needle regularizer — the longest axis over
       // the middle one beyond ratio T (default 3) is pulled in; discs stay ("every needle
       // destroys the illusion in a close-up")

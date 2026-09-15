@@ -1700,6 +1700,14 @@ async function startPrep() {
       // frames keep their poses for the hull and the cut (with ?cropmask=0 the windows keep
       // the room around the person: rectangular, no mask)
       if (new URLSearchParams(location.search).get('cropsonly') === '1') { session.opts.lossCams = (c) => !!c.crop; alog('crops only: the room frames leave the training loss'); }
+      // ?blob=R&blobface=1 (experiment, 2026-09-15): the blob clamp on the FACE only — blobs on
+      // the skin (no edge-on lines in the close-up), discs everywhere else (clean oblique views)
+      if (new URLSearchParams(location.search).get('blobface') === '1' && S._facePoints && S._facePoints.length > 50) {
+        const P = S._facePoints; const c = [0, 0, 0]; for (const p of P) { c[0] += p[0] / P.length; c[1] += p[1] / P.length; c[2] += p[2] / P.length; }
+        let rad = 0; for (const p of P) rad = Math.max(rad, Math.hypot(p[0] - c[0], p[1] - c[1], p[2] - c[2]));
+        session.opts.trainer = { ...(session.opts.trainer || {}), blobRegion: { centre: c, radius: rad * 1.15 } };
+        alog(`blob clamp on the face only: sphere radius ${(rad * 1.15 / (S._lmRes && S._lmRes.fit ? S._lmRes.fit.scale : 1) * 100).toFixed(0)} cm around the face points`);
+      }
       // a dense seed on the face mesh, as ready-made flat Gaussians (?faceseed=1 or =N; off
       // by default: as points it came out worse — see app/avatar/faceseed.js)
       const fsq = new URLSearchParams(location.search).get('faceseed');

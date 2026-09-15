@@ -1475,12 +1475,21 @@ export const makeShapeClampSrc = (ratio = 3) => /* wgsl */ `
 struct AdamU { lr0: vec4f, lr1: vec4f, lr2: vec4f, lr3: vec4f, hp: vec4f, cl: vec4f, reg: vec4f, flg: vec4f, bc: vec4f };
 @group(0) @binding(0) var<uniform> au: AdamU;
 @group(0) @binding(1) var<storage, read_write> params: array<f32>;
+// region: xyz = centre, w = radius in scene units; w <= 0 clamps every splat.
+// A face-only clamp (blobs on the skin, discs elsewhere): the region is the
+// face points' bounding sphere, set by the avatar hook before training.
+struct ShapeU { region: vec4f };
+@group(0) @binding(2) var<uniform> su: ShapeU;
 const LOGR = ${Math.log(ratio).toExponential()};
 @compute @workgroup_size(256)
 fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nw: vec3u) {
   let i = gid.x + gid.y * nw.x * 256u;
   if (i * 16u >= u32(au.cl.w)) { return; }
   let b = i * 16u;
+  if (su.region.w > 0.0) {
+    let dp = vec3f(params[b], params[b + 1u], params[b + 2u]) - su.region.xyz;
+    if (dot(dp, dp) > su.region.w * su.region.w) { return; }
+  }
   var l = vec3f(params[b + 3u], params[b + 4u], params[b + 5u]);
   let lmax = max(l.x, max(l.y, l.z)); let lmin = min(l.x, min(l.y, l.z));
   let ex = lmax - lmin - LOGR;
