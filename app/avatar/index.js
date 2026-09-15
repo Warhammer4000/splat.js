@@ -85,7 +85,9 @@ export function trainingOptions(manifest, { iters = 30000 } = {}) {
     // start and the close-up end of the orbit); the target is per-window pose
     // freedom for the crops, this is the first check that the mechanism helps
     // ?avsh=N (experiment): the avatar run's SH degree (the app's ?sh= is not a URL switch)
-    trainer: { maxSplats: 600000, capMult: 8, ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('avsh') != null ? { shDeg: +new URLSearchParams(location.search).get('avsh') } : {}), ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('camopt') ? { camOpt: true, ...(new URLSearchParams(location.search).get('camopt') === 'crop' ? { camOptOnly: 'crop' } : {}) } : {}) },
+    trainer: { maxSplats: 600000, capMult: 8, ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('avsh') != null ? { shDeg: +new URLSearchParams(location.search).get('avsh') } : {}), ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('camopt') ? { camOpt: true, ...(new URLSearchParams(location.search).get('camopt') === 'crop' ? { camOptOnly: 'crop' } : {}) } : {}),
+      // ?opreg=N (experiment, 2026-09-15): the opacity pressure (trainer default 0.01) — the visible face density lever
+      ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('opreg') != null ? { opacityReg: +new URLSearchParams(location.search).get('opreg') } : {}) },
     iters,
   };
 }

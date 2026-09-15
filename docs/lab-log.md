@@ -4,6 +4,34 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-15d (the opacity pressure IS the face-density lever)
+
+The face-only model had four times the visible face splats of the default
+at the same shapes (09-15), and crops-only training did not move that count
+(09-15c). The remaining suspect was the opacity pressure — 0.01 on every
+splat, all the time (3DGS-MCMC default). `?opreg=N` on the avatar run,
+Tom 30k, corrected SH gradient, one run each:
+
+| opacity pressure | package | face rows / visible (10 cm) | median face opacity | face long axis | body visible | person after the cut |
+|---|---|---|---|---|---|---|
+| 0.01 (default) | 119,504 | 6,198 / 1,107 | 0.14 | 6.7 mm | 16,090 | 214,126 |
+| 0.003 | 179,778 | 8,225 / 2,319 | 0.18 | 4.5 mm | 45,427 | 271,231 |
+| 0 | 181,499 | 3,783 / 2,651 | 0.46 | 3.7 mm | 122,679 | 193,682 |
+
+- Visible face splats double at 0.003 and the splats get smaller (long
+  axis 6.7 → 4.5 mm): the pressure was dimming the face, not the schedule.
+  Sheet `scratch/opreg_cmp1.jpg`: 0.003 has the cleanest frontal and
+  three-quarter skin of the series (fewer streaks), 30° above about level
+  with the default, the crown from 60° above rougher (more small splats in
+  the unsupervised region), a dark patch under the jaw from below.
+- 0: smoother still from the front but flatter, waxy; from above the
+  forehead and eyes show dark spots and the crown streaks; the body keeps
+  7.6× the visible splats of the default (nothing dies), package 1.5×.
+- The pressure removes what the loss does not defend; on a person the face
+  is exactly where that loses detail. 0.003 is the candidate default
+  (user's eyes decide); the long run and the relocation window are next on
+  it.
+
 ## 2026-09-15c (crops-only training: register in full, train on the person's windows)
 
 The user's proposal from the knob discussion: keep the registration on the
