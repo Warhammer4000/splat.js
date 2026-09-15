@@ -16,7 +16,8 @@ writeFileSync(`${OUT}_console.log`, '');
 page.on('console', (m) => { const t = m.text(); appendFileSync(`${OUT}_console.log`, `[${((Date.now() - t0) / 1000).toFixed(0)}s] ${t.slice(0, 600)}
 `); if (/\[avatar\]|\[video\]|\[session\]|matte|PAGEERROR/i.test(t) && !/favicon|GPU stall/i.test(t)) log('console: ' + t.slice(0, 220)); });
 page.on('pageerror', (e) => log('PAGEERROR ' + String(e).slice(0, 300)));
-await page.goto(`http://localhost:8734/app/index.html?iters=${opt('iters', '3000')}&faceiters=${opt('faceiters', '1500')}${opt('extra', '') ? '&' + opt('extra') : ''}`, { waitUntil: 'load' });
+// --faceiters=N runs the face pass (off in the app since 2026-09-14; the e2e used to pass 1500 by default — every 09-15 ladder run had it)
+await page.goto(`http://localhost:8734/app/index.html?iters=${opt('iters', '3000')}${opt('faceiters', '') ? '&faceiters=' + opt('faceiters') : ''}${opt('extra', '') ? '&' + opt('extra') : ''}`, { waitUntil: 'load' });
 await page.waitForTimeout(2500);
 await page.setInputFiles('#file-input', VIDEO);
 log('video set');

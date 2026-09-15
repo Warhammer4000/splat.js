@@ -27,6 +27,7 @@
  *   (not enough evidence to carve it away)
  * @param {number} [opts.kMad=4]      half-extent of the carving box, in median
  *   absolute deviations of the subject cloud
+ * @param {Array<number[]>} [opts.include] points the box must contain (joints, floor)
  * @returns {object|null} hull, or null when the frames carry no masks
  */
 export function buildVisualHull(recon, frames, opts = {}) {
@@ -54,6 +55,17 @@ export function buildVisualHull(recon, frames, opts = {}) {
     const p10 = v[Math.floor(0.1 * (v.length - 1))], p90 = v[Math.floor(0.9 * (v.length - 1))];
     const half = Math.max(kMad * mad[a], 0.5 * (p90 - p10)) * (1 + margin);
     lo[a] = med[a] - half; hi[a] = med[a] + half;
+  }
+  // opts.include: points the box must contain (the avatar's joints and its floor
+  // point). The MAD box is symmetric about the cloud's median, and a person's
+  // features sit on the head and torso: the box reached 40 cm above the floor
+  // and cut the feet off (2026-09-15). Padded by `margin` of the box's longest side.
+  if (Array.isArray(opts.include) && opts.include.length) {
+    const pad = margin * Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
+    for (const P of opts.include) {
+      if (!P || !Number.isFinite(P[0] + P[1] + P[2])) continue;
+      for (let a = 0; a < 3; a++) { lo[a] = Math.min(lo[a], P[a] - pad); hi[a] = Math.max(hi[a], P[a] + pad); }
+    }
   }
   const span = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
   const cell = span / res;

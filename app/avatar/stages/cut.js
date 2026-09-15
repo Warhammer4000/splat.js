@@ -31,7 +31,17 @@ export async function run(ctx, manifest, hooks) {
   src.recon.points = src.recon.points.filter((p) => !p.faceSeed);
   const before = src.recon.points.length;
   src.maskPoints(0.5);
-  const hull = src._buildHull({});
+  // the box must hold the joints and the floor under the feet: the MAD box is
+  // symmetric about the cloud's median and cut Tom off at the shins (2026-09-15)
+  const lm = manifest && manifest.stages && manifest.stages.landmarks; const include = [];
+  if (lm && lm.landmarks) {
+    for (const [name, X] of Object.entries(lm.landmarks)) {
+      if (!Array.isArray(X) || X.length < 3) continue; include.push(X);
+      if (lm.floorY != null && /ank|heel|toe|foot/i.test(name)) include.push([X[0], lm.floorY, X[2]]);
+    }
+  }
+  if (include.length) log(`cut: the hull box holds ${include.length} joint and floor points`);
+  const hull = src._buildHull({ hullOpts: include.length ? { include } : undefined });
   if (!hull || !src.splatTest) {
     log(`cut: no hull (${src.recon.points.length} of ${before} points on the subject) — the whole scene stays`);
     return { skipped: true, note: 'no hull — scene kept' };
@@ -55,18 +65,16 @@ export async function run(ctx, manifest, hooks) {
   log(`cut: hull ${hull.dim.join('x')} voxels of ${hull.cell.toFixed(3)}, ${(hull.fill * 100).toFixed(1)}% solid; ${kept.toLocaleString()} of ${n.toLocaleString()} splats are the person`);
   // 3. a fresh session on the same frames and cameras, seeded with the survivors
   hooks.progress?.(2, 4, 'loading the isolated model …');
-  const { frames } = ctx; const byName = new Map(frames.map((f) => [f.name, f]));
-  const entries = ctx.sessionEntries || src.recon.cams.map((c) => byName.get(src.frames[c.imgIdx].name)).filter(Boolean);
   const iter = src.trainer.iter;
   const ses = createSession({ ...src.opts, maxIters: iter, evalSplit: 0, holdout: -1, maskTraining: false });
-  await ses.load(entries);
-  const byName2 = new Map(ses.frames.map((f, i) => [f.name, i]));
-  const cams = [];
-  for (const c of src.recon.cams) {
-    const i = byName2.get(src.frames[c.imgIdx].name); if (i == null) continue;
-    const s = ses.frames[i].fw / src.frames[c.imgIdx].fw;
-    cams.push({ ...c, imgIdx: i, f: c.f * s, ...(c.fy != null ? { fy: c.fy * s } : {}), cx: c.cx * s, cy: c.cy * s });
-  }
+  // the SAME decoded frames as the source — no second decode: a 4K clip's 206 frames
+  // are gigabytes of pixels and the reload failed with 'Array buffer allocation
+  // failed' (Lisa, 2026-09-15). Body cameras only; the crop windows stay behind.
+  const bodyCams = src.recon.cams.filter((c) => !c.crop);
+  const idx = new Map(); const frames2 = [];
+  for (const c of bodyCams) { if (!idx.has(c.imgIdx)) { idx.set(c.imgIdx, frames2.length); frames2.push(src.frames[c.imgIdx]); } }
+  ses.useFrames(frames2);
+  const cams = bodyCams.map((c) => ({ ...c, imgIdx: idx.get(c.imgIdx) }));
   ses.useReconstruction({ ...src.recon, cams, points: src.recon.points });
   await ses.seedFrom({ data: data2, n: kept, sh: sh2, shK, dc: raw.dc }, { iter });
   hooks.progress?.(4, 4, 'isolated');

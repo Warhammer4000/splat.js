@@ -4,6 +4,31 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-15k (the feet were cut; the e2e's hidden face pass; Lisa's 4K cut)
+
+- **Feet cut off** (the user, from his localhost run: cut at the shins).
+  The visual hull's box is median ± k·MAD of the subject's feature cloud —
+  symmetric about a median that sits at chest height, so the bottom ended
+  ~40 cm above the floor: Tom's visible splats spanned 153 cm along the up
+  axis. Fix: `buildVisualHull` takes `opts.include`, and the cut stage
+  passes the landmarks' joints plus a floor point under each foot joint
+  (`floorY`), padded by the box margin. Tom: 189 cm span, shoes back
+  (`scratch/feet_cmp.jpg`); Lisa 188 cm.
+- **The e2e ran a face pass all day**: `tests/e2e/avatar_mode.mjs` passed
+  `faceiters=1500` unless told otherwise, so every 09-15 ladder run (a–j)
+  had a 1,500-iteration face pass the app itself does not run. The ladder's
+  relative verdicts stand (same pipeline throughout); the absolute default
+  had not been rendered. Now off unless `--faceiters` is given. Tom default
+  with vs without the pass (`scratch/default_final.jpg`): with it the eyes
+  are a touch crisper (face visible 1,873 vs 1,664, longest 4.7 vs 5.2 mm);
+  the user's earlier "worse" verdict was on the old masked recipe with
+  anisoReg. Worth a re-decision on the new recipe, later.
+- **Lisa's 4K cut** failed with 'Array buffer allocation failed': the cut
+  stage reloaded all 206 frames (2048 px) into a second session. It now
+  reuses the source session's decoded frames (body cameras only) — no
+  second decode, and a faster cut. Her default run: 208k person splats,
+  face soft (`scratch/default_final.jpg`, row 3).
+
 ## 2026-09-15j (the default, decided — and the face-only clamp A/B on three people)
 
 Too many variants to choose from (the user). One recipe, one A/B. The
