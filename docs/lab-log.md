@@ -32,6 +32,13 @@ capped at 240). Sheets `scratch/ladder_views.jpg` (5 views) and
   accumulates with the horizon, still open).
 - Nothing reopens; the default stands. Horizontal SH remains the user's
   candidate and needs the export refit before it can be the default.
+- **Added rung (the user's): 100k + horizontal SH + needle term off** —
+  package 201,181, face visible 926, needles 0.9 %, edge-on 38 %, longest
+  7.8 mm. Frontal and profile as sharp as the plain 100k; from 30°/60°
+  above the skin stays calm where the plain 100k breaks into colour
+  patches (`scratch/ladder_extra_views.jpg`, `_ears.jpg`); from below
+  clean. The strongest long-run combination of the day; the crown stays
+  soft (no view from above) and the pressure-over-horizon item stays open.
 
 ## 2026-09-15n (lens prior: logged, not trusted; thinning off; the 09-14 model identified)
 
