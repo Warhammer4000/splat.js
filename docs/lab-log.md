@@ -4,6 +4,37 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-15i (pose refinement, once more: the cameras move millimetres and the face blurs)
+
+The user's premise: needles and edge-on discs are how the optimiser
+reconciles cameras that disagree, so refine the poses photometrically
+("we tried once, limited success — once more, without any needle clamp").
+New this time: the trainer records the solve's poses and reports the drift
+(`trainer.camDrift()`, logged at train-complete), the moved poses are
+written back into `recon.cams` so the hull, cut and landmarks see the
+trained frame, and `?camlr=N` scales the pose learning rates. Tom 30k at
+0.003, no shape terms, one run each (scene 15.09 units/m):
+
+| run | rotation median / max | camera centre median / max | face visible | face needles | edge-on to frontal cam | body needles |
+|---|---|---|---|---|---|---|
+| poses from the solve | – | – | 2,319 | 5.3 % | 21.4 % | 13.1 % |
+| pose opt, all cameras | 0.037° / 0.19° | 1.6 mm / 9.1 mm | 2,096 | 5.4 % | 27.0 % | 14.0 % |
+| pose opt, crop windows only | 0.023° / 0.14° | 0.9 mm / 6.9 mm | 2,095 | 4.4 % | 21.5 % | 13.2 % |
+| pose opt, all cameras, 5x rate | 0.075° / 0.34° | 2.7 mm / 13.8 mm | 2,063 | 5.8 % | 27.9 % | 14.4 % |
+
+- The cameras take millimetres, even at five times the rate: the solve is
+  at its information limit on Tom (the pose landmarks' nose residual was
+  1.8 px). The freedom is spent absorbing error, not fixing it.
+- Needles do not go down and the edge-on share goes UP with all-camera
+  refinement; the visible face count drops 10 %. Sheet
+  `scratch/camopt_cmp1.jpg`: all-camera runs are softer in the eyes, the
+  5x run doubles the mouth from below and the right; crop-only is the
+  baseline with a few more streaks.
+- Verdict: on Tom the discs and needles are not a pose problem. They are
+  the surface representation under an eye-level orbit (thin, view-hiding
+  primitives are the cheapest fit). Pose refinement stays off; the drift
+  report and the write-back stay (they make the next Filip test honest).
+
 ## 2026-09-15h (only blobs: the lines are gone, the skin goes blotchy off-axis)
 
 The user's rule: "only train blobs — the longest axis at most 3x the

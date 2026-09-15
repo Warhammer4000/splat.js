@@ -498,6 +498,23 @@ export class Session {
     finally { if (hide) frames.forEach((f, i) => { f.alpha = saved[i]; }); }
   }
 
+  /** After a run with photometric pose optimisation (trainer opts.camOpt): log how far
+   *  the cameras moved and write the moved poses back into recon.cams, so everything
+   *  after training (hull, cut, landmarks, body fit) sees the frame the model was
+   *  trained in. camMeta and recon.cams share their order. */
+  _camDriftDone() {
+    try {
+      const tr = this.trainer; if (!tr || !tr.opts.camOpt || !this.recon || !this.recon.cams) return;
+      const dr = tr.camDrift(); if (!dr) return;
+      let moved = 0;
+      for (let i = 0; i < tr.camMeta.length && i < this.recon.cams.length; i++) {
+        const m = tr.camMeta[i], c = this.recon.cams[i]; if (!m || !c) continue;
+        c.R = Array.from(m.R); c.t = Array.from(m.t); moved++;
+      }
+      this._log(`pose optimisation: ${dr.n} cameras moved — rotation median ${dr.rotDegMedian.toFixed(3)}° max ${dr.rotDegMax.toFixed(2)}°, centre median ${dr.trnMedian.toFixed(4)} max ${dr.trnMax.toFixed(3)} scene units; ${moved} poses written back to the reconstruction`);
+    } catch (e) { this._log(`pose drift report failed: ${e.message || e}`); }
+  }
+
   /** Which cameras train and which are scored: blur exclusions, the chart
    *  holdout and the evaluation split. Shared by seed() and a continuation
    *  (seedFrom with frames), so a resumed run keeps the same test set. */
@@ -691,6 +708,7 @@ export class Session {
     this.training = false;
     this._log(`training finished early at ${this.trainer.iter} iterations`);
     await this._emitMetrics(true);
+    this._camDriftDone();
     this._em.emit('event', { kind: 'train-complete', iter: this.trainer.iter, splats: this.trainer.n });
   }
 
@@ -788,6 +806,7 @@ export class Session {
       await this._emitMetrics(true);
       // emitted AFTER the final readback: listeners typically call metrics()
       // right away, which must not interleave with ours on the staging buffer
+      this._camDriftDone();
       this._em.emit('event', { kind: 'train-complete', iter: trainer.iter, splats: trainer.n });
     }
 

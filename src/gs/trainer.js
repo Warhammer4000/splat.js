@@ -643,6 +643,7 @@ export class GSTrainer {
     }
 
     for (const m of this.camMeta) { m.f0 = m.f; m.fy0 = m.fy ?? m.f; } // original focals (shared scale + aspect are optimized)
+    this._camInit = this.camMeta.map((m) => ({ R: Array.from(m.R), t: Array.from(m.t) }));   // the solve's poses, for camDrift()
     this.logAspect = 0; // log(fy/fx) refinement (opts.aspectOpt)
     this.camUniforms = this.camMeta.map((m, i) => this._camUniform(m, 1, m.offset, i));
     // camera-pose optimizer state (opts.camOpt enables it)
@@ -1125,6 +1126,25 @@ export class GSTrainer {
     }
   }
 
+  /** How far the photometric pose optimisation moved the cameras from the solve:
+   *  rotation in degrees and translation in scene units, median and max over the
+   *  cameras that moved (opts.camOpt). Null when nothing was recorded. */
+  camDrift() {
+    if (!this._camInit || !this.camMeta) return null;
+    const rot = [], trn = [];
+    for (let i = 1; i < this.camMeta.length; i++) {
+      const a = this._camInit[i], m = this.camMeta[i]; if (!a) continue;
+      // angle of R_init^T R_now
+      let tr = 0; for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) tr += a.R[r * 3 + c] * m.R[r * 3 + c];
+      rot.push(Math.acos(Math.max(-1, Math.min(1, (tr - 1) / 2))) * 180 / Math.PI);
+      // camera centre C = -R^T t
+      const cen = (R, t) => [-(R[0] * t[0] + R[3] * t[1] + R[6] * t[2]), -(R[1] * t[0] + R[4] * t[1] + R[7] * t[2]), -(R[2] * t[0] + R[5] * t[1] + R[8] * t[2])];
+      const c0 = cen(a.R, a.t), c1 = cen(m.R, m.t); trn.push(Math.hypot(c1[0] - c0[0], c1[1] - c0[1], c1[2] - c0[2]));
+    }
+    const med = (v) => { const w = v.slice().sort((x, y) => x - y); return w.length ? w[w.length >> 1] : 0; };
+    return { n: rot.length, rotDegMedian: med(rot), rotDegMax: Math.max(0, ...rot), trnMedian: med(trn), trnMax: Math.max(0, ...trn), crop: this.camMeta.map((m) => !!m.crop) };
+  }
+
   /** Rows [from, to) keep their position through every Adam step (the seed's discs stay on the mesh). */
   setFreezePos(from, to) { this.adamData[34] = from || 0; this.adamData[35] = to || 0; }
 
@@ -1149,8 +1169,9 @@ export class GSTrainer {
       this.camStep++;
       const t = this.camStep;
       const decay = Math.pow(0.02, Math.min(1, this.iter / (0.75 * this.horizon)));
-      const rotLr = 2e-4 * decay;
-      const trnLr = 2e-4 * this.sceneRadius * decay;
+      const camLr = this.opts.camLr ?? 1;   // multiplier on the pose learning rates (experiment, 2026-09-15)
+      const rotLr = 2e-4 * decay * camLr;
+      const trnLr = 2e-4 * this.sceneRadius * decay * camLr;
       const focLr = 1e-4 * decay;
       const aspLr = (this.opts.aspectLr ?? 1e-4) * decay;
       const full = this.opts.camOpt ?? false;
