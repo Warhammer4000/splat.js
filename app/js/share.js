@@ -25,6 +25,7 @@ const API = `${API_BASE}/api/v1`;
 export async function shareCreation(S, sogBlob, {
   title, privacy = 'Link Only', includePhotos = false, informFollowers = false, thumbBlob = null,
   popup = null, onStatus = () => {}, onProgress = () => {}, recon: reconOverride = null,
+  stats: statsOverride = null,
 } = {}) {
   const token = await getToken(onStatus, popup);
   const slug = (title || 'splat').toLowerCase().replace(/\W+/g, '_');
@@ -98,10 +99,18 @@ export async function shareCreation(S, sogBlob, {
     // 4) stamp the space: description + the splatjs block the public
     //    endpoints resolve
     onStatus('Publishing …');
-    const sess = S.session;
-    const dB = S.psnrTest ? S.psnrTest.psnr : S.psnrTrain;
+    // a stored run shares WITHOUT a live session — off the wall there is no
+    // S.session to read the cycle count from, and S itself is empty
+    const st = statsOverride || {
+      splats: S.splats,
+      iter: S.session.trainer.iter,
+      minutes: S.minutes || 0,
+      psnrTrain: S.psnrTrain ?? null,
+      psnrTest: S.psnrTest ? { psnr: S.psnrTest.psnr, frames: S.psnrTest.frames.length } : null,
+    };
+    const dB = st.psnrTest ? st.psnrTest.psnr : st.psnrTrain;
     await api(`/spaces/${spaceId}`, token, {
-      description: `${title} — ${Number(S.splats).toLocaleString('en-US')} splats trained in the browser by Splat.js` +
+      description: `${title} — ${Number(st.splats || 0).toLocaleString('en-US')} splats trained in the browser by Splat.js` +
         (dB ? ` · ${dB.toFixed(1)} dB` : ''),
       privacy,
       splatjs: {
@@ -109,15 +118,15 @@ export async function shareCreation(S, sogBlob, {
         sogUrl,
         reconUrl: rz.fileUrl,
         thumbUrl,
-        splats: S.splats,
-        iter: sess.trainer.iter,
-        minutes: S.minutes || 0,
+        splats: st.splats,
+        iter: st.iter,
+        minutes: st.minutes || 0,
         // input facts for the pre-start detail card
         frames: (recon.source && recon.source.names && recon.source.names.length) || null,
         res: (recon.frames && recon.frames[0] && recon.frames[0].tw)
           ? `${recon.frames[0].tw} × ${recon.frames[0].th}` : null,
-        psnrTrain: S.psnrTrain ?? null,
-        psnrTest: S.psnrTest ? { psnr: S.psnrTest.psnr, frames: S.psnrTest.frames.length } : null,
+        psnrTrain: st.psnrTrain,
+        psnrTest: st.psnrTest,
       },
     }, 'PUT');
 

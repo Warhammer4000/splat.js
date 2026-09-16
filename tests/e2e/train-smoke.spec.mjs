@@ -65,4 +65,13 @@ test('own-photos run: solve, train, finish, compress, stored, viewable', async (
   // 20 % on truck 30k, ~20 % on this 2k smoke (was < 1 % when relocation ran
   // to the last step). The purge is the point; guard only against a gutted file.
   expect(view.splats).toBeGreaterThan(done.splats * 0.6);
+
+  // the reopened run is the creator's OWN, never shared: its call to action
+  // stays Share, not the Download a stranger's scene gets (WEB-7774)
+  const cta = await page.evaluate(() => ({
+    label: document.querySelector('.exportwrap button').textContent.trim(),
+    localRun: !!(window.__splat._localRun && window.__splat._localRun.sog),
+  }));
+  expect(cta.localRun).toBe(true);
+  expect(cta.label).toBe('Share');
 });
