@@ -3383,3 +3383,26 @@ Gates: unit 8/8, e2e 8/8. Verified against a stubbed API: your tile in Community
 has the menu and a stranger's does not; "Take out of Community" sends one PUT,
 the tile leaves the pane, stays under This device, and its menu there reads
 "List in Community".
+
+### 2026-09-16e — the listing where the scene is
+
+Third report of the same shape: standing inside your own shared scene
+(`?space=…`), Share opened the link card — link, Enter the space, Copy, the
+downloads — and no way to put the scene into Community. The listing lived only
+on the wall tile's menu, which is exactly where you are NOT when you are
+looking at the thing.
+
+The link card now carries a Listing row when the scene is yours: one call to
+`/splatjs/mine` when the card opens decides that (no token, or not in the list
+— the row stays hidden and a stranger's card is unchanged), the select shows
+the stored privacy, and a change is one `PUT {privacy}`. A failed call puts the
+select back where it was rather than leaving it lying about the state.
+
+Pattern worth naming: every one of these three reports was the same miss — an
+action offered in one surface and not in the others the user can reach the
+scene from. Wall tile, Community tile, viewer card are three doors to one
+space; anything you can do to a share should be behind all three.
+
+Gates: unit 8/8, e2e 8/8. Verified on the real 42485456_2385 share with only
+/splatjs/mine and the PUT stubbed: the row appears, reads "Anyone with the
+link", and switching to Public sends one PUT.

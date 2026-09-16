@@ -3473,6 +3473,10 @@ function shareDialog(rec = null, { downloadsOnly = false, link = false } = {}) {
         ${navigator.share ? '<button type="button" class="btn btn-outline" id="sh-native">Share …</button>' : ''}
         <button type="button" class="btn btn-accent" id="sh-copy">Copy link</button>
       </div>
+      <label class="upcard-opt sh-manage" id="sh-manage" hidden><span>Listing</span><select id="sh-listing">
+        <option value="Open">Public — listed in the gallery</option>
+        <option value="Link Only">Anyone with the link</option>
+      </select></label>
     </div>` : ''}
     <div class="sh-form" ${(downloadsOnly || link) ? 'hidden' : ''}>
     <input id="sh-title" type="text" spellcheck="false" maxlength="80">
@@ -3507,6 +3511,30 @@ function shareDialog(rec = null, { downloadsOnly = false, link = false } = {}) {
     card.querySelector('#sh-native')?.addEventListener('click', async () => {
       try { await navigator.share({ title: S.share.title || 'Splat.js scene', url }); } catch { /* dismissed */ }
     });
+    // a scene of your own, open in the viewer: its listing belongs HERE, where
+    // you are looking at it — not only on the wall tile's menu
+    if (hasToken()) (async () => {
+      try {
+        const { fetchMine } = await import('./share.js');
+        const own = (await fetchMine() || []).find((s) => String(s.id) === String(S.share.id));
+        if (!own) return;   // someone else's scene: the link is all this card offers
+        const row = card.querySelector('#sh-manage');
+        const sel = card.querySelector('#sh-listing');
+        sel.value = own.privacy === 'Open' ? 'Open' : 'Link Only';
+        row.hidden = false;
+        sel.addEventListener('change', async () => {
+          const to = sel.value;
+          try {
+            const { setSharePrivacy } = await import('./share.js');
+            await setSharePrivacy(S.share.id, to);
+            flash(to === 'Open' ? 'Listed in Community — it shows on the wall now.' : 'Taken out of Community — the link still works.', 5000);
+          } catch (e) {
+            sel.value = to === 'Open' ? 'Link Only' : 'Open';   // the select tells the truth
+            flash(`Could not change the listing: ${e.message}`, 6000);
+          }
+        });
+      } catch (e) { /* offline, or the key went stale — the link card still works */ }
+    })();
   }
   const input = card.querySelector('#sh-title');
   input.value = rec ? (rec.name || 'Local Scene')
