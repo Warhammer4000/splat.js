@@ -2416,3 +2416,25 @@ said fine.
 
 Gates: unit 8/8, e2e 8/8 (resume.spec flaked once on the first run of the batch,
 passed on two full re-runs and in isolation; no artifact survived).
+
+### 2026-09-16d — unlisting where it matters: the Community tab
+
+Reported straight after the last deploy: signed in, and the ⋯ was only on the
+This device pane — the place you actually look at your scene the way everyone
+else sees it, Community, had no menu at all (`creationTile(it, false, …)` for
+every gallery tile). Now a Community tile you own carries the same menu, and
+someone else's carries none; ownership comes from the ids in `/splatjs/mine`,
+so presets are excluded for free (they are filtered out of that pane already).
+
+Both panes now share ONE state object per space, so flipping the listing on the
+Community copy relabels the This device copy, and a rename moves both captions
+plus the run record that made the share. The privacy flip and the delete redraw
+the wall, so the scene visibly leaves Community in front of the creator instead
+of sitting there looking listed. Delete also clears `spaceId` on any local run
+that made it — one code path now, `patchRunsOfSpace()`, instead of a callback
+per call site.
+
+Gates: unit 8/8, e2e 8/8. Verified against a stubbed API: your tile in Community
+has the menu and a stranger's does not; "Take out of Community" sends one PUT,
+the tile leaves the pane, stays under This device, and its menu there reads
+"List in Community".
