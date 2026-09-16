@@ -209,7 +209,8 @@ export async function fetchGallery({ count = 12, before = null } = {}) {
 export async function fetchMine() {
   const token = storedToken();
   if (!token) return null;
-  const res = await fetch(`${API}/splatjs/mine`, { headers: { Authorization: `Bearer ${token}` } });
+  // no-store: this list changes the moment the visitor shares something
+  const res = await fetch(`${API}/splatjs/mine`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
   if (!res.ok) return null;
   const data = await res.json();
   return (data.data && data.data.items) || [];
