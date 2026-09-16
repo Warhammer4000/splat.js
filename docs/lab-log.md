@@ -3553,3 +3553,25 @@ the row stays `hidden`, without the restore line `window.__splat.share` is
 `undefined` after the reload.
 
 Gates: unit 8/8, e2e 12/12.
+
+### 2026-09-16j — the address bar stops naming the scene you left
+
+Reported while retraining: the URL keeps `?space=<old id>` after Train on a
+shared scene. Reading it is confusing, and a refresh mid-run reopened that old
+scene instead of the run. `startPrep()` consumed the detail card's history
+entry but never touched the query. It now drops the scene keys — space, model,
+recon, frame, cmp — and keeps the tuning flags (?iters, ?ipf, ?api …), which
+describe the run that is actually starting. Guarded by `run_url.spec.mjs`
+(fails against the unfixed code: the id is still there).
+
+The privacy question from the same sitting closed itself: Get link produces
+Link Only spaces, as the code reads. Nothing changed there.
+
+**Open, not mine:** `resume.spec.mjs` fails intermittently in FULL-suite runs
+and passes alone every time — twice this morning before any of today's work,
+and again now. The assertion is real (`post.posAliveMax` 5.954 against a ±5 %
+band on the pre-pause value, resume.spec:62), i.e. the resumed model's alive
+extent moves more than the guard allows. It resumes purely from IndexedDB and
+never reads the URL, so today's app/js work cannot reach it. Worth chasing as
+its own question, with the suite order in mind — a stubbed UI spec now runs
+before it.
