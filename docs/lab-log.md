@@ -2668,3 +2668,51 @@ And `tour_smoke.spec.mjs` now guards the shared half, because moving maths out
 of a 5,000-line file deserves a test that flies it.
 
 Gates: unit 8/8, e2e 14/14 (resume.spec passed this time; see 09-16j).
+
+### 2026-09-16l — the benchmark flights, re-exported
+
+Regenerating the nine benchmark intros with the smoothed exporter turned up two
+things the Lab alone had not shown.
+
+**Uniform arc-length keys are not enough.** The first pass read: Garden 35.9°
+of turn per key on median, Bicycle 24°, and worst-case kinks of 120-169° on the
+walks (Truck, Playroom, Train, Bar, Camping). The medians were sampling — I was
+thinning the nodes to 60 BEFORE splining, throwing away the path — and the
+spikes were real U-turns in the captures, each landing whole between two keys.
+Fixed by spending keys where they buy something: keys sit at equal COST
+(distance in base-key units + turning in 8° units) while their frame numbers
+follow ARC LENGTH, so a corner gets several keys and is rounded, and the speed
+stays constant. Node thinning is gone; the ceiling is 480 keys (~170 KB against
+a 4-20 MB .sog).
+
+| scene | worst turn before | after |
+|---|---|---|
+| Truck | 142.1° | 25.9° |
+| Playroom | 159.1° | 61.3° |
+| Train | 120.2° | 24.7° |
+| Bar | 131.5° | 20.7° |
+| Camping | 168.6° | 29.8° |
+| Lab | 44.4° | 6.9° |
+
+Every scene now sits at or under the hand-made reference (median 5.25°, p90
+15.4°, worst 29.2°); Playroom keeps one 61° corner, a reversal sharper than the
+spline's 8-subdivisions-per-node can resolve.
+
+**Those spaces do not hold their model at the origin.** Fitting each new flight
+onto the authored one (translation-only ICP) gave a residual of 1-10 % of the
+path extent — which PROVES the file-to-scene mapping, nothing else would fit —
+and a model offset of ≈(0, 1.19, -4.0) on seven of nine, with Truck
+(1.53, 1.18, -2.75) and the Bar (-10.36, 1.59, 10.26) genuinely elsewhere. The
+exporter assumes the origin, which is what `createUserModel` gives a NEW space,
+so each re-export carries its own measured offset instead.
+
+Uploaded over the same CDN keys (originals backed up first). Note for next
+time: `ugc.arrival.space` sits behind Cloudflare AS WELL as CloudFront — a
+CloudFront invalidation left the bare URL serving a 24 Aug copy with `Age:
+9673` and a 7-day TTL. The client always requests `?v=<updatedAt>`, and every
+versioned URL returns the new file, so this is invisible in production; the
+bare URL is the one to distrust when checking by hand.
+
+**Open:** whether a freshly shared space needs that offset too. The nine
+benchmarks were placed by hand or by an older script, and `restamp_space.mjs`
+only swaps glbUrl. One published scene, opened and looked at, settles it.
