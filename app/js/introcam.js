@@ -22,13 +22,20 @@ import { api, uploadFile } from './arrival.js';
 import { camCentre, quatFromR, quatToR, qslerp } from './viewport.js';
 
 const FPS = 24;
-// A key every ~8° of turning: the platform interpolates BETWEEN keys, so each
-// key is a corner, and a multi-loop orbit needs far more of them than a walk
-// (the Garden's 185-photo orbit turns ~2,100° in total — at 60 keys that is a
-// 36° kink every 0.6 s, which is exactly how it read).
-const TURN_PER_KEY = 8;
-const MIN_KEYS = 24;
-const MAX_KEYS = 480;   // ~170 KB of .path at the top end, against a 4-20 MB .sog
+// Key budget. The player interpolates between keys and does its own smoothing,
+// so density past a point buys nothing and costs it work — 379 keys on Truck
+// made the cutscene struggle. The hand-made intro that reads well carries 57
+// keys over 34 s, so this aims at that cadence and spends the budget where the
+// path turns rather than spreading it evenly.
+const TURN_PER_KEY = 20;   // a key per ~20° of turning, on top of the base rate
+const KEYS_PER_SEC = 1.5;
+const MIN_KEYS = 16;
+const MAX_KEYS = 90;
+// Two keys on the same frame are not interpolated — the flight jumps there.
+// Keys are placed by TURNING while their clock follows DISTANCE, so a tight
+// corner advances the arc by almost nothing and rounds several keys onto one
+// frame: 79 of Truck's 379 keys collided that way. Every key keeps this gap.
+const MIN_FRAME_GAP = 3;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
@@ -88,18 +95,51 @@ function quatOf(m) {
   return { x: (m[2] + m[6]) / s, y: (m[5] + m[7]) / s, z: 0.25 * s, w: (m[3] - m[1]) / s };
 }
 
-/** A point on the flight, in the SPACE's world. */
-function worldPose({ centre, q }) {
-  // Rz(180) · C — diag(-1, -1, 1)
-  const position = { x: -centre[0], y: -centre[1], z: centre[2] };
-  // Rz(180) · Rᵀ · diag(1, -1, -1): both outer matrices are diagonal, so the
-  // product is the transpose with its rows and columns signed
+// What a .sog user model gets from createUserModel: the origin, turned half a
+// turn about Z, unscaled. A space whose model was placed or levelled by hand
+// carries something else, and the flight has to follow it exactly — the camera
+// belongs to the splat, not to the room.
+const DEFAULT_MODEL = { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 180 }, scale: 1 };
+
+/** PlayCanvas's own euler->quaternion (Quat.setFromEulerAngles), so a model
+ *  placed in the editor and this flight agree on what its angles mean. */
+function eulerR({ x, y, z }) {
+  const h = 0.5 * Math.PI / 180;
+  const sx = Math.sin(x * h), cx = Math.cos(x * h);
+  const sy = Math.sin(y * h), cy = Math.cos(y * h);
+  const sz = Math.sin(z * h), cz = Math.cos(z * h);
+  return quatToR([
+    sx * cy * cz - cx * sy * sz,
+    cx * sy * cz + sx * cy * sz,
+    cx * cy * sz - sx * sy * cz,
+    cx * cy * cz + sx * sy * sz,
+  ]);
+}
+
+const mul3 = (A, B) => {
+  const m = new Array(9);
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
+    m[i * 3 + j] = A[i * 3] * B[j] + A[i * 3 + 1] * B[3 + j] + A[i * 3 + 2] * B[6 + j];
+  }
+  return m;
+};
+
+/** A point on the flight, in the SPACE's world:
+ *  world = P + R(model) · (scale · X), and the camera's basis turned the same
+ *  way (the solver looks down +Z with +Y down, PlayCanvas down -Z with +Y up). */
+function worldPose({ centre, q }, model) {
+  const Rm = eulerR(model.rotation);
+  const sc = model.scale ?? 1;
+  const c = [centre[0] * sc, centre[1] * sc, centre[2] * sc];
+  const position = {
+    x: model.position.x + Rm[0] * c[0] + Rm[1] * c[1] + Rm[2] * c[2],
+    y: model.position.y + Rm[3] * c[0] + Rm[4] * c[1] + Rm[5] * c[2],
+    z: model.position.z + Rm[6] * c[0] + Rm[7] * c[1] + Rm[8] * c[2],
+  };
   const R = quatToR(q);
   const rt = [R[0], R[3], R[6], R[1], R[4], R[7], R[2], R[5], R[8]];
-  const rowS = [-1, -1, 1], colS = [1, -1, -1];
-  const m = new Array(9);
-  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) m[i * 3 + j] = rowS[i] * rt[i * 3 + j] * colS[j];
-  return { position, rotation: quatOf(m) };
+  const flip = [1, 0, 0, 0, -1, 0, 0, 0, -1];
+  return { position, rotation: quatOf(mul3(Rm, mul3(rt, flip))) };
 }
 
 const track = (type, keyframes) => ({ type, keyframes });
@@ -174,7 +214,7 @@ function flight(nodes, keys) {
   // reversal needs several. Cost = distance (in base-key units) + turning (in
   // TURN_PER_KEY units); the keys sit at equal COST, their frame numbers at
   // equal ARC LENGTH, so the corner is rounded and the speed stays constant.
-  const baseKeys = Math.max(2, keys / 2);
+  const baseKeys = Math.max(2, keys / 2);   // half the budget to distance, the rest to turning
   const perKey = total / baseKeys;
   const cost = [0];
   for (let k = 1; k < samples.length; k++) {
@@ -202,19 +242,24 @@ function flight(nodes, keys) {
 
 /** The Sequence an intro cutscene is, or null when the capture has no path to
  *  fly (fewer than two distinct camera positions). */
-export function buildIntroSequence(cams) {
+export function buildIntroSequence(cams, { model = DEFAULT_MODEL } = {}) {
   const nodes = pathNodes(cams);
   if (!nodes.length) return null;
   // the viewer's own pacing: one pass, never longer than half a minute
   const seconds = clamp(1.4 * nodes.length, 10, 30);
   const { totalTurn } = flight(nodes, 0);
-  const keys = clamp(Math.ceil(seconds * 2 + totalTurn / TURN_PER_KEY), MIN_KEYS, MAX_KEYS);
   const span = Math.round(seconds * FPS);
+  const keys = clamp(Math.ceil(seconds * KEYS_PER_SEC + totalTurn / TURN_PER_KEY),
+    MIN_KEYS, Math.min(MAX_KEYS, Math.floor(span / MIN_FRAME_GAP) + 1));
   const path = flight(nodes, keys);
   const pos = [], rot = [], scl = [];
+  let last = -MIN_FRAME_GAP;
   path.forEach((step, i) => {
-    const { position, rotation } = worldPose(step);
-    const frameNumber = Math.min(span, Math.round(step.at * span));
+    const { position, rotation } = worldPose(step, model);
+    // the clock follows the metres, but never closer than the player can read;
+    // a corner simply takes a little longer, which is how a corner should feel
+    const frameNumber = Math.max(last + MIN_FRAME_GAP, Math.round(step.at * span));
+    last = frameNumber;
     pos.push({ id: `keyframe-p${i}`, frameNumber, keyframeData: position });
     rot.push({ id: `keyframe-r${i}`, frameNumber, keyframeData: rotation });
     scl.push({ id: `keyframe-s${i}`, frameNumber, keyframeData: { x: 1, y: 1, z: 1 } });
