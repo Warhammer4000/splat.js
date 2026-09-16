@@ -464,6 +464,8 @@ function boot() {
   $('about-gh').href = REPO;
   // the feedback channel shows only when this build has one to point at
   if (DISCORD) { $('discord').href = DISCORD; $('discord').hidden = false; }
+  wireAccount();
+  renderAccount();
   // the brand: on the home tile view (nothing open) it tells the story —
   // the About sheet; from inside a scene it stays the way back home
   // the card's state lives in the address (?about=1): a refresh keeps it
@@ -3571,6 +3573,8 @@ function shareDialog(rec = null, { downloadsOnly = false, link = false } = {}) {
         S.share = { id: spaceId, title };
         renderControls();
       }
+      renderAccount();   // the share may have signed this visitor in
+
       flash(`${title} is shared`, 300000, [
         { label: 'View link', href: link },
         { label: 'Enter the space ↗', href: spaceUrl, blank: true },
@@ -5068,6 +5072,69 @@ function deviceLabel() {
   if (!gpu || /^(WebKit|Apple GPU|Software)/i.test(gpu)) return kind;
   // a comma inside, because the stats line itself is separated by · already
   return kind ? `${kind}, ${gpu}` : gpu;
+}
+
+const USER_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" class="ai">' +
+  '<circle cx="12" cy="8" r="3.4"/><path d="M4.8 20c.6-3.6 3.6-5.6 7.2-5.6s6.6 2 7.2 5.6"/></svg>';
+
+/** The header's account corner. Signing in is only ever about publishing —
+ *  capture, solving and training never touch it — so the corner stays out of
+ *  the way: the word Login, or who you are, and a second press signs out. */
+async function renderAccount() {
+  const el = $('acct');
+  if (!el) return;
+  const signedOut = () => {
+    el.className = 'tbtn';
+    el.title = 'Sign in to publish — training needs no account';
+    el.innerHTML = `${USER_ICON}Login`;
+  };
+  const signedIn = (u) => {
+    el.className = 'tbtn';
+    el.title = `Signed in as ${u.name} — press to sign out`;
+    el.innerHTML = `<i class="acct-av"${u.avatar ? ` style="background-image:url(&quot;${esc(u.avatar)}&quot;)"` : ''}>` +
+      `${u.avatar ? '' : esc(u.name.trim().charAt(0).toUpperCase())}</i>${esc(u.name)}`;
+  };
+  if (!hasToken()) { signedOut(); return; }
+  signedIn({ name: 'Account', avatar: '' });   // something is there while /user/me answers
+  const { whoAmI } = await import('./arrival.js');
+  const u = await whoAmI();
+  if (u) signedIn(u); else signedOut();        // a key the server dropped is no key
+}
+
+function wireAccount() {
+  const el = $('acct');
+  el.addEventListener('click', async () => {
+    if (hasToken()) {
+      // two presses, like every other irreversible-looking thing here
+      if (el.dataset.armed !== '1') {
+        el.dataset.armed = '1';
+        el.classList.add('armed');
+        el.innerHTML = `${USER_ICON}Sign out?`;
+        setTimeout(() => { if (el.dataset.armed === '1') { el.dataset.armed = ''; el.classList.remove('armed'); renderAccount(); } }, 3000);
+        return;
+      }
+      el.dataset.armed = '';
+      const { signOut } = await import('./arrival.js');
+      signOut();
+      await renderAccount();
+      mountWall().catch(() => {});
+      flash('Signed out on this device. What you published stays published.', 5000);
+      return;
+    }
+    // the sign-in window opens INSIDE the click or the browser blocks it
+    const popup = window.open('', 'arrival-oauth', 'width=480,height=720');
+    if (!popup) { flash('The sign-in window was blocked — allow popups for this site and try again.', 8000); return; }
+    try {
+      const { getToken } = await import('./arrival.js');
+      await getToken((m) => flash(m, 60000), popup);
+      await renderAccount();
+      mountWall().catch(() => {});
+      flash('Signed in.', 3000);
+    } catch (e) {
+      if (popup && !popup.closed) popup.close();
+      flash(`Sign-in failed: ${e.message}`, 7000);
+    }
+  });
 }
 
 function gpuFacts() {

@@ -83,6 +83,27 @@ export function storedToken() {
   return localStorage.getItem(LS_TOKEN);
 }
 
+/** Who the key in this browser belongs to — the name and picture the header
+ *  chip wears. Null when signed out; a key the server no longer honours is
+ *  forgotten here, so the corner falls back to Login instead of lying. */
+export async function whoAmI() {
+  const token = localStorage.getItem(LS_TOKEN);
+  if (!token) return null;
+  try {
+    const res = await fetch(`${API}/user/me`, { headers: { Authorization: `Bearer ${token}` } });
+    if (res.status === 401) { localStorage.removeItem(LS_TOKEN); return null; }
+    if (!res.ok) return null;
+    const u = (await res.json()).data;
+    return u ? { id: u.id, name: u.name || u.uniqueName || 'Signed in', avatar: u.profileImageUrl || u.avatarUrl || '' } : null;
+  } catch { return null; }   // offline: the key is still there, say nothing
+}
+
+/** Forget the key held in this browser. Nothing server-side changes — what
+ *  was published stays published. */
+export function signOut() {
+  localStorage.removeItem(LS_TOKEN);
+}
+
 // the sign-in window of a round-trip still waiting for the visitor
 let pendingSignIn = null;
 

@@ -3323,3 +3323,30 @@ line itself is separated by `·`. And a Discord "Feedback" link in the top bar
 
 Gates: unit 8/8, e2e 8/8. Verified against a locally stubbed API: rename,
 listing toggle, delete, and a fresh share stamping `device: "PC, RTX 5080"`.
+
+### 2026-09-16c — an account corner, kept to what it is
+
+You cannot tell whether you are signed in: there was no account UI anywhere
+outside `?admin`, and `forgetRevokedToken` drops the stored key on any 401
+without a word — so "logged out" and "never signed in" looked identical.
+
+The header now ends with the account: **Login** when this browser holds no key,
+otherwise the visitor's picture and name (`GET /api/v1/user/me`), and a press
+signs out — armed twice over, the same idiom as the tile menus. A key the
+server no longer honours is forgotten when `whoAmI()` sees the 401, so the
+corner falls back to Login rather than lying. Signing in stays what it always
+was: a publishing credential, never a gate — capture, solve and training do not
+touch it, and nothing asks for it until you publish.
+
+The About card's promise is re-scoped in the same commit. "No server, no cloud,
+no queue, no account" stopped being true the day sharing shipped, and a visitor
+who reads it and then finds an account loses trust for good. It now reads
+"Nothing is uploaded unless you publish", and says what publishing sends: the
+finished model, not the photographs, unless the box is ticked.
+
+Deliberately NOT built (proposed, judged too much for what it buys): a network
+ledger in the About card showing bytes out at 0 until you publish — the claim
+made checkable instead of asserted. Worth revisiting.
+
+Gates: unit 8/8, e2e 8/8 (resume.spec flaked once on the first run of the batch,
+passed on two full re-runs and in isolation; no artifact survived).
