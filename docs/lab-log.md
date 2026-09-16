@@ -3348,5 +3348,16 @@ Deliberately NOT built (proposed, judged too much for what it buys): a network
 ledger in the About card showing bytes out at 0 until you publish — the claim
 made checkable instead of asserted. Worth revisiting.
 
+A trap the local server hid: `boot()` is called at the top level of app.js
+(line 215) and therefore runs **while the module is still evaluating**, so the
+icon const declared next to the new functions at line ~5077 was in its temporal
+dead zone — `signedOut()` set the title and then threw. On localhost
+`document.readyState` was still `loading`, boot deferred to DOMContentLoaded
+after evaluation finished, and it worked perfectly. On live, with the script
+warm, boot ran synchronously and the corner rendered EMPTY. Anything boot
+touches has to be declared above it; the constant now sits at line 26. Caught
+by the standing rule to verify live by fetch after a deploy — the local check
+said fine.
+
 Gates: unit 8/8, e2e 8/8 (resume.spec flaked once on the first run of the batch,
 passed on two full re-runs and in isolation; no artifact survived).
