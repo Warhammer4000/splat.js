@@ -3512,26 +3512,35 @@ function shareDialog(rec = null, { downloadsOnly = false, link = false } = {}) {
     });
     // a scene of your own, open in the viewer: its listing belongs HERE, where
     // you are looking at it — not only on the wall tile's menu
-    if (hasToken()) (async () => {
+    const wireListing = (privacy) => {
+      const row = card.querySelector('#sh-manage');
+      const box = card.querySelector('#sh-listing');
+      box.checked = privacy === 'Open';
+      row.hidden = false;
+      box.addEventListener('change', async () => {
+        const to = box.checked ? 'Open' : 'Link Only';
+        try {
+          const { setSharePrivacy } = await import('./share.js');
+          await setSharePrivacy(S.share.id, to);
+          S.share.privacy = to;
+          flash(to === 'Open' ? 'Published to Community — it shows on the wall now.' : 'Removed from Community — the link still works.', 5000);
+        } catch (e) {
+          box.checked = !box.checked;   // the box tells the truth
+          flash(`Could not change that: ${e.message}`, 6000);
+        }
+      });
+    };
+    // a share made in this tab already knows what it chose — asking the server
+    // would only race it (the row is not in /splatjs/mine the instant it is
+    // written, so the toggle went missing until a reload)
+    if (S.share.privacy) wireListing(S.share.privacy);
+    else if (hasToken()) (async () => {
       try {
         const { fetchMine } = await import('./share.js');
         const own = (await fetchMine() || []).find((s) => String(s.id) === String(S.share.id));
         if (!own) return;   // someone else's scene: the link is all this card offers
-        const row = card.querySelector('#sh-manage');
-        const box = card.querySelector('#sh-listing');
-        box.checked = own.privacy === 'Open';
-        row.hidden = false;
-        box.addEventListener('change', async () => {
-          const to = box.checked ? 'Open' : 'Link Only';
-          try {
-            const { setSharePrivacy } = await import('./share.js');
-            await setSharePrivacy(S.share.id, to);
-            flash(to === 'Open' ? 'Published to Community — it shows on the wall now.' : 'Removed from Community — the link still works.', 5000);
-          } catch (e) {
-            box.checked = !box.checked;   // the box tells the truth
-            flash(`Could not change that: ${e.message}`, 6000);
-          }
-        });
+        S.share.privacy = own.privacy;
+        wireListing(own.privacy);
       } catch (e) { /* offline, or the key went stale — the link card still works */ }
     })();
   }
@@ -3600,7 +3609,7 @@ function shareDialog(rec = null, { downloadsOnly = false, link = false } = {}) {
       // the scene on screen is that space now: its button becomes the link,
       // so a second press can no longer make a second space
       if (S.session && (!rec || rec === S._localRun)) {
-        S.share = { id: spaceId, title };
+        S.share = { id: spaceId, title, privacy };   // what it chose, so the card need not ask
         renderControls();
       }
       renderAccount();   // the share may have signed this visitor in
@@ -3961,6 +3970,27 @@ function shareMenuItems(st) {
   ];
 }
 
+/** What a moderator can do to somebody else's scene: take it off the wall.
+ *  The link keeps resolving — unlisting is not deleting, and nothing of the
+ *  creator's is destroyed. Armed twice over, like every other danger here. */
+function adminMenuItems(st) {
+  return [
+    { label: 'Copy link', act: async () => {
+      const url = shareLinkOf(st.id);
+      try { await navigator.clipboard.writeText(url); flash('Link copied.', 2500); }
+      catch { flash(url, 8000); }
+    } },
+    { label: 'Remove from Community', danger: true, act: async () => {
+      try {
+        const { setSharePrivacy } = await import('./share.js');
+        await setSharePrivacy(st.id, 'Link Only');
+        flash(`"${st.title || st.id}" is off the wall — its link still works.`, 6000);
+        mountWall().catch(() => {});
+      } catch (e) { flash(`Could not remove it: ${e.message}`, 6000); }
+    } },
+  ];
+}
+
 /** every tile on the wall that shows this space — a share tile links to it,
  *  a local run tile carries it on the record */
 const tilesOfSpace = (id) => [...document.querySelectorAll('.galtile')]
@@ -3977,7 +4007,7 @@ async function patchRunsOfSpace(spaceId, patch) {
   } catch (e) { /* the library is best-effort — never block a share action */ }
 }
 
-function creationTile(it, mine, { shared = false, preset = false, state = null } = {}) {
+function creationTile(it, mine, { shared = false, preset = false, state = null, admin = false } = {}) {
   const wrap = document.createElement('a');
   wrap.className = 'galtile';
   const img = (it.splatjs && it.splatjs.thumbUrl) || it.screenshotUrl || '';
@@ -4024,8 +4054,9 @@ function creationTile(it, mine, { shared = false, preset = false, state = null }
       else av.textContent = u.name.trim().charAt(0).toUpperCase();
     });
   }
-  if (mine) {
-    // the creator's own share wears the ⋯ the local runs already have
+  if (mine || admin) {
+    // the creator's own share wears the ⋯ the local runs already have;
+    // a moderator gets one on every scene on the wall
     const menu = document.createElement('button');
     menu.type = 'button';
     menu.className = 'run-menu';
@@ -4038,7 +4069,8 @@ function creationTile(it, mine, { shared = false, preset = false, state = null }
     wrap.addEventListener('click', (e) => { if (e.target.closest('.run-menu, .tilemenu')) e.preventDefault(); }, true);
     // one state object per space, shared by both panes: flipping the listing
     // on the Community copy relabels the menu on the This device copy too
-    tileMenu(menu, shareMenuItems(state || { id: it.id, title: it.title, privacy: it.privacy }));
+    const st = state || { id: it.id, title: it.title, privacy: it.privacy };
+    tileMenu(menu, mine ? shareMenuItems(st) : adminMenuItems(st));
   }
   return wrap;
 }
@@ -4091,11 +4123,14 @@ function selectWallTab(name, { scrollToTabs = false, restoreY = null } = {}) {
 async function mountWall() {
   try {
     const { fetchGallery, fetchMine } = await import('./share.js');
-    const [{ items }, capTile, myShares] = await Promise.all([
+    const { whoAmI } = await import('./arrival.js');
+    const [{ items }, capTile, myShares, me] = await Promise.all([
       fetchGallery({ count: 48 }),   // the API's page cap; the wall shows every listed scene
       lastCaptureTile().catch(() => null),
       hasToken() ? fetchMine().catch(() => []) : Promise.resolve([]),
+      hasToken() ? whoAmI().catch(() => null) : Promise.resolve(null),
     ]);
+    const moderates = !!(me && me.isAdmin);   // a moderator can clear any scene off the wall
     // the run tiles carry the management of the shares they made, so they
     // need the server's view of those shares (title + privacy) first
     const shareById = new Map((myShares || []).map((s) => [String(s.id), { id: s.id, title: s.title, privacy: s.privacy }]));
@@ -4137,7 +4172,7 @@ async function mountWall() {
     // and there, of all places, is where you want to be able to unlist one
     if (shares.length) for (const it of shares) {
       const st = shareById.get(String(it.id));
-      pane('community').appendChild(creationTile(it, !!st, { shared: true, state: st }));
+      pane('community').appendChild(creationTile(it, !!st, { shared: true, state: st, admin: moderates }));
     }
     else pane('community').innerHTML = '<p class="galempty">Nothing shared yet — yours could be the first.</p>';
     if (own.length) for (const t of own) pane('device').appendChild(t);

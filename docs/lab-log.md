@@ -3468,3 +3468,33 @@ against a stubbed API (`local_scene_intro.path`, 4.6 KB, then
 `POST /spaces/<id>/entities` with entity_id `user-model-introcam-<id>`,
 autoPlay true). Still unproven: a camera actually flying in a real space — that
 needs a published scene on the account.
+
+### 2026-09-16g — the toggle that vanished, and a moderator's broom
+
+Two from the same afternoon's use.
+
+**The toggle went missing right after a link-only share** — and came back on
+reload, which is the whole diagnosis: the link card asked `/splatjs/mine`
+whether the scene was the visitor's, and the row a share had just written is
+not in that list the instant it is written. The card was racing the platform
+for an answer the app already had. It now records what it chose —
+`S.share = { id, title, privacy }` — and only falls back to the server when the
+privacy is unknown (someone else's link opened cold). `fetchMine` also asks
+`cache: 'no-store'`, since that list changes the moment anyone shares.
+Reproduced and guarded with a spec that stubs `/splatjs/mine` to return NOTHING:
+it fails without the fix (the row stays hidden) and passes with it.
+
+**A moderator can now clear any scene off the wall.** `/user/me` already
+carries `isAdmin` and `canEditSpace` already returns true for an admin — which
+is what the `?admin` sheet has always leaned on — so the wall just needed to
+ask. Every Community tile gets the ⋯ for an admin: Copy link, and Remove from
+Community, which sets privacy to "Link Only". Unlisting, never deleting: the
+creator keeps the scene and the link keeps resolving. `whoAmI()` is memoised so
+the header chip and the wall share one request, and signing out clears it.
+
+Kept as a real test (`community_moderation.spec.mjs`, stubbed, no GPU): a plain
+visitor gets NO menu on a scene that is not theirs, and a moderator's first
+press only arms — the PUT fires on the second, and carries exactly
+`{privacy: "Link Only"}`. A permissions rule deserves a guard.
+
+Gates: unit 8/8, e2e 10/10.
