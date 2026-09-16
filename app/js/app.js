@@ -3434,7 +3434,7 @@ function uploadDialog() {
         // the solved path becomes the space's intro flight (WEB-7704)
         cams: (S.session && S.session.recon && S.session.recon.cams) || null,
         onStatus: (m) => flash(m, 120000),
-        onProgress: (pct) => flash(`Uploading … ${pct}%`, 120000),
+        onProgress: (p) => flash(`Uploading … ${p}%`, 120000),
       });
       flash(`${title} is live`, 300000, [
         { label: 'Open your space ↗', href: spaceUrl, blank: true },
@@ -3492,6 +3492,18 @@ function shareDialog(rec = null, { downloadsOnly = false, link = false } = {}) {
       <button class="btn btn-quiet" id="sh-cancel">Cancel</button>
       <button class="btn btn-accent" id="sh-go">Share</button>
     </div>
+    </div>
+    <div class="sh-work" id="sh-work" hidden>
+      <span class="sog-status" id="sh-status">Preparing …</span>
+      <div class="prep-meter"><i id="sh-bar" style="width:0%"></i></div>
+    </div>
+    <div class="sh-link" id="sh-done" hidden>
+      <input id="sh-done-url" type="text" readonly>
+      <div class="upcard-row sh-linkrow">
+        <a class="linkish sh-enter" id="sh-done-enter" target="_blank" rel="noopener">Enter the space ↗</a>
+        ${navigator.share ? '<button type="button" class="btn btn-outline" id="sh-done-native">Share …</button>' : ''}
+        <button type="button" class="btn btn-accent" id="sh-done-copy">Copy link</button>
+      </div>
     </div>
     ${acts.length ? `<div class="sh-dl">${downloadsOnly ? '' : '<span class="sh-dl-head">Or download</span>'}
       ${acts.map((a) => `<button type="button" data-dl="${a.act}"><b>${esc(a.label)}</b><span>${esc(a.sub)}</span></button>`).join('')}
@@ -3575,11 +3587,22 @@ function shareDialog(rec = null, { downloadsOnly = false, link = false } = {}) {
     const includePhotos = !!card.querySelector('#sh-photos')?.checked;
     const informFollowers = privacy === 'Open' && !!card.querySelector('#sh-inform')?.checked;
     const popup = hasToken() ? null : window.open('', 'arrival-oauth', 'width=480,height=720');
-    close();
     if (!hasToken() && !popup) {
       flash('The sign-in window was blocked — allow popups for this site and try again.', 8000);
       return;
     }
+    // the card STAYS: the work belongs where the press happened, and so does
+    // the link it produces — a result does not belong in a corner note
+    const form = card.querySelector('.sh-form');
+    const work = card.querySelector('#sh-work');
+    const head = card.querySelector('b');
+    const live = () => card.isConnected;   // they may close it mid-flight
+    const say = (m) => { if (live()) card.querySelector('#sh-status').textContent = m; };
+    const pct = (p) => { if (live()) card.querySelector('#sh-bar').style.width = `${p}%`; };
+    form.hidden = true;
+    work.hidden = false;
+    head.textContent = privacy === 'Open' ? 'Publishing your scene …' : 'Making your link …';
+    say('Preparing the model …');
     S.uploading = true;
     try {
       const { shareCreation } = await import('./share.js');
@@ -3596,8 +3619,8 @@ function shareDialog(rec = null, { downloadsOnly = false, link = false } = {}) {
             psnrTrain: rec.psnr ?? null, psnrTest: null,
           },
         } : {}),
-        onStatus: (m) => flash(m, 120000),
-        onProgress: (pct) => flash(`Uploading … ${pct}%`, 120000),
+        onStatus: say,
+        onProgress: pct,
       });
       // the run on this device is now that scene: same name, and it knows its space
       try {
@@ -3614,14 +3637,39 @@ function shareDialog(rec = null, { downloadsOnly = false, link = false } = {}) {
       }
       renderAccount();   // the share may have signed this visitor in
 
-      flash(`${title} is shared`, 300000, [
-        { label: 'View link', href: link },
-        { label: 'Enter the space ↗', href: spaceUrl, blank: true },
-        { label: 'Copy link', copy: link },
-      ]);
+      if (!live()) {   // closed while it worked — then the note is all there is
+        flash(`${title} is shared`, 300000, [
+          { label: 'View link', href: link },
+          { label: 'Enter the space ↗', href: spaceUrl, blank: true },
+          { label: 'Copy link', copy: link },
+        ]);
+        return;
+      }
+      work.hidden = true;
+      head.textContent = privacy === 'Open' ? `${title} is on the wall` : 'Your link is ready';
+      const done = card.querySelector('#sh-done');
+      card.querySelector('#sh-done-url').value = link;
+      card.querySelector('#sh-done-enter').href = spaceUrl;
+      done.hidden = false;
+      const urlEl = card.querySelector('#sh-done-url');
+      urlEl.addEventListener('focus', () => urlEl.select());
+      urlEl.select();
+      card.querySelector('#sh-done-copy').addEventListener('click', async (ev) => {
+        try { await navigator.clipboard.writeText(link); ev.currentTarget.textContent = 'Copied'; }
+        catch { urlEl.select(); flash('Press Ctrl+C to copy the link.', 4000); }
+      });
+      card.querySelector('#sh-done-native')?.addEventListener('click', async () => {
+        try { await navigator.share({ title, url: link }); } catch { /* dismissed */ }
+      });
     } catch (e) {
       console.error(e);
       if (popup && !popup.closed) popup.close();
+      // back to the form, with the message where they can act on it
+      if (live()) {
+        work.hidden = true;
+        form.hidden = false;
+        head.textContent = 'Share this creation';
+      }
       flash(`Share failed: ${e.message}`, 9000);
     } finally {
       S.uploading = false;

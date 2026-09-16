@@ -3498,3 +3498,30 @@ press only arms — the PUT fires on the second, and carries exactly
 `{privacy: "Link Only"}`. A permissions rule deserves a guard.
 
 Gates: unit 8/8, e2e 10/10.
+
+### 2026-09-16h — the share card keeps its own result
+
+Pressing Share (or Get link) closed the card, threw the progress into the
+corner note and left the finished link there too — the one thing the visitor
+actually wanted, in the one place they were not looking. The card stays open
+now: the form gives way to a status line and a progress bar (the `.prep-meter`
+the compressor already uses), the heading says what is happening ("Publishing
+your scene …" / "Making your link …"), and when the space is made the card
+becomes the result — the link, Enter the space, Copy link, with the downloads
+still underneath. A failure puts the form back so the press can be repeated.
+The corner note survives for exactly one case: the visitor closed the card
+while it worked, and then it is all there is.
+
+Caught a self-inflicted one on the way. The share and upload handlers share an
+identical opening block, and a whole-file replace took the FIRST match — so the
+new progress code landed in `uploadDialog`, which has no `.sh-form` and no
+`privacy` in scope: Upload would have thrown a ReferenceError on press.
+`node --check` was happy, because an undefined identifier is a runtime problem.
+What found it was a MutationObserver-style trace on the removal — overriding
+`Element.prototype.remove` and printing the stack said `close()` at
+app.js:3575, i.e. the handler I thought I had edited was untouched. Anchor
+edits on something unique to the function, and when a test says "the thing you
+changed did not change", read the stack before re-reading the diff.
+
+Gates: unit 8/8, e2e 11/11 (`share_card_flow.spec.mjs` holds create-space open
+to catch the working state, then asserts the link lands in the card).
