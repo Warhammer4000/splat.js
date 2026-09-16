@@ -19,6 +19,12 @@ import { PRESETS, REPO, DISCORD, DATA, ownSet } from './data.js';
 // official demo scenes on the wall that are not bundled presets (Garden, The Lab, Camping)
 const EXTRA_PRESET_SPACES = ['42485456_3427', '42485456_9670', '42485456_7518'];
 const presetSpaceIds = () => new Set([...PRESETS.map((p) => p.spaceId).filter(Boolean), ...EXTRA_PRESET_SPACES]);
+
+// the header's account glyph. Declared UP HERE on purpose: boot() runs while
+// this module is still evaluating, so a const further down is in the temporal
+// dead zone by the time renderAccount() reads it (it threw on live, 2026-09-16)
+const USER_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" class="ai">' +
+  '<circle cx="12" cy="8" r="3.4"/><path d="M4.8 20c.6-3.6 3.6-5.6 7.2-5.6s6.6 2 7.2 5.6"/></svg>';
 import { Viewport, camCentre } from './viewport.js';
 import { Developer, fitRect } from './develop.js';
 import { Chart } from './chart.js';
@@ -4905,9 +4911,6 @@ function deviceLabel() {
   // a comma inside, because the stats line itself is separated by · already
   return kind ? `${kind}, ${gpu}` : gpu;
 }
-
-const USER_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" class="ai">' +
-  '<circle cx="12" cy="8" r="3.4"/><path d="M4.8 20c.6-3.6 3.6-5.6 7.2-5.6s6.6 2 7.2 5.6"/></svg>';
 
 /** The header's account corner. Signing in is only ever about publishing —
  *  capture, solving and training never touch it — so the corner stays out of
