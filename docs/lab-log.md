@@ -2464,7 +2464,9 @@ The first-time share form got the same treatment straight after (the select was
 still sitting there): checked stores "Open", off stores "Link Only" — the same
 two values as before, verified by the requests — with a line under it saying
 which is which, and "Tell my followers" following the toggle instead of the
-select's value.
+select's value. The submit button follows it too: **Share** when the scene goes
+to Community, **Get link** when it does not — a button should promise what
+actually happens, and nothing is published in the link-only case.
 The tile menus use the same two words ("Publish to Community" / "Remove from
 Community") so the three doors stop inventing their own vocabulary. A trap on
 the way: `.sh-link input { width: 100% }` is the URL field's rule and it caught

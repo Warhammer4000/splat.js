@@ -3382,6 +3382,9 @@ function shareDialog(rec = null, { downloadsOnly = false, link = false } = {}) {
     card.querySelector('#sh-hint').textContent = priv.checked
       ? 'On the wall for everyone, and anyone with the link can open it.'
       : 'Only people you send the link to.';
+    // and the button promises what actually happens: nothing is published
+    // when the scene is only a link
+    card.querySelector('#sh-go').textContent = priv.checked ? 'Share' : 'Get link';
   };
   priv.addEventListener('change', syncInform);
   syncInform();
