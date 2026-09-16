@@ -272,9 +272,10 @@ export function forgetRevokedToken(e) {
  *  Returns the new space's URL (spaceUrl) and its id. `popup`: a
  *  synchronously opened window for the first sign-in (null when
  *  hasToken()). */
-export async function sendToArrival(blob, title, { ext = 'ply', onStatus = () => {}, onProgress = () => {}, popup = null } = {}) {
+export async function sendToArrival(blob, title, { ext = 'ply', onStatus = () => {}, onProgress = () => {}, popup = null, cams = null } = {}) {
   const token = await getToken(onStatus, popup);
-  const fileName = `${(title || 'splat').toLowerCase().replace(/\W+/g, '_')}.${ext}`;
+  const slug = (title || 'splat').toLowerCase().replace(/\W+/g, '_');
+  const fileName = `${slug}.${ext}`;
 
   try {
     const { resourceKey } = await uploadFile(blob, fileName, { token, onStatus, onProgress });
@@ -283,7 +284,16 @@ export async function sendToArrival(blob, title, { ext = 'ply', onStatus = () =>
       space_data: { title: title || 'Splat.js scene', description: 'Trained in the browser with Splat.js', resource_key: resourceKey },
     });
     const spaceUrl = space.data.space_url;
-    return { spaceUrl, spaceId: String(spaceUrl).split('/').pop() };
+    const spaceId = String(spaceUrl).split('/').pop();
+    // the space opens on the capture's own flight (WEB-7704) — best-effort,
+    // the upload stands without it
+    if (cams && cams.length > 1) {
+      try {
+        const { attachIntroCam } = await import('./introcam.js');
+        await attachIntroCam(spaceId, cams, { token, slug, onStatus });
+      } catch (e) { console.warn('intro cutscene skipped:', e.message); }
+    }
+    return { spaceUrl, spaceId };
   } catch (e) {
     if (forgetRevokedToken(e)) {
       throw new Error('your Arrival.Space key was revoked — press Upload again to sign in');

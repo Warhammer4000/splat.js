@@ -3263,6 +3263,8 @@ function uploadDialog() {
       const { spaceUrl } = await sendToArrival(blob, title, {
         ext: 'sog',
         popup,
+        // the solved path becomes the space's intro flight (WEB-7704)
+        cams: (S.session && S.session.recon && S.session.recon.cams) || null,
         onStatus: (m) => flash(m, 120000),
         onProgress: (pct) => flash(`Uploading … ${pct}%`, 120000),
       });
