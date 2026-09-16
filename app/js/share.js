@@ -25,7 +25,7 @@ const API = `${API_BASE}/api/v1`;
 export async function shareCreation(S, sogBlob, {
   title, privacy = 'Link Only', includePhotos = false, informFollowers = false, thumbBlob = null,
   popup = null, onStatus = () => {}, onProgress = () => {}, recon: reconOverride = null,
-  stats: statsOverride = null,
+  stats: statsOverride = null, device = null,
 } = {}) {
   const token = await getToken(onStatus, popup);
   const slug = (title || 'splat').toLowerCase().replace(/\W+/g, '_');
@@ -121,6 +121,7 @@ export async function shareCreation(S, sogBlob, {
         splats: st.splats,
         iter: st.iter,
         minutes: st.minutes || 0,
+        device,   // the machine it was trained on, short: "PC, RTX 5080", "iPhone"
         // input facts for the pre-start detail card
         frames: (recon.source && recon.source.names && recon.source.names.length) || null,
         res: (recon.frames && recon.frames[0] && recon.frames[0].tw)
@@ -209,6 +210,12 @@ export async function fetchMine() {
  *  resolving instantly. Takes stored privacy values (Open/Link Only/Closed). */
 export function setSharePrivacy(spaceId, privacy) {
   return api(`/spaces/${encodeURIComponent(spaceId)}`, storedToken(), { privacy }, 'PUT');
+}
+
+/** Rename a share: the space's title, which is also the gallery tile's
+ *  caption and the name the viewer shows. */
+export function renameShare(spaceId, title) {
+  return api(`/spaces/${encodeURIComponent(spaceId)}`, storedToken(), { title }, 'PUT');
 }
 
 /** Delete the share's space entirely. */

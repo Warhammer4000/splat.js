@@ -3,6 +3,9 @@
 // before anything has run.
 
 export const REPO = 'https://github.com/arrival-space/splat.js';
+// the feedback channel in the top bar — empty hides the button, so a build
+// never ships a Discord link that goes nowhere
+export const DISCORD = 'https://discord.gg/ATWXzHDRbZ';
 export const DATA = '../data/';
 
 export const PRESETS = [
