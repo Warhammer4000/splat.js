@@ -131,6 +131,15 @@ export async function shareCreation(S, sogBlob, {
       },
     }, 'PUT');
 
+    // 4b) the space opens on the capture's own flight (WEB-7704). Best-effort:
+    //     the share is complete and correct without an intro.
+    try {
+      onStatus('Building the intro flight …');
+      const { attachIntroCam } = await import('./introcam.js');
+      const intro = await attachIntroCam(spaceId, recon.cams, { token, slug, onStatus });
+      if (intro) console.log(`intro cutscene: ${intro.keys} keys, ${intro.seconds}s`);
+    } catch (e) { console.warn('intro cutscene skipped:', e.message); }
+
     // 5) a public scene goes through the platform's publish route as well:
     //    it registers the space as published (feed order) and tells the
     //    creator's followers only when they asked for it. Best-effort — the

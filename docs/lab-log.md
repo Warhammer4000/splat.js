@@ -3415,3 +3415,49 @@ only after the screenshot said otherwise.
 Gates: unit 8/8, e2e 8/8. Verified on the real 42485456_2385 share with only
 /splatjs/mine and the PUT stubbed: the toggle reads the stored privacy, and
 each flip sends one PUT (Open, then Link Only).
+
+### 2026-09-16f — WEB-7704: the intro flight, measured off the one that works
+
+The report: a splat uploaded to Arrival gets no intro cutscene from its camera
+reconstruction. I searched splat-js and found no cutscene code in any commit,
+and said so — wrongly framed. The user pointed at 42485456_9670, and the client
+loading that space fetches
+`ugc.arrival.space/splatjs/models/lab360_intro.path`. The benchmark scenes DO
+carry camera-path intros; they were made by hand once (sequence id
+`splatjsintro`) and no generator survives in the repo — `scripts/` is
+gitignored. So: not a code regression, a capability that only ever existed as a
+one-off. Reading the repo's absence and concluding "never worked" was the
+mistake; the artefact was one fetch away.
+
+That artefact then did the hard part. Rather than deriving the recon → space
+transform from first principles, I fitted it against the working intro:
+
+- **position** — ICP over all 48 signed axis permutations: `(x,y,z) → (-x,-y,z)`,
+  i.e. Rz(180°), residual **0.13** in a scene of radius 12.9. Next best
+  candidate: 1.12. That is `createUserModel`'s default rotation for a `.sog`
+  (`{x:0,y:0,z:180}`), which the model entity of every splat.js space gets.
+- **rotation** — four camera-basis candidates: `q = quat(Rz(180) · Rᵀ ·
+  diag(1,-1,-1))`, median error **0.20°** (the solver looks down +Z with +Y
+  down, PlayCanvas down -Z with +Y up). Every other candidate was ~180° out.
+
+`app/js/introcam.js` builds that Sequence from the run's own cameras — the
+viewer's tour rules (collapse co-located rig poses, fly the longest unbroken
+segment) so the space opens on the flight the creator already watched — uploads
+it as a `.path`, and hangs it on the space as `user-model-introcam-<spaceId>`
+with `autoPlay`, the same entity id the platform's own migration writes.
+Wired into both Share and Upload, best-effort: a failed intro never fails an
+upload.
+
+Verified by regenerating the Lab's intro from its own recon: **55 keys vs the
+authored 57, 33.8 s vs 34.0 s, position median 0.111 (p90 0.288) in a 12.9
+scene, rotation median 0.01°**. One bug caught by that comparison and nothing
+else: I had dropped the tour's `if (d > 1e-9)` when taking the median step, so
+on a 360 rig — five of every six gaps are zero — the median collapsed to the
+1e-3 fallback and every real stride read as a capture break. 112 panoramas came
+out as a 5-node path. With the zeros excluded it is 55.
+
+Gates: unit 8/8, e2e 8/8. The .path upload and the entity POST were exercised
+against a stubbed API (`local_scene_intro.path`, 4.6 KB, then
+`POST /spaces/<id>/entities` with entity_id `user-model-introcam-<id>`,
+autoPlay true). Still unproven: a camera actually flying in a real space — that
+needs a published scene on the account.
