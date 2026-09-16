@@ -18,6 +18,50 @@ export const camCentre = ({ R, t }) => [
   -(R[2] * t[0] + R[5] * t[1] + R[8] * t[2]),
 ];
 
+// ── rotations ───────────────────────────────────────────────────────────────
+// Shared with the intro-cutscene exporter: the flight the viewer plays and
+// the one the space plays have to be built from the SAME maths.
+export function quatFromR(R) {
+  const tr = R[0] + R[4] + R[8];
+  if (tr > 0) {
+    const s = Math.sqrt(tr + 1) * 2;
+    return [(R[7] - R[5]) / s, (R[2] - R[6]) / s, (R[3] - R[1]) / s, 0.25 * s];
+  }
+  if (R[0] > R[4] && R[0] > R[8]) {
+    const s = Math.sqrt(1 + R[0] - R[4] - R[8]) * 2;
+    return [0.25 * s, (R[1] + R[3]) / s, (R[2] + R[6]) / s, (R[7] - R[5]) / s];
+  }
+  if (R[4] > R[8]) {
+    const s = Math.sqrt(1 + R[4] - R[0] - R[8]) * 2;
+    return [(R[1] + R[3]) / s, 0.25 * s, (R[5] + R[7]) / s, (R[2] - R[6]) / s];
+  }
+  const s = Math.sqrt(1 + R[8] - R[0] - R[4]) * 2;
+  return [(R[2] + R[6]) / s, (R[5] + R[7]) / s, 0.25 * s, (R[3] - R[1]) / s];
+}
+
+export function quatToR(q) {
+  const [x, y, z, w] = q;
+  return [
+    1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w),
+    2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w),
+    2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y),
+  ];
+}
+
+export function qslerp(a, b, t) {
+  let d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+  let bb = b;
+  if (d < 0) { d = -d; bb = [-b[0], -b[1], -b[2], -b[3]]; }
+  if (d > 0.9995) {
+    const o = a.map((v, i) => v + (bb[i] - v) * t);
+    const n = Math.hypot(o[0], o[1], o[2], o[3]) || 1;
+    return o.map((v) => v / n);
+  }
+  const th = Math.acos(Math.min(1, d)), s = Math.sin(th);
+  const wa = Math.sin((1 - t) * th) / s, wb = Math.sin(t * th) / s;
+  return [0, 1, 2, 3].map((i) => a[i] * wa + bb[i] * wb);
+}
+
 export class Viewport {
   constructor(canvas) {
     this.cv = canvas;

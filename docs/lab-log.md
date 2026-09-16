@@ -3575,3 +3575,41 @@ extent moves more than the guard allows. It resumes purely from IndexedDB and
 never reads the URL, so today's app/js work cannot reach it. Worth chasing as
 its own question, with the suite order in mind — a stubbed UI spec now runs
 before it.
+
+### 2026-09-16k — the intro flies the tour's curve, not the raw poses
+
+The intro cutscene read rougher in the space than the same path does in the
+viewer, and the reason was exactly as the user guessed: `startTour` smooths,
+`introcam` did not. The exporter was handing the platform a polyline of camera
+shake — one keyframe per deduped pose, evenly spaced in TIME, so the camera
+also lurched between close and distant poses.
+
+It now runs the tour's own recipe: positions smoothed over ±3 neighbours with
+triangular weights, quaternions sign-aligned and slerped twice towards their
+neighbours' midpoint, a Catmull-Rom through the smoothed points, and keyframes
+sampled at EQUAL ARC LENGTH so the player's own interpolation moves at constant
+speed. `quatFromR` / `quatToR` / `qslerp` moved into viewport.js next to
+`camCentre` and both callers import them — one copy of the maths, since the
+viewer's flight and the space's flight are meant to be the same flight.
+
+Measured on the Lab capture, regenerating its intro three ways (turn angle per
+key, and step-length spread as σ/mean):
+
+| | raw poses (before) | smoothed (now) | hand-made reference |
+|---|---|---|---|
+| turn median | 4.62° | **4.10°** | 5.25° |
+| turn p90 | 17.94° | **12.09°** | 15.37° |
+| worst corner | **72.25°** | **33.52°** | 29.20° |
+| speed spread | 0.539 | **0.004** | 0.392 |
+
+The worst jerk halved and the speed is now constant — the hand-made one it is
+judged against carries ±39 % speed variation, so the export is, on that axis,
+smoother than the thing being copied.
+
+Two lessons from the same hour. A spec that says "the tour never starts" can
+mean the tour was ALREADY running and the click toggled it off — `#c-play`
+stops what a finished run starts by itself; read the state before pressing.
+And `tour_smoke.spec.mjs` now guards the shared half, because moving maths out
+of a 5,000-line file deserves a test that flies it.
+
+Gates: unit 8/8, e2e 14/14 (resume.spec passed this time; see 09-16j).
