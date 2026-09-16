@@ -2298,6 +2298,9 @@ async function finish() {
 async function restoreSession(src) {
   try {
     S._localRun = src.localRun || null; // set only by the local runs library
+    // a run that was already shared knows its space: the viewer offers its
+    // link and its listing, where a reload used to leave only a Download
+    if (S._localRun && S._localRun.spaceId) S.share = { id: S._localRun.spaceId, title: S._localRun.name || '' };
     S._viewerOpen = true;
     // the viewer is a navigable state: Back returns to the wall, never to
     // whatever page happened to precede the app
@@ -3336,6 +3339,8 @@ function shareDialog(rec = null, { downloadsOnly = false, link = false } = {}) {
         ${navigator.share ? '<button type="button" class="btn btn-outline" id="sh-done-native">Share …</button>' : ''}
         <button type="button" class="btn btn-accent" id="sh-done-copy">Copy link</button>
       </div>
+      <label class="upcard-opt sh-manage" id="sh-done-manage" hidden><input type="checkbox" id="sh-done-listing">
+        Publish to Community</label>
     </div>
     ${acts.length ? `<div class="sh-dl">${downloadsOnly ? '' : '<span class="sh-dl-head">Or download</span>'}
       ${acts.map((a) => `<button type="button" data-dl="${a.act}"><b>${esc(a.label)}</b><span>${esc(a.sub)}</span></button>`).join('')}
@@ -3343,6 +3348,26 @@ function shareDialog(rec = null, { downloadsOnly = false, link = false } = {}) {
   $('stage').appendChild(card);
   for (const a of acts) card.querySelector(`[data-dl="${a.act}"]`).addEventListener('click', () => { card.remove(); a.run(); });
   card.querySelector('#sh-x').addEventListener('click', () => card.remove());
+  /** The Publish to Community switch, on whichever block is showing it. A
+   *  scene can be listed or unlisted long after it was made — including from
+   *  the card that just made it. */
+  const wireListing = (row, box, spaceId, privacy) => {
+    box.checked = privacy === 'Open';
+    row.hidden = false;
+    box.addEventListener('change', async () => {
+      const to = box.checked ? 'Open' : 'Link Only';
+      try {
+        const { setSharePrivacy } = await import('./share.js');
+        await setSharePrivacy(spaceId, to);
+        if (S.share && String(S.share.id) === String(spaceId)) S.share.privacy = to;
+        flash(to === 'Open' ? 'Published to Community — it shows on the wall now.' : 'Removed from Community — the link still works.', 5000);
+      } catch (e) {
+        box.checked = !box.checked;   // the box tells the truth
+        flash(`Could not change that: ${e.message}`, 6000);
+      }
+    });
+  };
+
   if (link && S.share) {
     const url = shareLinkOf(S.share.id);
     const urlInput = card.querySelector('#sh-url');
@@ -3356,35 +3381,19 @@ function shareDialog(rec = null, { downloadsOnly = false, link = false } = {}) {
     });
     // a scene of your own, open in the viewer: its listing belongs HERE, where
     // you are looking at it — not only on the wall tile's menu
-    const wireListing = (privacy) => {
-      const row = card.querySelector('#sh-manage');
-      const box = card.querySelector('#sh-listing');
-      box.checked = privacy === 'Open';
-      row.hidden = false;
-      box.addEventListener('change', async () => {
-        const to = box.checked ? 'Open' : 'Link Only';
-        try {
-          const { setSharePrivacy } = await import('./share.js');
-          await setSharePrivacy(S.share.id, to);
-          S.share.privacy = to;
-          flash(to === 'Open' ? 'Published to Community — it shows on the wall now.' : 'Removed from Community — the link still works.', 5000);
-        } catch (e) {
-          box.checked = !box.checked;   // the box tells the truth
-          flash(`Could not change that: ${e.message}`, 6000);
-        }
-      });
-    };
+    const listingRow = card.querySelector('#sh-manage');
+    const listingBox = card.querySelector('#sh-listing');
     // a share made in this tab already knows what it chose — asking the server
     // would only race it (the row is not in /splatjs/mine the instant it is
     // written, so the toggle went missing until a reload)
-    if (S.share.privacy) wireListing(S.share.privacy);
+    if (S.share.privacy) wireListing(listingRow, listingBox, S.share.id, S.share.privacy);
     else if (hasToken()) (async () => {
       try {
         const { fetchMine } = await import('./share.js');
         const own = (await fetchMine() || []).find((s) => String(s.id) === String(S.share.id));
         if (!own) return;   // someone else's scene: the link is all this card offers
         S.share.privacy = own.privacy;
-        wireListing(own.privacy);
+        wireListing(listingRow, listingBox, S.share.id, own.privacy);
       } catch (e) { /* offline, or the key went stale — the link card still works */ }
     })();
   }
@@ -3493,6 +3502,8 @@ function shareDialog(rec = null, { downloadsOnly = false, link = false } = {}) {
       card.querySelector('#sh-done-native')?.addEventListener('click', async () => {
         try { await navigator.share({ title, url: link }); } catch { /* dismissed */ }
       });
+      // the choice made a moment ago is not final: change it right here
+      wireListing(card.querySelector('#sh-done-manage'), card.querySelector('#sh-done-listing'), spaceId, privacy);
     } catch (e) {
       console.error(e);
       if (popup && !popup.closed) popup.close();
