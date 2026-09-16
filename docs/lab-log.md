@@ -2458,6 +2458,15 @@ action offered in one surface and not in the others the user can reach the
 scene from. Wall tile, Community tile, viewer card are three doors to one
 space; anything you can do to a share should be behind all three.
 
+The control is a checkbox — **Publish to Community** — not a privacy dropdown:
+the card is not the moment for a taxonomy, it is the moment for one decision.
+The tile menus use the same two words ("Publish to Community" / "Remove from
+Community") so the three doors stop inventing their own vocabulary. A trap on
+the way: `.sh-link input { width: 100% }` is the URL field's rule and it caught
+the checkbox too, which ate the row and wrapped the label — scoped with
+`input[type="checkbox"] { width: auto }`. The numbers said "one line, 13x13"
+only after the screenshot said otherwise.
+
 Gates: unit 8/8, e2e 8/8. Verified on the real 42485456_2385 share with only
-/splatjs/mine and the PUT stubbed: the row appears, reads "Anyone with the
-link", and switching to Public sends one PUT.
+/splatjs/mine and the PUT stubbed: the toggle reads the stored privacy, and
+each flip sends one PUT (Open, then Link Only).
