@@ -2460,6 +2460,11 @@ space; anything you can do to a share should be behind all three.
 
 The control is a checkbox — **Publish to Community** — not a privacy dropdown:
 the card is not the moment for a taxonomy, it is the moment for one decision.
+The first-time share form got the same treatment straight after (the select was
+still sitting there): checked stores "Open", off stores "Link Only" — the same
+two values as before, verified by the requests — with a line under it saying
+which is which, and "Tell my followers" following the toggle instead of the
+select's value.
 The tile menus use the same two words ("Publish to Community" / "Remove from
 Community") so the three doors stop inventing their own vocabulary. A trap on
 the way: `.sh-link input { width: 100% }` is the URL field's rule and it caught

@@ -3312,10 +3312,9 @@ function shareDialog(rec = null, { downloadsOnly = false, link = false } = {}) {
     </div>` : ''}
     <div class="sh-form" ${(downloadsOnly || link) ? 'hidden' : ''}>
     <input id="sh-title" type="text" spellcheck="false" maxlength="80">
-    <label class="upcard-opt"><select id="sh-priv">
-      <option value="Open">Public — listed in the gallery</option>   <!-- stored value: the gallery lists "Open" only; PUT /spaces stores the raw value -->
-      <option value="Link Only">Anyone with the link</option>
-    </select></label>
+    <label class="upcard-opt"><input type="checkbox" id="sh-priv" checked>
+      Publish to Community</label>   <!-- checked stores "Open" (the only privacy the gallery lists); off stores "Link Only", which still resolves -->
+    <span class="sh-hint" id="sh-hint"></span>
     <label class="upcard-opt" id="sh-inform-row"><input type="checkbox" id="sh-inform" checked>
       Tell my followers about it</label>
     ${needsPhotos && (S.loadedFiles || []).length ? `
@@ -3377,7 +3376,13 @@ function shareDialog(rec = null, { downloadsOnly = false, link = false } = {}) {
   card.querySelector('#sh-cancel').addEventListener('click', close);
   // followers are only told about public scenes
   const priv = card.querySelector('#sh-priv');
-  const syncInform = () => { card.querySelector('#sh-inform-row').hidden = priv.value !== 'Open'; };
+  const syncInform = () => {
+    card.querySelector('#sh-inform-row').hidden = !priv.checked;
+    // what the toggle means, in the one line it takes to say it
+    card.querySelector('#sh-hint').textContent = priv.checked
+      ? 'On the wall for everyone, and anyone with the link can open it.'
+      : 'Only people you send the link to.';
+  };
   priv.addEventListener('change', syncInform);
   syncInform();
   input.addEventListener('keydown', (e) => {
@@ -3386,7 +3391,7 @@ function shareDialog(rec = null, { downloadsOnly = false, link = false } = {}) {
   });
   card.querySelector('#sh-go').addEventListener('click', async () => {
     const title = input.value.trim() || 'My splat';
-    const privacy = card.querySelector('#sh-priv').value;
+    const privacy = card.querySelector('#sh-priv').checked ? 'Open' : 'Link Only';
     const includePhotos = !!card.querySelector('#sh-photos')?.checked;
     const informFollowers = privacy === 'Open' && !!card.querySelector('#sh-inform')?.checked;
     const popup = hasToken() ? null : window.open('', 'arrival-oauth', 'width=480,height=720');
