@@ -13,7 +13,7 @@ import { extractSharpFrames, isVideoFile } from '../../src/io/video.js';
 import { recordCaptureVideo, cameraSupported } from './camera.js';
 import { saveLastCapture, loadLastCapture } from './store.js';
 import { zipStore } from './zip.js';
-import { handleOAuthCallback, sendToArrival, hasToken, API_BASE } from './arrival.js';
+import { handleOAuthCallback, sendToArrival, hasToken, focusSignIn, API_BASE } from './arrival.js';
 import { buildSessionZip, fetchModel } from './session_io.js';
 import { PRESETS, REPO, DATA, ownSet } from './data.js';
 // official demo scenes on the wall that are not bundled presets (Garden, The Lab, Camping)
@@ -3176,16 +3176,29 @@ function exportActions() {
 function buildExport() {
   const wrap = document.createElement('div');
   wrap.className = 'exportwrap';
-  if (S.restored && S.share) {
+  // the creator's own run, reopened from this device's library: it was only
+  // ever stored here, so it is still theirs to share — restored is not the
+  // same as someone else's
+  const own = (!S.share && S.restored && S._localRun && S._localRun.sog
+    && S._localRun.recon && !S._localRun.spaceId) ? S._localRun : null;
+  const shareClick = (rec) => () => {
+    if (!S.uploading) { shareDialog(rec); return; }
+    // never a dead button: the sign-in the creator walked away from comes
+    // back to the front, and closing it frees the next press
+    flash(focusSignIn()
+      ? 'Finish signing in in the Arrival.Space window — or close it and press Share again.'
+      : 'The last share is still on its way — one moment.', 8000);
+  };
+  if (S.share) {
     // a scene that is already shared: Share means its link (and the downloads)
     wrap.innerHTML = `<button class="cbtn accent btn-share" title="Share this scene">${SHARE_ICON}Share</button>`;
     wrap.querySelector('button').addEventListener('click', () => shareDialog(null, { link: true }));
-  } else if (S.restored) {
+  } else if (S.restored && !own) {
     wrap.innerHTML = `<button class="cbtn btn-share" title="Download">${DL_ICON}Download</button>`;
     wrap.querySelector('button').addEventListener('click', () => shareDialog(null, { downloadsOnly: true }));
   } else {
     wrap.innerHTML = `<button class="cbtn accent btn-share" title="Share this creation">${SHARE_ICON}Share</button>`;
-    wrap.querySelector('button').addEventListener('click', () => { if (!S.uploading) shareDialog(); });
+    wrap.querySelector('button').addEventListener('click', shareClick(own));
   }
   return wrap;
 }
@@ -3264,7 +3277,9 @@ function shareDialog(rec = null, { downloadsOnly = false, link = false } = {}) {
   // need uploading for the viewer-side comparison
   const needsPhotos = !rec && (!(S.loadedFiles || []).length || !(S.loadedFiles || []).every((f) => f.url));
   const photoMb = ((S.loadedFiles || []).reduce((a, f) => a + ((f.source || f).size || 0), 0) / 1e6).toFixed(0);
-  const acts = rec ? [] : exportActions();
+  // the downloads belong to the scene on screen: a record shared from the
+  // wall has no session to export from, one reopened in the viewer has
+  const acts = (S.session && (!rec || rec === S._localRun)) ? exportActions() : [];
   card.innerHTML = `
     <button class="card-x" id="sh-x" aria-label="Close">&times;</button>
     <b>${downloadsOnly ? 'Download' : link ? 'Share this scene' : 'Share this creation'}</b>
@@ -3344,7 +3359,14 @@ function shareDialog(rec = null, { downloadsOnly = false, link = false } = {}) {
       const thumb = rec ? (rec.thumb || null) : ((await photoThumb()) || (await renderShareThumb()));
       const { spaceId, spaceUrl, link } = await shareCreation(S, sog, {
         title, privacy, includePhotos, informFollowers, thumbBlob: thumb, popup,
-        ...(rec ? { recon: rec.recon } : {}),
+        ...(rec ? {
+          recon: rec.recon,
+          // the record's own numbers: a stored run has no live session
+          stats: {
+            splats: rec.splats, iter: rec.iter, minutes: rec.minutes || 0,
+            psnrTrain: rec.psnr ?? null, psnrTest: null,
+          },
+        } : {}),
         onStatus: (m) => flash(m, 120000),
         onProgress: (pct) => flash(`Uploading … ${pct}%`, 120000),
       });
@@ -3352,8 +3374,15 @@ function shareDialog(rec = null, { downloadsOnly = false, link = false } = {}) {
       try {
         const runId = rec ? rec.id : S.runId;
         if (runId) { const { patchRun } = await import('./store.js'); await patchRun(runId, { name: title, spaceId }); }
+        if (rec) rec.spaceId = spaceId;
         if (!rec && S.preset) S.preset.name = title;
       } catch (e) { console.warn('run record not updated', e); }
+      // the scene on screen is that space now: its button becomes the link,
+      // so a second press can no longer make a second space
+      if (S.session && (!rec || rec === S._localRun)) {
+        S.share = { id: spaceId, title };
+        renderControls();
+      }
       flash(`${title} is shared`, 300000, [
         { label: 'View link', href: link },
         { label: 'Enter the space ↗', href: spaceUrl, blank: true },

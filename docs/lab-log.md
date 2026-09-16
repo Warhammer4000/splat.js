@@ -2312,3 +2312,35 @@ suite green after all of it.
 - **Camping 1920 solve**: first-ever 113/113 registration; trajectory-tail
   disagreement vs server COLMAP grows (0.42% vs 0.19% @1600) — later
   settled by the in-app A/B (see 08-28): the tail drift is ours.
+### 2026-09-16 — WEB-7774: the share that could not be pressed twice
+
+QA report: train without an account → Share → register → come back → "the
+button does nothing", and a reopened Local Scene offers only Train. Reproduced
+all of it on the 12-photo synthetic set (`?iters=2000`, 2,052 cycles, 31.1 dB)
+in a real tab. Three separate defects on the same path:
+
+- **The dead button.** The sign-in page's "Register on Arrival.Space" link
+  carries `target="_blank"`, so registering opens a tab of its own and leaves
+  the sign-in popup sitting there. The abandoned round-trip keeps
+  `S.uploading` true for its full 5-minute timeout, and the Share button's
+  `if (!S.uploading)` guard swallowed every click in that window — no card, no
+  message. Now the press brings the sign-in window back to the front and says
+  so (`focusSignIn()`); closing that window frees the next press (measured:
+  `uploading` false ~1 s after close, card reopens).
+- **Sharing a stored run threw.** `shareCreation` read `S.session.trainer.iter`
+  for the splatjs block, but a record shared from the wall has no live session
+  (`S.session === null`, `S.splats === 0`): a TypeError *after* the sog upload
+  and `create-space`, leaving an orphan space with no splatjs block — the
+  reporter's "the splat isn't transferred / the space is missing". The record
+  now carries its own numbers (`stats` override). Verified end to end against
+  a locally stubbed API: the PUT stamps 59,088 splats, 2,052 cycles, 1 min,
+  31.1 dB, 12 frames, 640×480 — the run's real figures, where it used to
+  crash.
+- **Reopened own run = Download.** `buildExport` treated every `S.restored`
+  scene as a stranger's. A run out of this device's own library with no
+  `spaceId` is still the creator's: it gets Share again (downloads stay listed
+  in the sheet). Guarded in `train-smoke.spec.mjs`.
+
+Also: a completed share now sets `S.share` and re-renders the controls, so the
+scene on screen shows Enter space + its link instead of offering to make a
+second space on the next press. Gates: `npm test` 8/8, e2e 8/8.

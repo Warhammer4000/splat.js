@@ -83,6 +83,19 @@ export function storedToken() {
   return localStorage.getItem(LS_TOKEN);
 }
 
+// the sign-in window of a round-trip still waiting for the visitor
+let pendingSignIn = null;
+
+/** Bring an unfinished sign-in's window back to the front; false when no
+ *  sign-in is waiting. The login page's "Register on Arrival.Space" link
+ *  opens a tab of ITS own, so someone who leaves to make an account leaves
+ *  this window behind them — finding it again is the whole way back. */
+export function focusSignIn() {
+  if (!pendingSignIn || pendingSignIn.closed) { pendingSignIn = null; return false; }
+  try { pendingSignIn.focus(); } catch { /* the window may refuse focus */ }
+  return true;
+}
+
 /** Full PKCE round-trip; resolves to the access token. `popup` must be a
  *  window opened synchronously inside the user's click (about:blank is
  *  fine — it gets navigated to the login page here). */
@@ -90,6 +103,15 @@ async function signIn(onStatus, popup) {
   if (!popup || popup.closed) {
     throw new Error('sign-in window unavailable — press Upload again');
   }
+  pendingSignIn = popup;
+  try {
+    return await signInRoundTrip(onStatus, popup);
+  } finally {
+    if (pendingSignIn === popup) pendingSignIn = null;
+  }
+}
+
+async function signInRoundTrip(onStatus, popup) {
   const client = await getClient();
   const verifier = randomString(64);
   const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
