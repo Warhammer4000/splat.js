@@ -22,8 +22,13 @@ import { api, uploadFile } from './arrival.js';
 import { camCentre, quatFromR, quatToR, qslerp } from './viewport.js';
 
 const FPS = 24;
-const KEY_EVERY = 15;   // frames between keys — 0.6 s, the spacing that intro uses
-const MAX_KEYS = 60;    // it carries 57; a long capture is resampled down to this
+// A key every ~8° of turning: the platform interpolates BETWEEN keys, so each
+// key is a corner, and a multi-loop orbit needs far more of them than a walk
+// (the Garden's 185-photo orbit turns ~2,100° in total — at 60 keys that is a
+// 36° kink every 0.6 s, which is exactly how it read).
+const TURN_PER_KEY = 8;
+const MIN_KEYS = 24;
+const MAX_KEYS = 480;   // ~170 KB of .path at the top end, against a 4-20 MB .sog
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
@@ -60,12 +65,7 @@ function pathNodes(cams) {
     segs[segs.length - 1].push(keep[i]);
   }
   const best = segs.reduce((a, b) => (b.length > a.length ? b : a), segs[0]);
-  if (best.length < 2) return [];
-
-  if (best.length <= MAX_KEYS) return best;
-  const out = [];
-  for (let i = 0; i < MAX_KEYS; i++) out.push(best[Math.round(i * (best.length - 1) / (MAX_KEYS - 1))]);
-  return out;
+  return best.length < 2 ? [] : best;   // every pose: the spline is cheap, detail is not
 }
 
 /** Rotation matrix (row-major 9) -> quaternion {x,y,z,w}. */
@@ -156,19 +156,46 @@ function flight(nodes, keys) {
   }
   const total = cum[cum.length - 1] || 1e-6;
 
+  // how much the curve TURNS, per step and in total: a walk that doubles back
+  // spends its corner in a few centimetres, and keys have to be there for it
+  const turnAt = [0];
+  for (let i = 1; i < samples.length - 1; i++) {
+    const a = [0, 1, 2].map((c) => samples[i][c] - samples[i - 1][c]);
+    const b = [0, 1, 2].map((c) => samples[i + 1][c] - samples[i][c]);
+    const la = Math.hypot(...a), lb = Math.hypot(...b);
+    const dot = (la < 1e-9 || lb < 1e-9) ? 1 : (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / (la * lb);
+    turnAt.push(Math.acos(clamp(dot, -1, 1)) * 180 / Math.PI);
+  }
+  turnAt.push(0);
+  const totalTurn = turnAt.reduce((s, v) => s + v, 0);
+  if (keys === 0) return { total, totalTurn };
+
+  // keys are spent where they buy something: a straight metre needs one, a
+  // reversal needs several. Cost = distance (in base-key units) + turning (in
+  // TURN_PER_KEY units); the keys sit at equal COST, their frame numbers at
+  // equal ARC LENGTH, so the corner is rounded and the speed stays constant.
+  const baseKeys = Math.max(2, keys / 2);
+  const perKey = total / baseKeys;
+  const cost = [0];
+  for (let k = 1; k < samples.length; k++) {
+    cost.push(cost[k - 1] + (cum[k] - cum[k - 1]) / perKey + (turnAt[k] || 0) / TURN_PER_KEY);
+  }
+  const totalCost = cost[cost.length - 1] || 1e-9;
+
   const out = [];
   for (let key = 0; key < keys; key++) {
-    const want = total * (key / (keys - 1));
+    const want = totalCost * (key / (keys - 1));
     let k = 1;
-    while (k < cum.length - 1 && cum[k] < want) k++;
-    const span = cum[k] - cum[k - 1] || 1e-9;
-    const f = clamp((want - cum[k - 1]) / span, 0, 1);
+    while (k < cost.length - 1 && cost[k] < want) k++;
+    const span = cost[k] - cost[k - 1] || 1e-9;
+    const f = clamp((want - cost[k - 1]) / span, 0, 1);
     const a = samples[k - 1], b = samples[k];
     const centre = [0, 1, 2].map((c) => a[c] + (b[c] - a[c]) * f);
-    // the orientation that belongs at this point on the curve
     const u = us[k - 1] + (us[k] - us[k - 1]) * f;
     const i0 = clamp(Math.floor(u), 0, n - 1), i1 = clamp(i0 + 1, 0, n - 1);
-    out.push({ centre, q: qslerp(sq[i0], sq[i1], u - i0) });
+    // where this key sits along the path, 0..1 — the clock follows the metres
+    const at = (cum[k - 1] + (cum[k] - cum[k - 1]) * f) / total;
+    out.push({ centre, q: qslerp(sq[i0], sq[i1], u - i0), at });
   }
   return out;
 }
@@ -178,12 +205,16 @@ function flight(nodes, keys) {
 export function buildIntroSequence(cams) {
   const nodes = pathNodes(cams);
   if (!nodes.length) return null;
-  const keys = clamp(nodes.length, 2, MAX_KEYS);
+  // the viewer's own pacing: one pass, never longer than half a minute
+  const seconds = clamp(1.4 * nodes.length, 10, 30);
+  const { totalTurn } = flight(nodes, 0);
+  const keys = clamp(Math.ceil(seconds * 2 + totalTurn / TURN_PER_KEY), MIN_KEYS, MAX_KEYS);
+  const span = Math.round(seconds * FPS);
   const path = flight(nodes, keys);
   const pos = [], rot = [], scl = [];
   path.forEach((step, i) => {
     const { position, rotation } = worldPose(step);
-    const frameNumber = i * KEY_EVERY;
+    const frameNumber = Math.min(span, Math.round(step.at * span));
     pos.push({ id: `keyframe-p${i}`, frameNumber, keyframeData: position });
     rot.push({ id: `keyframe-r${i}`, frameNumber, keyframeData: rotation });
     scl.push({ id: `keyframe-s${i}`, frameNumber, keyframeData: { x: 1, y: 1, z: 1 } });
