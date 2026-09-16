@@ -1441,6 +1441,17 @@ async function startPrep() {
   // consume the detail-card history entry — Back during a run must not
   // resurrect a card that no longer applies
   if (history.state && history.state.sj) history.replaceState(null, '');
+  // and the address bar stops naming the scene we came FROM: a run of your
+  // own is not that space, and a refresh here used to reopen it. The tuning
+  // flags (?iters, ?ipf, ?api …) describe this run and stay.
+  {
+    const u = new URL(location.href);
+    const scene = ['space', 'model', 'recon', 'frame', 'cmp'];
+    if (scene.some((k) => u.searchParams.has(k))) {
+      for (const k of scene) u.searchParams.delete(k);
+      history.replaceState(history.state, '', u);
+    }
+  }
   const gen = S.gen;
   $('start').hidden = true;
   $('detail').hidden = true;
