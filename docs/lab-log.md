@@ -3716,3 +3716,45 @@ Attached cutscenes also live at `<ownerId>/api_uploads/<hash>_<name>.path` when
 they were uploaded through the API, so a space may reference any of three
 locations for what looks like one artefact. Without entity read access the only
 honest way to know is to ask whoever attached it.
+
+### 2026-09-16o — two keys on one frame, and the model transform nobody asked for
+
+The user watching the Truck cutscene: "it seems it struggles", then the
+diagnosis — **two keyframes on the same frame are not interpolated**. Counted
+it: of Truck's 379 keys over 720 frames, **79 sat on the same frame as their
+predecessor and 57 more were one frame apart**. The cause is structural: keys
+are placed by TURNING while their clock follows DISTANCE, so a tight corner
+advances the arc by almost nothing and rounds several keys onto one frame. The
+denser I made it to fix corners, the more it collided.
+
+Now every key keeps `MIN_FRAME_GAP = 3` (a corner simply takes a little
+longer, which is how a corner should feel), the budget is back to the cadence
+the player is known to handle — 1.5 keys/s plus one per 20° of turning, capped
+at 90, against hand-made originals of 12-57 — and the count is clamped to
+`span / gap` so collisions cannot be requested in the first place. Zero
+same-frame keys across all nine, and the flights still beat the originals
+(Garden median 59.8°→23.9°, Bicycle 42.8°→20.4°, Truck worst 169.7°→56.3°).
+
+Then the entity read that should have come first. The nine benchmark models are
+NOT placed alike:
+
+| space | position | rotation | scale |
+|---|---|---|---|
+| Truck | 0,0,0 | 0,0,180 | 1 |
+| Playroom, Bicycle, Bar, Lab, Camping | 0,1.2,-4 | 0,0,180 | 1 |
+| Train | -0.29,1.05,-5.56 | 10.7,0,-178.9 | 0.7 |
+| Synthetic | -0.40,1.49,-4.97 | -1.1,-4.4,178 | 0.77 |
+| Garden | 0,2.60,-4 | **-25.9**,0.1,176.3 | 1 |
+
+So the "consensus offset" fitted earlier was real — it was those five models'
+actual position — while three spaces are tilted and scaled by hand and one sits
+at the origin. `buildIntroSequence` now takes the model's transform and places
+the flight as `P + R(euler) · (scale · X)`, with the camera basis turned the
+same way, using PlayCanvas's own euler->quat so the angles mean what the editor
+means. Validation: the Lab rebuilds to camera height 1.16..1.45, the hand-made
+file's exact range.
+
+All nine republished under stamped filenames with their entities repointed —
+overwriting in place is not publishing here (Cloudflare sits in front of
+CloudFront and kept serving a week-old copy), and a new URL is the only
+reliable cache break.
