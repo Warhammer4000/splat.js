@@ -3473,10 +3473,8 @@ function shareDialog(rec = null, { downloadsOnly = false, link = false } = {}) {
         ${navigator.share ? '<button type="button" class="btn btn-outline" id="sh-native">Share …</button>' : ''}
         <button type="button" class="btn btn-accent" id="sh-copy">Copy link</button>
       </div>
-      <label class="upcard-opt sh-manage" id="sh-manage" hidden><span>Listing</span><select id="sh-listing">
-        <option value="Open">Public — listed in the gallery</option>
-        <option value="Link Only">Anyone with the link</option>
-      </select></label>
+      <label class="upcard-opt sh-manage" id="sh-manage" hidden><input type="checkbox" id="sh-listing">
+        Publish to Community</label>
     </div>` : ''}
     <div class="sh-form" ${(downloadsOnly || link) ? 'hidden' : ''}>
     <input id="sh-title" type="text" spellcheck="false" maxlength="80">
@@ -3519,18 +3517,18 @@ function shareDialog(rec = null, { downloadsOnly = false, link = false } = {}) {
         const own = (await fetchMine() || []).find((s) => String(s.id) === String(S.share.id));
         if (!own) return;   // someone else's scene: the link is all this card offers
         const row = card.querySelector('#sh-manage');
-        const sel = card.querySelector('#sh-listing');
-        sel.value = own.privacy === 'Open' ? 'Open' : 'Link Only';
+        const box = card.querySelector('#sh-listing');
+        box.checked = own.privacy === 'Open';
         row.hidden = false;
-        sel.addEventListener('change', async () => {
-          const to = sel.value;
+        box.addEventListener('change', async () => {
+          const to = box.checked ? 'Open' : 'Link Only';
           try {
             const { setSharePrivacy } = await import('./share.js');
             await setSharePrivacy(S.share.id, to);
-            flash(to === 'Open' ? 'Listed in Community — it shows on the wall now.' : 'Taken out of Community — the link still works.', 5000);
+            flash(to === 'Open' ? 'Published to Community — it shows on the wall now.' : 'Removed from Community — the link still works.', 5000);
           } catch (e) {
-            sel.value = to === 'Open' ? 'Link Only' : 'Open';   // the select tells the truth
-            flash(`Could not change the listing: ${e.message}`, 6000);
+            box.checked = !box.checked;   // the box tells the truth
+            flash(`Could not change that: ${e.message}`, 6000);
           }
         });
       } catch (e) { /* offline, or the key went stale — the link card still works */ }
@@ -3905,13 +3903,13 @@ function shareMenuItems(st) {
       await setSharePrivacy(st.id, to);
       st.privacy = to;
       priv.label = privLabel();
-      flash(to === 'Open' ? 'Listed in Community.' : 'Taken out of Community — the link still works.', 5000);
+      flash(to === 'Open' ? 'Published to Community.' : 'Removed from Community — the link still works.', 5000);
       // the wall redraws so the scene actually leaves (or joins) Community in
       // front of the creator — it stays on This device either way
       mountWall().catch(() => {});
     } catch (e) { flash(`Could not change the listing: ${e.message}`, 6000); }
   } };
-  const privLabel = () => (st.privacy === 'Open' ? 'Take out of Community' : 'List in Community');
+  const privLabel = () => (st.privacy === 'Open' ? 'Remove from Community' : 'Publish to Community');
   priv.label = privLabel();
   return [
     { label: 'Rename', act: async () => {
