@@ -829,20 +829,8 @@ async function localRunTiles(shares = new Map()) {
     tileMenu(b.querySelector('.run-menu'), [
       viewable && { label: 'View', act: r.sog ? openRun : () => viewFromState(r) },
       (r.sog || retrainable || (r.state && r.recon)) && { label: 'Train', act: () => { S._localRun = r; trainLocalChoice(); } },
-      ...(sh ? shareMenuItems(sh, {
-        onRename: (name) => {
-          b.querySelector('.galname').textContent = name;
-          import('./store.js').then(({ patchRun }) => patchRun(r.id, { name })).catch(() => {});
-        },
-        onDelete: async () => {
-          // the run is still here — it simply has no space any more, so the
-          // menu offers Share again on the next render
-          try { const { patchRun } = await import('./store.js'); await patchRun(r.id, { spaceId: null }); } catch (e) { /* best-effort */ }
-          r.spaceId = null;
-          delete b.dataset.spaceId;
-          mountWall().catch(() => {});
-        },
-      }) : r.spaceId ? [{ label: 'Copy link', act: async () => { try { await navigator.clipboard.writeText(shareLinkOf(r.spaceId)); flash('Link copied.', 2500); } catch { flash(shareLinkOf(r.spaceId), 8000); } } }] : []),
+      ...(sh ? shareMenuItems(sh)
+        : r.spaceId ? [{ label: 'Copy link', act: async () => { try { await navigator.clipboard.writeText(shareLinkOf(r.spaceId)); flash('Link copied.', 2500); } catch { flash(shareLinkOf(r.spaceId), 8000); } } }] : []),
       r.sog && r.recon && !r.spaceId && { label: 'Share', act: () => shareDialog(r) },
       { label: 'Delete', danger: true, act: async () => { await deleteRun(r.id); b.remove(); } },
     ]);
@@ -3881,7 +3869,7 @@ function textCard(heading, value, { action = 'Save', max = 80 } = {}) {
  *  to them — a creator could publish to Community and never take it back
  *  (WEB-7773). `st` is the live { id, title, privacy }; it is mutated so the
  *  menu reads true on its next open. */
-function shareMenuItems(st, { onRename = () => {}, onDelete = () => {} } = {}) {
+function shareMenuItems(st) {
   const priv = { label: '', act: async () => {
     const to = st.privacy === 'Open' ? 'Link Only' : 'Open';
     try {
@@ -3890,6 +3878,9 @@ function shareMenuItems(st, { onRename = () => {}, onDelete = () => {} } = {}) {
       st.privacy = to;
       priv.label = privLabel();
       flash(to === 'Open' ? 'Listed in Community.' : 'Taken out of Community — the link still works.', 5000);
+      // the wall redraws so the scene actually leaves (or joins) Community in
+      // front of the creator — it stays on This device either way
+      mountWall().catch(() => {});
     } catch (e) { flash(`Could not change the listing: ${e.message}`, 6000); }
   } };
   const privLabel = () => (st.privacy === 'Open' ? 'Take out of Community' : 'List in Community');
@@ -3902,7 +3893,15 @@ function shareMenuItems(st, { onRename = () => {}, onDelete = () => {} } = {}) {
         const { renameShare } = await import('./share.js');
         await renameShare(st.id, name);
         st.title = name;
-        onRename(name);
+        // the same scene can sit on two panes at once (This device and
+        // Community) — both captions follow, and so does the run that made it
+        for (const t of tilesOfSpace(st.id)) {
+          const el = t.querySelector('.galname');
+          const first = el && el.firstChild;
+          if (first && first.nodeType === 3) first.textContent = name;
+          else if (el) el.insertBefore(document.createTextNode(name), el.firstChild);
+        }
+        await patchRunsOfSpace(st.id, { name });
         flash(`Renamed to ${name}.`, 4000);
       } catch (e) { flash(`Rename failed: ${e.message}`, 6000); }
     } },
@@ -3916,18 +3915,33 @@ function shareMenuItems(st, { onRename = () => {}, onDelete = () => {} } = {}) {
       try {
         const { deleteShare } = await import('./share.js');
         await deleteShare(st.id);
-        onDelete();
+        // the run that made it keeps its model — it simply has no space now,
+        // so its tile offers Share again
+        await patchRunsOfSpace(st.id, { spaceId: null });
         flash('The shared space is gone — its link no longer resolves.', 5000);
+        mountWall().catch(() => {});   // both panes redraw from the server
       } catch (e) { flash(`Delete failed: ${e.message}`, 6000); }
     } },
   ];
 }
 
-/** every tile on the wall that points at this space */
+/** every tile on the wall that shows this space — a share tile links to it,
+ *  a local run tile carries it on the record */
 const tilesOfSpace = (id) => [...document.querySelectorAll('.galtile')]
-  .filter((t) => (t.getAttribute('href') || '').includes(`space=${encodeURIComponent(id)}`));
+  .filter((t) => (t.getAttribute('href') || '').includes(`space=${encodeURIComponent(id)}`)
+    || String(t.dataset.spaceId || '') === String(id));
 
-function creationTile(it, mine, { shared = false, preset = false } = {}) {
+/** local run records that made this share */
+async function patchRunsOfSpace(spaceId, patch) {
+  try {
+    const { listRuns, patchRun } = await import('./store.js');
+    for (const r of await listRuns()) {
+      if (r.spaceId && String(r.spaceId) === String(spaceId)) await patchRun(r.id, patch);
+    }
+  } catch (e) { /* the library is best-effort — never block a share action */ }
+}
+
+function creationTile(it, mine, { shared = false, preset = false, state = null } = {}) {
   const wrap = document.createElement('a');
   wrap.className = 'galtile';
   const img = (it.splatjs && it.splatjs.thumbUrl) || it.screenshotUrl || '';
@@ -3986,15 +4000,9 @@ function creationTile(it, mine, { shared = false, preset = false } = {}) {
     // Capture — tileMenu's own handlers stop propagation, so a bubble-phase
     // listener here would never see the click and the anchor would navigate.
     wrap.addEventListener('click', (e) => { if (e.target.closest('.run-menu, .tilemenu')) e.preventDefault(); }, true);
-    const st = { id: it.id, title: it.title, privacy: it.privacy };
-    tileMenu(menu, shareMenuItems(st, {
-      onRename: (name) => {
-        const el = wrap.querySelector('.galname');
-        const t = el.firstChild;
-        if (t && t.nodeType === 3) t.textContent = name; else el.textContent = name;
-      },
-      onDelete: () => { for (const t of tilesOfSpace(st.id)) t.remove(); },
-    }));
+    // one state object per space, shared by both panes: flipping the listing
+    // on the Community copy relabels the menu on the This device copy too
+    tileMenu(menu, shareMenuItems(state || { id: it.id, title: it.title, privacy: it.privacy }));
   }
   return wrap;
 }
@@ -4063,7 +4071,7 @@ async function mountWall() {
     for (const t of runTiles) own.push(t);
     // the presets are benchmarks even for the account that owns them
     const runSpaces = new Set(runTiles.map((t) => t.dataset && t.dataset.spaceId).filter(Boolean));
-    for (const it of (myShares || [])) if (!presetIds.has(String(it.id)) && !runSpaces.has(String(it.id))) own.push(creationTile(it, true));
+    for (const it of (myShares || [])) if (!presetIds.has(String(it.id)) && !runSpaces.has(String(it.id))) own.push(creationTile(it, true, { state: shareById.get(String(it.id)) }));
     if ((!items || !items.length) && !own.length) return;
     const host = $('gallery');
     // own public shares stay in Community too — that is how everyone else sees the wall
@@ -4089,7 +4097,12 @@ async function mountWall() {
     more.textContent = 'See what people made →';
     more.addEventListener('click', () => selectWallTab('community', { scrollToTabs: true }));
     pane('bench').appendChild(more);
-    if (shares.length) for (const it of shares) pane('community').appendChild(creationTile(it, false, { shared: true }));
+    // your own scenes appear in Community exactly as everyone else sees them —
+    // and there, of all places, is where you want to be able to unlist one
+    if (shares.length) for (const it of shares) {
+      const st = shareById.get(String(it.id));
+      pane('community').appendChild(creationTile(it, !!st, { shared: true, state: st }));
+    }
     else pane('community').innerHTML = '<p class="galempty">Nothing shared yet — yours could be the first.</p>';
     if (own.length) for (const t of own) pane('device').appendChild(t);
     host.querySelectorAll('[role="tab"]').forEach((b) => b.addEventListener('click', () => selectWallTab(b.dataset.tab, { scrollToTabs: true })));
