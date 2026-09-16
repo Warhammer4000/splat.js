@@ -2716,3 +2716,35 @@ bare URL is the one to distrust when checking by hand.
 **Open:** whether a freshly shared space needs that offset too. The nine
 benchmarks were placed by hand or by an older script, and `restamp_space.mjs`
 only swaps glbUrl. One published scene, opened and looked at, settles it.
+
+### 2026-09-16m — the Truck was flying the previous solve's world
+
+Reported: the truck is not framed. It was, and the cause is worth keeping.
+
+Fitting each authored intro against its OWN recon cameras (a far tighter
+correspondence than path-to-path — the authored keys were BUILT from those
+cameras) splits the nine benchmarks in two:
+
+- Train, Garden, Lab, Camping, Bicycle: residual 0.2-1.1 % of scene radius, all
+  at ≈ **(0, 1.195, -4.01)**, scale 1. That is where a splat.js space holds its
+  model, confirmed five times over.
+- Truck, Bar, Synthetic: residual 7.6-10.4 %. Adding a uniform scale to the fit
+  explains them — Truck's old intro only matches its cameras at **scale 1.854**
+  — and those are exactly the three spaces whose models were re-stamped
+  (`truck_1h_v3_2026-09-06`, `bar360_v6_2026-09-08`,
+  `synthetic_needle_v2_2026-09-08`). A new training run is a new SOLVE, and a
+  solve's world frame and scale are arbitrary: the intro kept flying the old
+  one. My first re-export inherited that by fitting to the stale path.
+
+The three now use the consensus placement with their CURRENT recon, which is
+the same frame as the model they sit next to — the only thing framing needs.
+The new Truck flight spans 3.7 m where the old spanned 6.0, the 1.85 again.
+The Bar spans 69 m, which looked alarming until the original turned out to
+span 63.7: that venue really is that size in its own units.
+
+**Standing rule this implies:** re-stamping a space's model invalidates its
+intro cutscene. `restamp_space.mjs` swaps `glbUrl` and nothing else, so the
+flight has to be regenerated from the new recon at the same time — otherwise
+the camera drifts off the subject by however much the two solves disagree.
+
+Originals of all ten .path files are in the session's `intro_backup/`.
