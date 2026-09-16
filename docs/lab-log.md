@@ -3525,3 +3525,31 @@ changed did not change", read the stack before re-reading the diff.
 
 Gates: unit 8/8, e2e 11/11 (`share_card_flow.spec.mjs` holds create-space open
 to catch the working state, then asserts the link lands in the card).
+
+### 2026-09-16i — a shared scene that forgot it was shared
+
+Reported from a real sitting: Benchmarks → Synthetic Corner → train → Share →
+Get link. Two faults in one flow.
+
+**The switch was missing from the result.** My own hour-old change: the card
+now ends on its link, but I built that result block with the link, Enter and
+Copy and no listing switch — so choosing "link only" read as final. It is not a
+one-shot decision; the switch belongs on the card that just made the link, and
+now sits there, wired by the same helper the link card uses (one
+`wireListing(row, box, spaceId, privacy)` instead of two copies).
+
+**A reload lost the Share button entirely.** Reopening the run from This device
+gave a Download and nothing else. `buildExport` reads `S._localRun.spaceId` to
+decide a run is "still the creator's to share" — and once a run HAS been
+shared, that check fails, while `S.share` is null on a fresh load (it is only
+set by a `?space=` link or by sharing in this tab). So a shared run reopened
+after a reload fell through to the stranger's branch. `restoreSession` now
+reads the record: a run with a `spaceId` opens as the shared scene it is, with
+its link, its listing switch and Enter space.
+
+Guarded by `share_reopen.spec.mjs`, which walks exactly the reported path. Both
+halves were checked against the unfixed code: without the result-card switch
+the row stays `hidden`, without the restore line `window.__splat.share` is
+`undefined` after the reload.
+
+Gates: unit 8/8, e2e 12/12.
