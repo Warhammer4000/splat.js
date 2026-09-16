@@ -3693,3 +3693,26 @@ flight has to be regenerated from the new recon at the same time — otherwise
 the camera drifts off the subject by however much the two solves disagree.
 
 Originals of all ten .path files are in the session's `intro_backup/`.
+
+### 2026-09-16n — the file a space plays is not the file you found
+
+Closing the Truck: every correction above was written to
+`ugc.arrival.space/splatjs/models/truck_intro.path`, and the space plays
+`ugc.arrival.space/42485456/truck_intro.path` — a byte-identical copy of the
+original under the owner's own prefix, put there when the entity was attached.
+So the space kept flying the pre-restamp path (43 keys, y 1.22-1.96) against a
+model whose cameras sit at y 0.15-0.43 in a 3.8 m scene: too high and off
+centre, exactly as reported, and nothing to do with the offset maths I kept
+adjusting.
+
+The mistake to remember: fitting a `.path` against a scene's recon proves the
+file was BUILT from that capture. It says nothing about which file the space
+REFERENCES. When an edit to a live artefact appears to do nothing, list the
+bucket for other copies before assuming a cache — `aws s3 ls
+s3://ugc.arrival.space/<ownerId>/ --recursive | grep .path` answered it in
+thirty seconds, after an hour of refining the wrong file.
+
+Attached cutscenes also live at `<ownerId>/api_uploads/<hash>_<name>.path` when
+they were uploaded through the API, so a space may reference any of three
+locations for what looks like one artefact. Without entity read access the only
+honest way to know is to ask whoever attached it.
