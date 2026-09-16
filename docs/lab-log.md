@@ -3289,3 +3289,37 @@ in a real tab. Three separate defects on the same path:
 Also: a completed share now sets `S.share` and re-renders the controls, so the
 scene on screen shows Enter space + its link instead of offering to make a
 second space on the next press. Gates: `npm test` 8/8, e2e 8/8.
+
+### 2026-09-16b — WEB-7773: managing a share you already made
+
+The other half of the QA pair. The Community listing failure is the same
+TypeError as WEB-7774 (a space created, never stamped with its `splatjs` block
+— the gallery endpoint only ever returns spaces that carry one, confirmed in
+`user_server/api/splatjs_shares.js`). The management half was never built:
+`share.js` has exported `deleteShare` since the wall shipped **with no caller
+anywhere in the app**, `setSharePrivacy` was reachable only through `?admin`,
+and `creationTile(it, mine)` declared `mine` and never read it — so a creator
+could publish to Community and had no way to take it back.
+
+Now every share you own wears the ⋯ the local runs already had: Rename (PUT
+`{title}` — the spaces endpoint maps title/description/privacy to
+roomTitle/roomDescription/roomPrivacy), Copy link, take it out of / put it back
+into Community (privacy Open ↔ Link Only — the gallery lists "Open" only, the
+link keeps resolving either way), and Delete share, behind tileMenu's existing
+two-tap arming. A run that made a share carries the same entries: deleting the
+share clears the record's spaceId, so the tile offers Share again — which is
+what the reporter could not do.
+
+One trap worth remembering: the share tile is an `<a>`, and tileMenu's handlers
+call stopPropagation, so a bubble-phase guard on the tile never sees the click
+and the anchor navigates mid-menu. The guard has to be **capture**.
+
+Also on the stats line: the machine that trained a scene, short —
+`59,088 splats · 31.1 dB · PC, RTX 5080`, or `· iPhone` (a handheld's GPU string
+says nothing anyone wants). `deviceLabel()` reads the platform off the UA and
+the marketing name out of the existing `webglName()`; comma inside because the
+line itself is separated by `·`. And a Discord "Feedback" link in the top bar
+(data.js `DISCORD`, empty hides it).
+
+Gates: unit 8/8, e2e 8/8. Verified against a locally stubbed API: rename,
+listing toggle, delete, and a fresh share stamping `device: "PC, RTX 5080"`.

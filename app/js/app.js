@@ -15,7 +15,7 @@ import { saveLastCapture, loadLastCapture } from './store.js';
 import { zipStore } from './zip.js';
 import { handleOAuthCallback, sendToArrival, hasToken, focusSignIn, API_BASE } from './arrival.js';
 import { buildSessionZip, fetchModel } from './session_io.js';
-import { PRESETS, REPO, DATA, ownSet } from './data.js';
+import { PRESETS, REPO, DISCORD, DATA, ownSet } from './data.js';
 // official demo scenes on the wall that are not bundled presets (Garden, The Lab, Camping)
 const EXTRA_PRESET_SPACES = ['42485456_3427', '42485456_9670', '42485456_7518'];
 const presetSpaceIds = () => new Set([...PRESETS.map((p) => p.spaceId).filter(Boolean), ...EXTRA_PRESET_SPACES]);
@@ -462,6 +462,8 @@ function boot() {
 
   $('gh').href = REPO;
   $('about-gh').href = REPO;
+  // the feedback channel shows only when this build has one to point at
+  if (DISCORD) { $('discord').href = DISCORD; $('discord').hidden = false; }
   // the brand: on the home tile view (nothing open) it tells the story —
   // the About sheet; from inside a scene it stays the way back home
   // the card's state lives in the address (?about=1): a refresh keeps it
@@ -752,7 +754,7 @@ function tileMenu(btn, items) {
   });
 }
 
-async function localRunTiles() {
+async function localRunTiles(shares = new Map()) {
   const { listRuns, deleteRun } = await import('./store.js');
   const runs = await listRuns();
   const tiles = [];
@@ -812,10 +814,27 @@ async function localRunTiles() {
       });
     };
     const viewable = !!(r.recon && (r.sog || (r.status === 'finished' && r.state)));
+    // a run that was shared carries the share's management too — rename, the
+    // Community listing, the kill switch — but only when the account that
+    // owns it is signed in here (`shares`, from /splatjs/mine)
+    const sh = r.spaceId ? shares.get(String(r.spaceId)) : null;
     tileMenu(b.querySelector('.run-menu'), [
       viewable && { label: 'View', act: r.sog ? openRun : () => viewFromState(r) },
       (r.sog || retrainable || (r.state && r.recon)) && { label: 'Train', act: () => { S._localRun = r; trainLocalChoice(); } },
-      r.spaceId && { label: 'Copy link', act: async () => { try { await navigator.clipboard.writeText(shareLinkOf(r.spaceId)); flash('Link copied.', 2500); } catch { flash(shareLinkOf(r.spaceId), 8000); } } },
+      ...(sh ? shareMenuItems(sh, {
+        onRename: (name) => {
+          b.querySelector('.galname').textContent = name;
+          import('./store.js').then(({ patchRun }) => patchRun(r.id, { name })).catch(() => {});
+        },
+        onDelete: async () => {
+          // the run is still here — it simply has no space any more, so the
+          // menu offers Share again on the next render
+          try { const { patchRun } = await import('./store.js'); await patchRun(r.id, { spaceId: null }); } catch (e) { /* best-effort */ }
+          r.spaceId = null;
+          delete b.dataset.spaceId;
+          mountWall().catch(() => {});
+        },
+      }) : r.spaceId ? [{ label: 'Copy link', act: async () => { try { await navigator.clipboard.writeText(shareLinkOf(r.spaceId)); flash('Link copied.', 2500); } catch { flash(shareLinkOf(r.spaceId), 8000); } } }] : []),
       r.sog && r.recon && !r.spaceId && { label: 'Share', act: () => shareDialog(r) },
       { label: 'Delete', danger: true, act: async () => { await deleteRun(r.id); b.remove(); } },
     ]);
@@ -3527,6 +3546,7 @@ function shareDialog(rec = null, { downloadsOnly = false, link = false } = {}) {
       const thumb = rec ? (rec.thumb || null) : ((await photoThumb()) || (await renderShareThumb()));
       const { spaceId, spaceUrl, link } = await shareCreation(S, sog, {
         title, privacy, includePhotos, informFollowers, thumbBlob: thumb, popup,
+        device: deviceLabel(),   // local runs were trained on this very machine
         ...(rec ? {
           recon: rec.recon,
           // the record's own numbers: a stored run has no live session
@@ -3814,6 +3834,89 @@ function ownerInfo(ownerId) {
 }
 const shareDate = (d) => { const t = new Date(d); return isNaN(t) ? '' : t.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }); };
 
+/** One field in the share sheet's chrome; resolves to the trimmed value, or
+ *  null when the visitor backs out. (A browser prompt() would block the page
+ *  and reads as a phishing box over someone else's scene.) */
+function textCard(heading, value, { action = 'Save', max = 80 } = {}) {
+  document.getElementById('upcard')?.remove();
+  return new Promise((resolve) => {
+    const card = document.createElement('div');
+    card.className = 'upcard';
+    card.id = 'upcard';
+    card.innerHTML = `
+      <b>${esc(heading)}</b>
+      <input id="tc-val" type="text" spellcheck="false" maxlength="${max}">
+      <div class="upcard-row">
+        <button class="btn btn-quiet" id="tc-cancel">Cancel</button>
+        <button class="btn btn-accent" id="tc-go">${esc(action)}</button>
+      </div>`;
+    $('stage').appendChild(card);
+    const input = card.querySelector('#tc-val');
+    input.value = value || '';
+    input.focus();
+    input.select();
+    const done = (v) => { card.remove(); resolve(v); };
+    card.querySelector('#tc-cancel').addEventListener('click', () => done(null));
+    card.querySelector('#tc-go').addEventListener('click', () => done(input.value.trim() || null));
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') done(input.value.trim() || null);
+      if (e.key === 'Escape') done(null);
+    });
+  });
+}
+
+/** Managing a share you own: rename it, take it out of Community (the link
+ *  keeps working), or delete the space outright. share.js has carried
+ *  setSharePrivacy and deleteShare since the wall shipped with nothing wired
+ *  to them — a creator could publish to Community and never take it back
+ *  (WEB-7773). `st` is the live { id, title, privacy }; it is mutated so the
+ *  menu reads true on its next open. */
+function shareMenuItems(st, { onRename = () => {}, onDelete = () => {} } = {}) {
+  const priv = { label: '', act: async () => {
+    const to = st.privacy === 'Open' ? 'Link Only' : 'Open';
+    try {
+      const { setSharePrivacy } = await import('./share.js');
+      await setSharePrivacy(st.id, to);
+      st.privacy = to;
+      priv.label = privLabel();
+      flash(to === 'Open' ? 'Listed in Community.' : 'Taken out of Community — the link still works.', 5000);
+    } catch (e) { flash(`Could not change the listing: ${e.message}`, 6000); }
+  } };
+  const privLabel = () => (st.privacy === 'Open' ? 'Take out of Community' : 'List in Community');
+  priv.label = privLabel();
+  return [
+    { label: 'Rename', act: async () => {
+      const name = await textCard('Rename this scene', st.title || '');
+      if (!name || name === st.title) return;
+      try {
+        const { renameShare } = await import('./share.js');
+        await renameShare(st.id, name);
+        st.title = name;
+        onRename(name);
+        flash(`Renamed to ${name}.`, 4000);
+      } catch (e) { flash(`Rename failed: ${e.message}`, 6000); }
+    } },
+    { label: 'Copy link', act: async () => {
+      const url = shareLinkOf(st.id);
+      try { await navigator.clipboard.writeText(url); flash('Link copied.', 2500); }
+      catch { flash(url, 8000); }
+    } },
+    priv,
+    { label: 'Delete share', danger: true, act: async () => {
+      try {
+        const { deleteShare } = await import('./share.js');
+        await deleteShare(st.id);
+        onDelete();
+        flash('The shared space is gone — its link no longer resolves.', 5000);
+      } catch (e) { flash(`Delete failed: ${e.message}`, 6000); }
+    } },
+  ];
+}
+
+/** every tile on the wall that points at this space */
+const tilesOfSpace = (id) => [...document.querySelectorAll('.galtile')]
+  .filter((t) => (t.getAttribute('href') || '').includes(`space=${encodeURIComponent(id)}`));
+
 function creationTile(it, mine, { shared = false, preset = false } = {}) {
   const wrap = document.createElement('a');
   wrap.className = 'galtile';
@@ -3837,7 +3940,7 @@ function creationTile(it, mine, { shared = false, preset = false } = {}) {
     ${tag ? `<i class="galtag">${esc(tag)}</i>` : ''}
     <span class="galname">${esc(title)}${shared ? `<time>${esc(shareDate(it.createdDate))}</time>` : ''}</span>
     ${it.description && !(shared && /trained in the browser by Splat.js/.test(it.description)) ? `<span class="galdesc">${esc(it.description)}</span>` : ''}
-    <span class="galmeta">${fmt((it.splatjs && it.splatjs.splats) || 0)} splats${dB ? ` · ${(+dB).toFixed(1)} dB` : ''}${it.splatjs && it.splatjs.sogMb ? ` · ${it.splatjs.sogMb} MB` : ''}</span>`;
+    <span class="galmeta">${fmt((it.splatjs && it.splatjs.splats) || 0)} splats${dB ? ` · ${(+dB).toFixed(1)} dB` : ''}${it.splatjs && it.splatjs.device ? ` · ${esc(it.splatjs.device)}` : ''}${it.splatjs && it.splatjs.sogMb ? ` · ${it.splatjs.sogMb} MB` : ''}</span>`;
   if (shared) {
     // the sharer as a chip in the image's top-left corner (avatar + name);
     // the date sits on the title row. The space id carries its owner
@@ -3860,6 +3963,28 @@ function creationTile(it, mine, { shared = false, preset = false } = {}) {
       if (u.avatar) { av.style.backgroundImage = `url("${u.avatar}")`; av.textContent = ''; }
       else av.textContent = u.name.trim().charAt(0).toUpperCase();
     });
+  }
+  if (mine) {
+    // the creator's own share wears the ⋯ the local runs already have
+    const menu = document.createElement('button');
+    menu.type = 'button';
+    menu.className = 'run-menu';
+    menu.title = 'Options';
+    menu.textContent = '⋯';
+    wrap.prepend(menu);
+    // the tile IS a link: a press inside the menu must not open the scene.
+    // Capture — tileMenu's own handlers stop propagation, so a bubble-phase
+    // listener here would never see the click and the anchor would navigate.
+    wrap.addEventListener('click', (e) => { if (e.target.closest('.run-menu, .tilemenu')) e.preventDefault(); }, true);
+    const st = { id: it.id, title: it.title, privacy: it.privacy };
+    tileMenu(menu, shareMenuItems(st, {
+      onRename: (name) => {
+        const el = wrap.querySelector('.galname');
+        const t = el.firstChild;
+        if (t && t.nodeType === 3) t.textContent = name; else el.textContent = name;
+      },
+      onDelete: () => { for (const t of tilesOfSpace(st.id)) t.remove(); },
+    }));
   }
   return wrap;
 }
@@ -3912,12 +4037,15 @@ function selectWallTab(name, { scrollToTabs = false, restoreY = null } = {}) {
 async function mountWall() {
   try {
     const { fetchGallery, fetchMine } = await import('./share.js');
-    const [{ items }, capTile, runTiles, myShares] = await Promise.all([
+    const [{ items }, capTile, myShares] = await Promise.all([
       fetchGallery({ count: 48 }),   // the API's page cap; the wall shows every listed scene
       lastCaptureTile().catch(() => null),
-      localRunTiles().catch(() => []),
       hasToken() ? fetchMine().catch(() => []) : Promise.resolve([]),
     ]);
+    // the run tiles carry the management of the shares they made, so they
+    // need the server's view of those shares (title + privacy) first
+    const shareById = new Map((myShares || []).map((s) => [String(s.id), { id: s.id, title: s.title, privacy: s.privacy }]));
+    const runTiles = await localRunTiles(shareById).catch(() => []);
     // the visitor's own content (capture, runs, shares) lives on its own tab
     const presetIds = presetSpaceIds();
     const own = [];
@@ -3925,7 +4053,7 @@ async function mountWall() {
     for (const t of runTiles) own.push(t);
     // the presets are benchmarks even for the account that owns them
     const runSpaces = new Set(runTiles.map((t) => t.dataset && t.dataset.spaceId).filter(Boolean));
-    for (const it of (myShares || [])) if (!presetIds.has(String(it.id)) && !runSpaces.has(String(it.id))) own.push(creationTile(it, false));
+    for (const it of (myShares || [])) if (!presetIds.has(String(it.id)) && !runSpaces.has(String(it.id))) own.push(creationTile(it, true));
     if ((!items || !items.length) && !own.length) return;
     const host = $('gallery');
     // own public shares stay in Community too — that is how everyone else sees the wall
@@ -4913,6 +5041,33 @@ function webglName() {
   } catch { /* no WebGL: the WebGPU words will do */ }
   S._glName = name;
   return name;
+}
+
+/** The machine a scene was trained on, in a few characters for the stats
+ *  line: "PC · RTX 5080", "Mac · M2", "iPhone", "Android · Adreno 740". A
+ *  phone's GPU string says nothing a reader wants ("Apple GPU"), so the
+ *  handhelds are named by the device alone. */
+function deviceLabel() {
+  const ua = navigator.userAgent || '';
+  const iPadOS = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;   // iPadOS calls itself Macintosh
+  const kind = /iPhone/.test(ua) ? 'iPhone'
+    : (/iPad/.test(ua) || iPadOS) ? 'iPad'
+    : /Android/.test(ua) ? 'Android'
+    : /Macintosh|Mac OS X/.test(ua) ? 'Mac'
+    : /Windows|Linux|CrOS/.test(ua) ? 'PC' : '';
+  if (kind === 'iPhone' || kind === 'iPad') return kind;
+  // the marketing name down to the part people recognise:
+  // "NVIDIA GeForce RTX 5080" -> "RTX 5080", "Adreno (TM) 740" -> "Adreno 740"
+  let gpu = webglName()
+    .replace(/\((?:TM|R)\)/gi, '')
+    .replace(/NVIDIA GeForce|NVIDIA|AMD Radeon|Radeon|Apple/gi, '')
+    .replace(/Intel\(?R?\)?/gi, 'Intel')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (gpu.length > 18) gpu = gpu.slice(0, 18).trim();
+  if (!gpu || /^(WebKit|Apple GPU|Software)/i.test(gpu)) return kind;
+  // a comma inside, because the stats line itself is separated by · already
+  return kind ? `${kind}, ${gpu}` : gpu;
 }
 
 function gpuFacts() {
