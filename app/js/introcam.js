@@ -19,11 +19,12 @@
 //             Fitted median error 0.20° over the 57 authored keyframes.
 
 import { api, uploadFile } from './arrival.js';
-import { camCentre } from './viewport.js';
+import { camCentre, quatFromR, quatToR, qslerp } from './viewport.js';
 
 const FPS = 24;
 const KEY_EVERY = 15;   // frames between keys — 0.6 s, the spacing that intro uses
 const MAX_KEYS = 60;    // it carries 57; a long capture is resampled down to this
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 
@@ -87,13 +88,13 @@ function quatOf(m) {
   return { x: (m[2] + m[6]) / s, y: (m[5] + m[7]) / s, z: 0.25 * s, w: (m[3] - m[1]) / s };
 }
 
-/** The camera's world pose in the SPACE, from its pose in the reconstruction. */
-function worldPose({ R, t }) {
-  const c = camCentre({ R, t });
+/** A point on the flight, in the SPACE's world. */
+function worldPose({ centre, q }) {
   // Rz(180) · C — diag(-1, -1, 1)
-  const position = { x: -c[0], y: -c[1], z: c[2] };
+  const position = { x: -centre[0], y: -centre[1], z: centre[2] };
   // Rz(180) · Rᵀ · diag(1, -1, -1): both outer matrices are diagonal, so the
   // product is the transpose with its rows and columns signed
+  const R = quatToR(q);
   const rt = [R[0], R[3], R[6], R[1], R[4], R[7], R[2], R[5], R[8]];
   const rowS = [-1, -1, 1], colS = [1, -1, -1];
   const m = new Array(9);
@@ -103,14 +104,85 @@ function worldPose({ R, t }) {
 
 const track = (type, keyframes) => ({ type, keyframes });
 
+/** The flight itself, smoothed exactly the way the viewer's tour smooths it —
+ *  a handheld capture is jittery and a spline through jitter is jittery too —
+ *  then sampled at EQUAL ARC LENGTH so the platform's own interpolation runs
+ *  at constant speed between the keys. Exporting the raw poses (as this did
+ *  first) hands the player a polyline of camera shake. */
+function flight(nodes, keys) {
+  const n = nodes.length;
+  // positions: triangular smoothing over ±3 neighbours
+  const raw = nodes.map(camCentre);
+  const pts = raw.map((_, i) => {
+    const acc = [0, 0, 0];
+    let w = 0;
+    for (let k = -3; k <= 3; k++) {
+      const j = clamp(i + k, 0, n - 1);
+      const wt = 4 - Math.abs(k);
+      for (let c = 0; c < 3; c++) acc[c] += raw[j][c] * wt;
+      w += wt;
+    }
+    return [acc[0] / w, acc[1] / w, acc[2] / w];
+  });
+  // rotations: sign-aligned, then two passes towards the neighbours' midpoint
+  const qs = nodes.map((c) => quatFromR(c.R));
+  for (let i = 1; i < n; i++) {
+    if (qs[i - 1][0] * qs[i][0] + qs[i - 1][1] * qs[i][1] + qs[i - 1][2] * qs[i][2] + qs[i - 1][3] * qs[i][3] < 0) {
+      qs[i] = qs[i].map((v) => -v);
+    }
+  }
+  let sq = qs;
+  for (let pass = 0; pass < 2; pass++) {
+    sq = sq.map((q, i) => (i === 0 || i === sq.length - 1) ? q : qslerp(q, qslerp(sq[i - 1], sq[i + 1], 0.5), 0.5));
+  }
+  // Catmull-Rom through the smoothed points, resampled into an arc-length table
+  const P = (k) => pts[clamp(k, 0, n - 1)];
+  const cr = (i, f) => {
+    const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
+    const t2 = f * f, t3 = t2 * f;
+    return [0, 1, 2].map((k) => 0.5 * ((2 * p1[k]) + (-p0[k] + p2[k]) * f +
+      (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * t2 +
+      (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * t3));
+  };
+  const samples = [], us = [], cum = [0];
+  const SUB = 8;
+  for (let i = 0; i < n - 1; i++) {
+    for (let k = 0; k < SUB; k++) { samples.push(cr(i, k / SUB)); us.push(i + k / SUB); }
+  }
+  samples.push(cr(n - 2, 1)); us.push(n - 1);
+  for (let k = 1; k < samples.length; k++) {
+    const a = samples[k - 1], b = samples[k];
+    cum.push(cum[k - 1] + Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]));
+  }
+  const total = cum[cum.length - 1] || 1e-6;
+
+  const out = [];
+  for (let key = 0; key < keys; key++) {
+    const want = total * (key / (keys - 1));
+    let k = 1;
+    while (k < cum.length - 1 && cum[k] < want) k++;
+    const span = cum[k] - cum[k - 1] || 1e-9;
+    const f = clamp((want - cum[k - 1]) / span, 0, 1);
+    const a = samples[k - 1], b = samples[k];
+    const centre = [0, 1, 2].map((c) => a[c] + (b[c] - a[c]) * f);
+    // the orientation that belongs at this point on the curve
+    const u = us[k - 1] + (us[k] - us[k - 1]) * f;
+    const i0 = clamp(Math.floor(u), 0, n - 1), i1 = clamp(i0 + 1, 0, n - 1);
+    out.push({ centre, q: qslerp(sq[i0], sq[i1], u - i0) });
+  }
+  return out;
+}
+
 /** The Sequence an intro cutscene is, or null when the capture has no path to
  *  fly (fewer than two distinct camera positions). */
 export function buildIntroSequence(cams) {
   const nodes = pathNodes(cams);
   if (!nodes.length) return null;
+  const keys = clamp(nodes.length, 2, MAX_KEYS);
+  const path = flight(nodes, keys);
   const pos = [], rot = [], scl = [];
-  nodes.forEach((cam, i) => {
-    const { position, rotation } = worldPose(cam);
+  path.forEach((step, i) => {
+    const { position, rotation } = worldPose(step);
     const frameNumber = i * KEY_EVERY;
     pos.push({ id: `keyframe-p${i}`, frameNumber, keyframeData: position });
     rot.push({ id: `keyframe-r${i}`, frameNumber, keyframeData: rotation });
