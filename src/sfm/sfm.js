@@ -549,6 +549,7 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
   // best E-inlier count — the answer to "why did these frames not register"
   const diag = images.map(() => ({ deg: 0, raw: 0, inl: 0 }));
   const adjFails = [];   // rejected neighbour pairs (|i-j| <= 2), logged for the connectivity verdict
+  const pairDbg = [];    // opts.pairDebug: every neighbour pair (raw/E-inl/hash)
   // SIFT matching runs on GPU when available (CPU 128-D L2 is the dominant
   // cost of a SIFT run: ~350s of 484s on train-84; the GPU does the whole
   // graph in ~1s of compute)
@@ -592,6 +593,7 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
   // Per-pair seeds keep the result independent of the batch split. Without
   // workers (tests, opts.workers === false) the loop runs inline as before.
   const inliersOf = new Array(pairs.length).fill(null);
+  const statsOf = new Array(pairs.length).fill(null);   // opts.pairDebug: RANSAC stats per pair
   const useWorkers = typeof Worker !== 'undefined' && opts.workers !== false && opts.pairWorkers !== false && jobs.length > 32;
   if (useWorkers) {
     const nW = Math.min(opts.workers || 8, Math.max(2, (navigator.hardwareConcurrency || 4) - 2));
@@ -606,7 +608,7 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
         const slice = jobs.slice(next, next + BATCH);
         next += slice.length;
         wk.onmessage = (e) => {
-          for (const r of e.data.out) inliersOf[r.idx] = r.inliers;
+          for (const r of e.data.out) { inliersOf[r.idx] = r.inliers; if (r.stats) statsOf[r.idx] = r.stats; }
           doneJobs += e.data.out.length;
           ev({ stage: 'matching', done: Math.round(pairs.length * doneJobs / jobs.length), total: pairs.length,
                detail: { usable: 0, pair: null } });
@@ -614,7 +616,7 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
           else feed(wk);
         };
         wk.onerror = (err) => reject(new Error('pair worker: ' + (err.message || err)));
-        wk.postMessage({ batch: slice.map((jb) => ({ idx: jb.pi, x1: jb.x1, x2: jb.x2, thresh: jb.thresh, seed: seedOf(jb.pi), maxIters: 600 })) });
+        wk.postMessage({ batch: slice.map((jb) => ({ idx: jb.pi, x1: jb.x1, x2: jb.x2, thresh: jb.thresh, seed: seedOf(jb.pi), maxIters: opts.pairIters || 600, debug: !!opts.pairDebug })) });
       };
       workers.forEach(feed);
     });
@@ -625,7 +627,7 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
       const m = jb.matches.length;
       const x1s = new Array(m), x2s = new Array(m);
       for (let k = 0; k < m; k++) { x1s[k] = [jb.x1[2 * k], jb.x1[2 * k + 1]]; x2s[k] = [jb.x2[2 * k], jb.x2[2 * k + 1]]; }
-      const res = ransacE(x1s, x2s, jb.thresh, matchRng, 600);
+      const res = ransacE(x1s, x2s, jb.thresh, matchRng, opts.pairIters || 600);
       inliersOf[jb.pi] = res ? Int32Array.from(res.inliers) : null;
       if (q % 40 === 39) { await tick(); checkAbort(); }
     }
@@ -659,6 +661,13 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
       // for faces of the same rig (zero baseline). Default off until the failure is understood.
       const sameRig = opts.rigs && opts.rigs[i] && opts.rigs[j] && opts.rigs[i].id === opts.rigs[j].id;
       const nb = !sameRig && Math.abs(i - j) <= 2;          // neighbours in capture order (logged when rejected)
+      if (opts.pairDebug && nb) {   // diagnostics (2026-09-17): is the pair stage deterministic? raw count, E-inliers, a hash of the raw matches
+        let h = 2166136261; for (const [a, b] of matches) { h = Math.imul(h ^ a, 16777619); h = Math.imul(h ^ b, 16777619); }
+        // median pixel displacement of the raw matches (a near-zero baseline or a duplicate frame shows here)
+        const fav = (K0[i].f + K0[j].f) / 2, dd = matches.map(([fa, fb]) => Math.hypot(feats[i].x[fa] - feats[j].x[fb], feats[i].y[fa] - feats[j].y[fb])).sort((a, b) => a - b);
+        const st = statsOf[pi]; const ex = st ? ` bc${st.bestCount} ef${st.estFails}/${st.iters}` : '';
+        pairDbg.push(`${i}-${j}:${matches.length}/${res ? res.inliers.length : 0}/${(h >>> 0).toString(16).slice(0, 6)} d${dd[dd.length >> 1].toFixed(0)}px${ex}`);
+      }
       const adj = nb && opts.pairMinInliersAdj > 0;
       const absGate = res && res.inliers.length >= (adj ? opts.pairMinInliersAdj : (opts.pairMinInliers ?? Infinity));
       if (res && res.inliers.length >= (adj ? 15 : 25) && (res.inliers.length >= 0.4 * matches.length || absGate)) {
@@ -690,6 +699,7 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
     const weak = diag.map((d, k) => ({ k, ...d })).filter((d) => d.deg <= 1);
     if (weak.length) log(`  weakly connected frames (usable pairs <= 1): ` + weak.map((d) => `#${d.k}[deg ${d.deg}, best raw ${d.raw}, best E-inl ${d.inl}, feats ${feats[d.k].n}]`).join(' '));
     if (adjFails.length) log(`  rejected neighbour pairs: ` + adjFails.join(' | '));
+    if (pairDbg.length) log(`  pairdebug: ` + pairDbg.join(' '));
   }
   if (pairInfo.length === 0) throw new Error('no image pair with enough matches');
   await tick();
@@ -812,17 +822,35 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
     }));
     for (let i = 0; i < n; i++) {
       const f = feats[i];
+      // every pass starts from the DETECTED keypoints. The sub-pixel LK refinement of a final
+      // pass writes its moved coordinates into feats[].x/y (refineObsLK), so a second final
+      // pass — a trial, the retry — used to start from observations already pulled toward the
+      // previous pass's geometry: the same focal that solved to 0.58 px as a first pass solved
+      // to 0.64 px as a second, with the orbit's tail 1 % off (2026-09-17e). Snapshot once,
+      // restore per pass; the kept pass's own refinement is what its poses were fitted to.
+      if (!f.x0) { f.x0 = Float32Array.from(f.x); f.y0 = Float32Array.from(f.y); }
+      else { f.x.set(f.x0); f.y.set(f.y0); }
       for (let k = 0; k < f.n; k++) {
         f.xn[k] = (f.x[k] - K[i].cx) / K[i].f;
         f.yn[k] = (f.y[k] - K[i].cy) / K[i].f;
       }
     }
-    // reset track state
-    for (const tr of tracks) { tr.X = null; for (const o of tr.obs) o.ok = true; }
+    // reset track state — including the observations a previous final pass ADDED (extendTracks
+    // pushes onto tr.obs under that pass's geometry; a later pass inherited them as evidence).
+    // The first pass records each track's detected length; every pass truncates back to it.
+    for (const tr of tracks) {
+      if (tr.n0 == null) tr.n0 = tr.obs.length; else if (tr.obs.length > tr.n0) tr.obs.length = tr.n0;
+      tr.X = null; for (const o of tr.obs) o.ok = true;
+    }
 
     const obsNorm = (o) => [feats[o.img].xn[o.feat], feats[o.img].yn[o.feat]];
     const poses = new Array(n).fill(null);
     const registered = new Set();
+    // a new registration pass in its own world frame (each focal candidate, the final run, the
+    // bracket re-check, the gap retry): the app's overlay clears its frustum ring on this
+    // final: the pass whose poses become the solve (withBA) — the focal-search candidates and the
+    // init trials are not, and the app's overlay ignores their registrations
+    ev({ stage: 'pass', done: 0, total: n, detail: { fScale: fScale * 1.2, final: !!withBA } });
     const failed = new Set();
     // Generous reprojection budget (feature-scale px): triangulation from
     // low-parallax pairs is noisy; global refinement tightens it afterwards.
@@ -1253,6 +1281,8 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
       }
       vlog(`init pair: images ${p.i} + ${p.j} (${nInl} E-inliers, ${tri} points, ` +
            `median parallax ${(pose.medianAngle * 180 / Math.PI).toFixed(1)} deg)`);
+      // the init pair is registered too — the overlay's ring was two frustums short without this
+      for (const im of [p.i, p.j]) ev({ stage: 'register', done: registered.size, total: n, detail: { image: im, R: Array.from(poses[im].R), t: Array.from(poses[im].t), f: K[im].f, cloud: null, points: tri, final: !!withBA } });
       initDone = true;
       break;
     }
@@ -1580,7 +1610,7 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
           }
           ev({ stage: 'register', done: registered.size, total: n, detail: {
             image: bestImg, R: Array.from(reg.R), t: Array.from(reg.t), f: K[bestImg].f,
-            cloud, cloudRgb, points: nPts,
+            cloud, cloudRgb, points: nPts, final: !!withBA,
           } });
         }
 
@@ -1905,7 +1935,7 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
   // most cameras (then the lower pixel median) seeds the final pass.
   // opts.initTrials sets the count (default 3; 1 = off).
   const finalRun = async (scale) => {
-    const trials = n <= 60 ? (opts.initTrials ?? 3) : 1;
+    const trials = n <= (opts.initTrialsUpTo ?? 60) ? (opts.initTrials ?? 3) : 1;   // opts.initTrialsUpTo: the set size up to which init pairs are tried (?inittrialsupto=N)
     if (trials <= 1) return runGeometry(scale, true, true);
     let bestK = 0, bestRes = null;
     for (let k = 0; k < trials; k++) {
@@ -1972,7 +2002,12 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
   // 42 instead of 5.8, the person a ghost; the same clip searched on 104 images
   // stopped at 0.69x. Above 120 the subsample stays (a 251-photo set is 5-25 s
   // per candidate at full size).
-  if (opts.searchSubset !== false && !opts.rigs && n > 120) {
+  // the focal search registers a <= 48-image subsample above 48 images (c53cc23). The avatar
+  // branch raised this to 120 (868f9b0: on the pre-fix pair graph a 33-of-65 subsample picked
+  // 0.44x and morphed); with the RANSAC guard and the video gate that condition is gone, and
+  // the every-image search bent a Firefox solve 2.5 % off live (2026-09-17d). Back to 48;
+  // opts.searchSubsetAbove for experiments (?sfmsubabove=N)
+  if (opts.searchSubset !== false && !opts.rigs && n > (opts.searchSubsetAbove ?? 48)) {
     const stride = Math.ceil(n / 48);
     searchSet = new Set();
     for (let i = 0; i < n; i += stride) searchSet.add(i);
@@ -2074,14 +2109,30 @@ async function runSfMOnce(images, log, sampleColor, opts = {}) {
   // scene radius 22 instead of 5.8). When the bracket moved, the grid's own
   // winner gets the same full solve and the one that registers more frames
   // stays (a tie goes to the lower BA rms).
-  if (opts.focalVerify !== false && gridWinner && best !== gridWinner) {
-    const t0v = performance.now();
-    let alt = null;
-    try { alt = await finalRun(gridWinner.fScale); } catch (e) { log(`focal check: grid winner failed on rerun (${e.message || e})`); }
+  // Final trials (2026-09-17e). The grid ranks its focal candidates by the cheap pass's pixel
+  // median, and among near-ties that ranking flips on the pixels (Chrome's decoder put 0.96x
+  // first, Firefox's 0.69x; both BA to f 445 px) — but the final registration seeded from each
+  // lands in a DIFFERENT optimum: 0.88 px rms and 0.5 % off the reference from one, 0.58 px and
+  // 0.2 % from the other. The full-BA rms tells them apart where the cheap median cannot. So the
+  // final pass runs from the top candidates (the bracket winner, the grid winner when the
+  // bracket moved, the grid's runner-up) and keeps the one that registers the most cameras,
+  // then the lowest BA rms. This subsumes the earlier bracket re-check (`focalVerify`). Sets
+  // above 120 images run a single final pass (a final pass with BA is the expensive step).
+  // opts.finalTrials (?finaltrials=N): the number of candidates; 1 = a single pass.
+  {
+    const trialsN = n <= 120 ? (opts.finalTrials ?? 2) : 1;
+    const ranked = eligible.slice().sort((a, b) => a.medErr - b.medErr);
+    const order = [best, ...(gridWinner && gridWinner !== best ? [gridWinner] : []), ...ranked];
+    const tried = new Set([best.fScale]); const scales = [best.fScale];
+    for (const r of order) { if (scales.length >= Math.max(trialsN, gridWinner !== best ? 2 : 1)) break; if (!tried.has(r.fScale)) { tried.add(r.fScale); scales.push(r.fScale); } }
     const rms = (r) => (r && r.rmsBA != null ? r.rmsBA : r ? r.medErr : Infinity);
-    if (alt) {
+    for (const sc of scales.slice(1)) {
+      const t0v = performance.now();
+      let alt = null;
+      try { alt = await finalRun(sc); } catch (e) { log(`final trial ${(sc * 1.2).toFixed(2)}x: failed (${e.message || e})`); }
+      if (!alt) continue;
       const keepAlt = alt.cams.length > final.cams.length || (alt.cams.length === final.cams.length && rms(alt) < rms(final));
-      log(`focal check: bracket ${(best.fScale * 1.2).toFixed(2)}x registered ${final.cams.length}/${n} (rms ${rms(final).toFixed(2)}px), grid ${(gridWinner.fScale * 1.2).toFixed(2)}x registered ${alt.cams.length}/${n} (rms ${rms(alt).toFixed(2)}px) in ${((performance.now() - t0v) / 1000).toFixed(1)}s — keeping the ${keepAlt ? 'grid' : 'bracket'} winner`);
+      log(`final trial ${(sc * 1.2).toFixed(2)}x: ${alt.cams.length}/${n} cams, rms ${rms(alt).toFixed(2)}px against ${final.cams.length}/${n} at ${rms(final).toFixed(2)}px in ${((performance.now() - t0v) / 1000).toFixed(1)}s — ${keepAlt ? 'keeping it' : 'keeping the first'}`);
       if (keepAlt) final = alt;
     }
   }
@@ -2112,7 +2163,10 @@ export async function runSfM(images, log, sampleColor, opts = {}) {
   // person (2026-09-14). The relaxed gate is what mends such a gap.
   const reg = new Set(first.cams.map((c) => c.imgIdx)); let gap = 0, run = 0;
   for (let i = 0; i < n; i++) { run = reg.has(i) ? 0 : run + 1; if (run > gap) gap = run; }
-  if (!relaxable || (first.cams.length >= 0.7 * n && gap < 5)) return first;
+  // the gap rule (retry above 70 % when >= 5 consecutive frames are missing) is opt-in since
+  // 2026-09-17d (opts.pairRelaxGap, ?pairrelax=gap): with the video gate the first pass registers
+  // the chain itself, and the extra pass was one of three that bent a Firefox solve off live
+  if (!relaxable || (first.cams.length >= 0.7 * n && !(opts.pairRelaxGap && gap >= 5))) return first;
   log(first.cams.length >= 0.7 * n
     ? `registration ${first.cams.length}/${n} with a gap of ${gap} consecutive frames — retrying with the absolute pair gate (100 / neighbours 15)`
     : `registration ${first.cams.length}/${n} < 70 % — retrying with the absolute pair gate (100 / neighbours 15)`);

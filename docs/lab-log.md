@@ -4,6 +4,385 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-17k (app: the avatar manifest was sticky; settings polish)
+
+- `S.avatar` was only ever cleared inside the video path, so a wall preset or
+  a photo drop opened AFTER an avatar run inherited the manifest and ran the
+  avatar pipeline (crops, stages) — and showed the avatar settings. The
+  manifest now travels on the set (`set.avatar`) and `open()` takes it from
+  there; no `await` in `open()` (a yield there let the start card win over
+  the detail card — caught by the harness).
+- Settings: the Avatar group (title + Horizontal SH + six toggles) sits at
+  the end of the panel and is hidden unless the loaded set is an avatar run;
+  no splat-ceiling toggle (an avatar never limits splats); the review card's
+  SH row is gone. Training resolution: 1600 / 1920 / Full (the pictures'
+  own size, labelled), rows above the set's size hidden.
+- **Avatar defaults are now ALL OFF** (the user, after running High + Auto with
+  every row off: "pretty happy with all off, make this the default"): crops
+  Off (three-way: Off / On room pose / On re-posed to the face), precise
+  tier, large decode, 100k seed, opacity pressure and needle term all off. An
+  avatar run is a scene run until a row is switched on; the rows are the
+  ladder. The trainer's ceiling stays the allocation maximum regardless.
+  (`trainingOptions` without an `av` argument still returns the full 09-15
+  recipe — the app always passes `settings.av`.)
+- Harness: `--dumpframes=dir` (picked frames, for COLMAP references),
+  `--browser=firefox` (needs `npx playwright install firefox`).
+
+## 2026-09-17j (the gate against truth on all three orbits)
+
+COLMAP references for Tom (65), Lisa (208) and Filip (59), all 100 %
+registered. The video gate (absolute pair gates 100 / neighbours 15 in the
+first pass) on the current tree (final trials, clean passes):
+
+| orbit | gate ON vs truth | gate OFF vs truth |
+|---|---|---|
+| Tom, Chrome hardware decode | 0.1 % / max 0.3 % | **3.9 % / max 10.5 %** — 65/65 registered, rms 0.65, WRONG (no retry: the count passed) |
+| Tom, Chrome software decode | 0.2 % / 0.3 % | first pass 39/65 → the retry (which IS the gate) → 0.2 % / 0.3 % |
+| Lisa | 0.3 % / **max 22.9 %** (119-121) | 0.3 % / max 0.9 % (206/208) |
+| Filip | 0.2 % / 0.4 % (59/59) | 0.1 % / 0.6 % (58/59) |
+
+So the gate is what makes Tom's solve correct under hardware decode — a
+65/65 registration at 0.65 px rms that is 4 % off truth is the failure the
+count-and-rms rulers cannot see — and it is what mis-bridges three of Lisa's
+cameras. Filip is right either way. Decision: the gate stays (two orbits
+right and one with three bad cameras beats one orbit silently wrong), and
+Lisa's three cameras are the next piece of work: a geometric admission check
+on gate-admitted pairs, or per-camera verification after the final pass
+(a mis-bridged camera has few observations and a residual its neighbours
+do not). Not a threshold.
+
+Rulers, again: registered count and BA rms passed Tom-gate-off with flying
+colours; only truth caught it.
+
+## 2026-09-17i (COLMAP truth for Lisa: the video gate mis-bridges three cameras)
+
+COLMAP on Lisa's 208 dumped frames (4K, CPU: features 185 s, exhaustive
+matching 1,263 s, mapper 194 s): 208/208, one model. Every Lisa solve
+against it:
+
+| solve | median | max | rotation max | cams > 2 % |
+|---|---|---|---|---|
+| main's solver (live) | 0.3 % | 0.6 % | 0.4° | — |
+| this tree, gate OFF (206/208) | 0.3 % | **0.9 %** | 0.3° | — |
+| this tree, default (gate on, 208/208) | 0.3 % | **22.9 %** | 3.1° | **119, 120, 121** |
+| this tree, single final pass | 47 % | 98 % | 179° | nearly all |
+
+So the bisect's reading was right against truth: the video gate registers
+two more cameras and places three wrongly (13-23 % of the path), main and
+gate-off are clean, and the final trials are what stands between Lisa and a
+wrong focal. The "jump at 75-76" in the gate-off solve was NOT an error
+(0.9 % max against COLMAP) — a fast real move; the continuity heuristic
+flagged it, the truth cleared it.
+
+Decision now depends on Tom without the gate on the CURRENT tree (final
+trials + clean passes came after the gate was measured): if Tom is clean
+under both decoders without it, the gate goes; if not, it needs a
+geometric admission check. Running.
+
+## 2026-09-17h (COLMAP truth for Tom: the day's rulers were honest)
+
+COLMAP 4.1.1 (CPU, `tools/colmap`, exhaustive, 8000 features, one shared
+SIMPLE_RADIAL camera) on the 65 picked frames: 65/65 in one model, 99 s.
+Every solve of the day aligned against it (`cmp_cams.mjs`, cameras matched
+by file name; centre residual as % of the path extent):
+
+| solve | median | p90 | max | rotation median / max |
+|---|---|---|---|---|
+| live export | 0.1 % | 0.2 % | 0.4 % | 0.1° / 0.2° |
+| Firefox "extremely good" (live's path + fixes) | 0.1 % | 0.2 % | 0.3 % | 0.2° / 0.3° |
+| **Chrome, current default** (trials, clean passes, gate) | **0.1 %** | 0.3 % | **0.3 %** | 0.2° / 0.3° |
+| Chrome, gate + branch passes | 0.2 % | 0.3 % | 0.4 % | 0.2° / 0.3° |
+| Firefox, final trials before the leak fix ("5 cm") | 0.2 % | 0.7 % | **1.3 %** | 0.2° / 0.6° |
+| Chrome, main's solver | 0.3 % | 0.6 % | 0.9 % | 0.2° / 0.6° |
+| Chrome, subsample without a trial ("5 cm") | 0.5 % | 1.4 % | 1.9 % | 0.3° / 0.6° |
+| Firefox, branch passes ("30 cm") | 2.5 % | 8.7 % | 11.6 % | 1.2° / 2.6° |
+| Chrome, software decode (pre-gate) | 13.7 % | 23.3 % | 32.7 % | 9.0° / 27.9° |
+| Firefox, gate off ("destroyed") = the morning export | 40.4 % | 65.0 % | 94.3 % | 39.3° / 104.8° |
+
+So: live is within 0.1 % of COLMAP, which is why "vs live" tracked the truth
+all day; the user's eye maps onto the MAX residual (0.3 % perfect, 1.3 %
+"5 cm", 11 % "30 cm"), not the median; and the current default on Chrome
+is at the top of the table. The morning's broken export and the gate-off run
+are the same solve to the digit — deterministic and wrong.
+
+(The avatar-route `camsAll` dumps carry no names and did not align in this
+run — not a solve verdict, a bookkeeping gap.)
+
+## 2026-09-17g (two more orbits, a bisect on Lisa, and every avatar specific as a toggle)
+
+**Overfit check** (plain route, High, main's solver on :8735 vs this tree,
+aligned with `cmp_cams.mjs`; no ground truth — "vs main" is agreement, the
+step jumps a heuristic):
+
+| clip | main | this tree | agreement |
+|---|---|---|---|
+| Filip, 59 frames | 43/59, jumps at 16-18 (the 09-14 gap) | **59/59**, 0.54 px, no jumps | 0.1 % on the 43 both have |
+| Lisa 4K, 208 frames | 208/208 | 208/208, 0.74 px | 0.2 % median, **cams 119-121 at 13-23 %**, jumps 120-122 |
+
+Lisa bisect: gate OFF → 206/208, 0.1 % of main (max 0.6 %), one jump at
+75-76 (a frame with one usable pair); gate on with a SINGLE final pass →
+181/208, wrong focal (432 vs 369 px), destroyed. So the final trials are
+what saves Lisa (not only Tom), and the video gate buys two cameras for
+three mis-bridged ones — the "low-inlier neighbour pair poisons the graph"
+failure of the 09-08 note, now seen on a video. Decision pending COLMAP
+truth (frames unpacked for Tom and dumped for Lisa; the 4.1.1 CPU binary the
+bench used is gone with `Browser_3DGS/tools`). The fix, if confirmed, is a
+geometric admission check on gate-admitted pairs, not a threshold.
+
+**Avatar specifics as toggles** (the user: "when I toggle all specifics off,
+it should solve like non-avatar"). `settings.av` — crops, tier, budget, seed,
+opa, needle, cap — seven rows in the panel under Horizontal SH, all on by
+default; `trainingOptions(…, { av })` and the app's crops/budget hooks honour
+them. Verified: an avatar run with every toggle off produces the plain
+route's solve to 0.0 % (same 1280 px decode, same 223 pairs, same 170,608
+seed), crops skipped. The user's report that started it: the avatar in the
+arrival.space app is the best it has been, while the reconstruction in
+splat-js with the avatar specifics is worse than without — some help, some
+hurt; the toggles are how to find which.
+
+## 2026-09-17f (a second pass was never a clean pass: two leaks between solver passes)
+
+Final trials kept the right candidate in Firefox too (`final trial 0.69x:
+65/65, rms 0.63px against 0.81px — keeping it`) and the user still saw 5 cm
+ghosts; aligned, the tail (frames 55-65) sat 1 % off live while his single
+pass at the same focal had been within 0.3 % everywhere. Same focal, same
+browser, a worse solve when it ran SECOND. Two things survive from one
+`runGeometry` call to the next:
+
+1. `refineObsLK` writes its sub-pixel-moved coordinates into `feats[].x/y`
+   (sfm.js:203); the next pass's observations start pulled toward the
+   previous pass's geometry.
+2. `extendTracks` pushes observations onto the shared `tracks[].obs` under
+   the previous pass's poses; the reset only cleared `o.ok`, so the next pass
+   inherited them as evidence.
+
+Both fixed in the reset at the top of `runGeometry`: keypoints restored from a
+first-pass snapshot (`f.x0/y0`), tracks truncated to their detected length
+(`tr.n0`). Every pass — candidate, trial, retry — now starts from the
+detected features. With that, Chrome default, both routes:
+
+| | trial kept | rms | vs live (median / max) |
+|---|---|---|---|
+| leaks (17e) | 0.69x | 0.64 px | 0.3 % / 0.5 %, tail 1 % |
+| keypoints restored only | 0.69x | 0.65 px | 0.3 % / 0.5 %, tail 1 % |
+| **both restored** | 0.69x | 0.82 px | **0.2 % / 0.4 %, no camera above 0.4 %** |
+
+The rms went UP and the geometry got better: the lower numbers were partly
+observations already fitted by a previous pass. The user's Firefox default run
+on this build: "perfect". Gates: synthetic 12/12 (focal 0.27 %, 0.47 px),
+Truck 42/42, ATE 0.02 %.
+
+Also tried, before the leaks were closed: init-pair trials on the final pass
+for sets up to 120 (`?inittrialsupto=120`; the mechanism exists for <= 60) —
+WORSE, 0.6 % median, the first half of the orbit 1 % off: the cheap median
+chose the rank-1 pair over rank-0. Untested on clean passes; not adopted.
+
+Overfit check owed: the video gate's benefit is measured on Tom only.
+## 2026-09-17e (final trials: the grid's ranking flips on pixels, the BA rms does not)
+
+Why live's path gave 0.2 % on Firefox and 0.5 % on Chrome, and the every-image
+path the reverse: the focal grid ranks near-tie candidates by the cheap
+pass's pixel median, and that ranking flips on the decoder's pixels — Chrome
+puts 0.96x first, Firefox 0.69x; both BA to f 445 px. But the final
+registration seeded from each lands in a DIFFERENT optimum: 0.88 px rms and
+0.5 % off live from 0.96x, 0.58-0.64 px and 0.2-0.3 % from 0.69x. The old
+bracket re-check rescued Chrome by accident: it re-solved the grid winner
+against the bracket's pick and kept the lower rms.
+
+That criterion is the right one, so it is now the mechanism: **final
+trials** (`sfm.js`, replacing `focalVerify`) — the final pass runs from the
+top candidates (the bracket winner, the grid winner when the bracket moved,
+the grid's runner-up), keeps the most cameras, then the lowest full-BA rms.
+Default 2 for sets up to 120 images (`?finaltrials=N`; 1 = single pass).
+Subsample 48, no gap rule, video gate on.
+
+| default, Chrome | grid | trial | kept | vs live |
+|---|---|---|---|---|
+| plain route | 0.96x, 0.88 px | 0.69x, 0.64 px | 0.69x | 0.3 % / 0.1°, max 0.5 % |
+| avatar route | 0.96x, 0.88 px | 0.69x, 0.64 px | 0.69x | 0.3 % / 0.1° (nose 2.01 px) |
+
+Cost: one extra final pass with BA (~16 s on 65 frames). Gates: synthetic
+12/12, BA 0.46 px; Truck 42/42, ATE 0.02 %.
+
+The overlay draws only FINAL passes now (`pass`/`register` events carry
+`final`): the focal candidates and init trials register a subsample in
+throwaway frames, and clearing the ring on those made it hop and the cloud
+vanish six times before the real solve. Ring at the end: 65 for 65.
+
+A note for the record: a python slice edit with `s.index` on two anchors that
+matched in the wrong order duplicated 170 lines of `sfm.js` and served a
+broken solver for two minutes. Assert `start < end` and re-count landmarks
+(`SfM done` lines: 3, as on main) before trusting a structural edit.
+
+## 2026-09-17d (three Firefox exports, aligned: the gate is essential, the branch's extra passes still cost 2.5 %)
+
+The user ran three URLs in his Firefox and exported each session
+(`tmp/tom_local_1*`); aligned against his live export with `cmp_cams.mjs`:
+
+| URL | solver path | vs live (centre / rotation, median; max) | psnr@iter |
+|---|---|---|---|
+| `?sfmsubabove=48&focalverify=0&pairrelax=0` | live's path + today's fixes | **0.2 % / 0.1°; 0.3 %** | 32.2 @ 11k ("EXTREMELY good") |
+| default | branch passes (every-image search, bracket check, gap retry) + gate | 2.5 % / 1.1°; **11.5 % at frame 55** | 26.7 @ 6.7k ("30 cm ghosts") |
+| `?pairabs=0` | video gate off | 40.5 % / 39.1°; 94 % | 21.2 @ 5.2k ("destroyed") |
+
+The good one also matches the Chrome default solve to 0.1 %. So: the video
+gate is essential (without it, the same wrong solve as this morning's export,
+bit-for-bit the same 40.5 %); and the branch's three solver additions, which
+are neutral on Chrome (0.3 % vs main), still bend the Firefox solve by 2.5 %
+with the tail 11 % off. They were written for the avatar route on the
+pre-fix graph (868f9b0: a 33-of-65 subsample picked 0.44x and morphed) — a
+condition that no longer holds. Decision pending the avatar check: make
+live's path the default again, keep the three as opt-in switches.
+
+## 2026-09-17c (the sparse-cloud frustums were several solves at once)
+
+The user's "wrong poses" were judged in the sparse-cloud stage — and his
+bisect of the branch's solver switches came out "all three off = as good as
+live, subsample alone = bad", which made no solver sense. It made overlay
+sense: every solver PASS (each focal candidate, the final run, the bracket
+re-check, the gap retry) registers the images again in its own world frame
+and fires `register` events; `app.js` pushed every one onto `S.regCams` and
+cleared it only at run start. The stage drew several solves' frustums
+superimposed — one ring plus a stray arc. The branch adds passes, so it
+showed more ghosts than live; switching passes off removed ghosts, not
+errors. The finished reconstruction never had those poses (training-time
+frustums were right all along).
+
+Fix: `sfm.js runGeometry` emits `stage: 'pass'` at the start of every
+registration pass; the app clears the ring (and the cloud) on it and a
+re-registered image REPLACES its frustum. Ring at the end of a 65-camera
+solve: 63, then 65 once the init pair emits its two events too — against hundreds before.
+
+Lesson (again): judge a solve by the exported cameras (`cmp_cams.mjs`
+against a reference) or by the training-time view, never by the sparse-cloud
+overlay — and a bisect whose answer contradicts the code is telling you the
+ruler is broken.
+
+## 2026-09-17b (the same clip solves four ways: the decoder chooses — until the neighbour gate is on)
+
+The user, after the RANSAC fix: still wrong, and reproducible on a plain scene
+run (High, no avatar box) — live solves it, local does not. He exported both
+sessions (`tmp/tom_live_session`, `tmp/tom_local_session`): same 65 frames,
+same focal (445 px), and after the best similarity fit the local cameras sit a
+median **34 %** of the path extent from live's, rotations **39°** (frames 13-19
+at 65-94 %). A different reconstruction, not noise.
+
+Direct A/B on this machine (`tests/e2e/avatar_mode.mjs --noavatar --solveonly
+--port`, a worktree of main served on 8735, cameras aligned with
+`scratchpad/cmp_cams.mjs`):
+
+| solve | vs live (centre / rotation, median) |
+|---|---|
+| branch, headless | 0.5 % / 0.3° |
+| main, headless (62/65 registered) | 0.4 % / 0.2° |
+| branch, headed, harness flags | 0.5 % / 0.3° |
+| branch, headed, plain flags | 0.5 % / 0.3° |
+| branch, headed, **software video decode** | **13.8 % / 9.1°** (repeat: identical to itself) |
+| the user's local export | 33.9 % / 39.1° |
+
+So: not branch-vs-main (they agree to 0.3 %), not the window, not the GPU
+flags. The solve is a pure function of the pixels — and the pixels depend on
+the video decoder. Hardware and software decode give the same feature count
+(2,948) and the same usable-pair count (175), yet different features, a
+different init pair (1+54 vs 17+18), a different self-consistent solve at the
+same focal. The user's tab produced a third pixel set (2,950 features) and a
+fourth solve. Which one you got was decided below anything a count can see.
+
+Why the clip admits several solves: the pair gate is ratio-only by default
+(`pairMinInliers ?? Infinity`, b806846 09-08), so neighbour pairs with 215 of
+600 E-inliers are thrown away — 175 usable pairs of 1,574, a thin chain with
+a seam at 44-46 / 51 and a scale-ambiguous tail.
+
+**The fix: a video is a chain.** For video-sourced runs the app now passes the
+retry's absolute gates into the FIRST pass (`pairMinInliers 100`,
+`pairMinInliersAdj 15`; `app.js VIDEO_GATES`, `set.video` on fresh and
+restored video sets; `?pairabs=0` off, `?pairabs=A,N` other values):
+
+| first pass with gates 100/15 | usable pairs | vs live | vs each other |
+|---|---|---|---|
+| hardware decode | 223 | 0.2 % / 0.2° | — |
+| software decode | 223 | 0.2 % / 0.1° | 0.1 % / 0.1° |
+
+Both decoders land on live's solve at live's exact focal (445.3 px).
+Verified with the gate on by DEFAULT (no URL switch): plain route hardware
+0.2 % / 0.2°, software 0.2 % / 0.1°, avatar route 0.2 % / 0.2° — all 223 pairs,
+65/65, rms 0.58-0.60 px. (The avatar's head windows read nose residual 2.13 px
+on this solve against 0.98 px on the 0.55x solve the ungated bracket found
+earlier today — a different metric on a different solve; live's solve is the
+one that trained to 36.9 dB.) Photo
+sets keep the ratio gate: those gates cost the Truck 3 dB on 09-08 (250/251
+registered at rms 0.62, 22.67 vs 25.72 dB) — a low-inlier neighbour pair on a
+photo set can be geometrically wrong; on a video it is overlap by construction.
+
+Also measured today: the pair stage is deterministic (seeded; two runs
+bit-identical under each decoder), the focal-search bracket (`focal check`)
+and the gap retry behave the same on branch and main for this clip, and the
+harness needed `?sessionlog=1` to see a plain run's solver at all (a plain
+scene run logs nothing — two 15-minute waits on a console line that never
+comes).
+
+## 2026-09-17 (RANSAC ran one iteration on the strongest pairs: a solver defect since the library split)
+
+The user: "camera alignment is broken on Tom, many poses are wrong" — a stray arc
+of frustums off the orbit, the trained room in shards. His panel: training
+resolution 1280, Cycles 40k, everything else default. Headless on the same clip
+(`tests/e2e/avatar_mode.mjs`, default settings) solved 65/65 at 0.55x, twice,
+bit-identical — but only through `runSfM`'s retry of a 48/65 first pass with
+an 11-frame gap. His tab's log had 2,950 features/image against 2,948 headless
+(the headed decode is not pixel-identical, and 1280 vs Auto shifts it again),
+a differently fragmented graph, the focal grid picking 1.20x on a wrong init,
+and cameras registered on 9-17 inliers (BA aspect 1.34). Nothing on the solve
+path had changed in the tree since the last good run.
+
+Probed the pair stage (`?pairdebug=1`: every neighbour pair's raw count,
+E-inliers, RANSAC bestCount, estimator failures, iterations run):
+
+| pair | raw | E-inl | best sample | iters |
+|---|---|---|---|---|
+| 7-8 | 1,335 | 0 | 3 | 1 |
+| 59-60 | 1,070 | 0 | 1 | 1 |
+| 16-17 | 813 | 0 | 4 | 1 |
+| 45-46 | 782 | 0 | 7 | 2 |
+| 4-5 | 764 | 0 | 4 | 1 |
+
+21 of 127 neighbour pairs ended after one or two RANSAC iterations. The
+adaptive termination in `ransacE` (`src/sfm/geometry.js`): `p = 1 - w^8`; on a
+big pair whose first sample is contaminated (most are — eight points from a
+50 %-inlier set are all inliers 0.4 % of the time) `count/n` is under 1 %,
+`w^8` is below double epsilon, `p` rounds to exactly 1, `log(p)` is 0, `need`
+is -Infinity and `iters` collapses to `it + 1`. The loop ends. It bit exactly
+the strongest adjacent pairs, and `?pairiters=5000` could not help because the
+cap was pinned. The line predates the library split (e745f4d, 08-19); the
+deployed `arrival.space/splat-js/src/sfm/geometry.js` has it too — live solves
+the same clip correctly through the plain-scene route (High tier, 48-image
+focal subsample), which is the same knife-edge landing on the other side.
+
+Fix: `need = p >= 1 ? maxIters : …`. Tom, headless, default settings:
+
+| | before | after |
+|---|---|---|
+| neighbour pairs with 0 E-inliers | 21 | **0** |
+| 7-8 inliers | 0 | 1,299 of 1,335 |
+| first pass | 48/65, retry to 65/65 | **65/65, no retry** |
+| BA final | 0.63 px, 16,708 pts | 0.63 px, 20,524 pts |
+| nose residual (head windows) | 1.77 px | **0.98 px** |
+| camera path | same shape (radius min/max 0.28 both), scale differs (arbitrary units) |
+
+Quality gates with the fix (`tests/quality/run.mjs synthetic-solve truck-ate`):
+synthetic 12/12, focal error 0.29 %, BA 0.475 px; Truck 42/42, BA 0.56 px,
+ATE 0.02 % of the path (gate 0.1) — the rich graph does not move.
+
+Still open, noted not changed: the pair gate is ratio-only by default
+(`pairMinInliers ?? Infinity` since b806846; the comment says "default 100")
+so neighbour pairs with 215 of 600 inliers are thrown away; and the retry is
+accepted on camera COUNT, never on geometry. The pair stage is deterministic
+(seeded; two runs identical) — the tab-vs-headless difference is the input.
+
+Tooling that stays: `?pairdebug=1`, `?pairiters=N` (avatar sfm opts),
+`ransacE(..., stats)`, `--solveonly` in the e2e, console lines kept whole
+(they were cut at 600 chars, which manufactured a "non-monotonic" paradox —
+pairs "usable at 600 iterations, 0 at 5000" — that cost an hour).
+
 ## 2026-09-16b (the skin term: works as a mechanism, no visual gain at 30k)
 
 The user's idea (09-15 night): pull face splats onto the face mesh and

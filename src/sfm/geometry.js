@@ -286,9 +286,10 @@ export function sampsonError2(E, x1, x2) {
 
 /** RANSAC essential matrix. x1s/x2s: arrays of [xn, yn]. thresh: Sampson
  *  (normalized units, NOT squared). Returns {E, U, V, inliers} or null. */
-export function ransacE(x1s, x2s, thresh, rng, maxIters = 1200) {
+export function ransacE(x1s, x2s, thresh, rng, maxIters = 1200, stats = null) {
   const n = x1s.length;
   if (n < 8) return null;
+  let estFails = 0;
   const th2 = thresh * thresh;
   let best = null, bestCount = 0;
   let iters = maxIters;
@@ -303,20 +304,28 @@ export function ransacE(x1s, x2s, thresh, rng, maxIters = 1200) {
       sample[k] = cand;
     }
     const est = estimateE(x1s, x2s, sample);
-    if (!est) continue;
+    if (!est) { estFails++; continue; }
     let count = 0;
     for (let i = 0; i < n; i++)
       if (sampsonError2(est.E, x1s[i], x2s[i]) < th2) count++;
     if (count > bestCount) {
       bestCount = count;
       best = est;
-      // Adaptive termination
+      // Adaptive termination — with the underflow guard. For a big pair (n > ~800)
+      // whose FIRST sample is contaminated (most are: eight random points from a
+      // 50 %-inlier set are all inliers 0.4 % of the time), count/n is under 1 %,
+      // w^8 is below double epsilon, p rounds to exactly 1, log(p) is 0 and `need`
+      // is -Infinity — the loop then ended after ONE iteration and the pair came
+      // back with 3 inliers of 1,335. Every strong adjacent pair of Tom's orbit
+      // died this way (2026-09-17, ?pairdebug=1: bestCount 1-7, iters 1-2), and
+      // more iterations could not help because iters was pinned to it + 1.
       const w = count / n;
       const p = Math.max(1e-9, 1 - Math.pow(w, 8));
-      const need = Math.ceil(Math.log(1e-3) / Math.log(p));
+      const need = p >= 1 ? maxIters : Math.ceil(Math.log(1e-3) / Math.log(p));
       iters = Math.min(maxIters, Math.max(it + 1, need));
     }
   }
+  if (stats) { stats.bestCount = bestCount; stats.estFails = estFails; stats.iters = iters; }
   if (!best || bestCount < 12) return null;
   // Refit on inliers, then recollect inliers.
   let inliers = [];
