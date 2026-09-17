@@ -1770,8 +1770,13 @@ export class GSTrainer {
       this.bufPatchOps = d.createBuffer({ label: 'refine-patch-ops', size: this.patchCap * 16, usage: B.STORAGE | B.COPY_DST });
       this.bufPatchVals = d.createBuffer({ label: 'refine-patch-vals', size: this.patchCap * 64, usage: B.STORAGE | B.COPY_DST });
       if (!this.uniRefinePatch) this.uniRefinePatch = d.createBuffer({ label: 'uniRefinePatch', size: 16, usage: B.UNIFORM | B.COPY_DST });
-      if (!this.bufPatchDummy) this.bufPatchDummy = d.createBuffer({ label: 'refine-patch-dummy', size: 16, usage: B.STORAGE });
-      const shb = this.shK ? [this.bufSH, this.bufSHM, this.bufSHV] : [this.bufPatchDummy, this.bufPatchDummy, this.bufPatchDummy];
+      // SH degree 0: the kernel's three SH bindings are read_write, and ONE dummy bound to all
+      // three is an aliased-writable-bindings validation error at dispatch — every refine's
+      // patch submit was rejected ("Invalid CommandBuffer", twice per 3k run, live too) and
+      // the relocations/growth it carried were silently dropped (2026-09-17). Three distinct
+      // dummies, as refine-apply already does.
+      if (!this.bufPatchDummies) this.bufPatchDummies = [0, 1, 2].map((i) => d.createBuffer({ label: `refine-patch-dummy-${i}`, size: 16, usage: B.STORAGE }));
+      const shb = this.shK ? [this.bufSH, this.bufSHM, this.bufSHV] : this.bufPatchDummies;
       this.bgRefinePatch = d.createBindGroup({
         layout: this.pipeRefinePatch.getBindGroupLayout(0),
         entries: [this.uniRefinePatch, this.bufPatchOps, this.bufPatchVals, this.bufParams, this.bufM, this.bufV, ...shb]
