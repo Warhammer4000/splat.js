@@ -4,6 +4,28 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-17m (the README's Truck rows on this tree)
+
+Merge check for the solver work. `tests/bench/bench_run.html?set=truck` (the
+release-default trainer, precise solve tier, eval8):
+
+| row | README (09-09) | this tree |
+|---|---|---|
+| 40k cycles, held-out PSNR | 26.14 dB, 1.4 M splats, 10 min train | **26.25 dB**, 1.4 M, 6.6 min train, 251/251, rms 0.645, solve 10.1 min |
+| 30-min run (127k) | 26.55 dB, 1.05 M | **26.56 dB**, 26.5 min train, 251/251 (2 M allocated, 67 % dead at the end) |
+
+Within the ±0.1 dB noise band, on the good side; the solve time is the
+precise tier's 10.8 min of 09-09 (the RANSAC guard makes big pairs run their
+600 iterations instead of one, and it did not cost the Truck). New gates:
+`tom-ate` (a video orbit against COLMAP, the app's video gates) and
+`truckfull-ate` (the README's 250/250 pose row):
+
+| gate | registered | rms | ATE % of path |
+|---|---|---|---|
+| tom-ate (65 video frames, video gates, vs COLMAP) | 65/65 | 0.59 px | **0.03 %** (limit 0.5) |
+| truckfull-ate (251 photos, vs COLMAP) | 251/251 | 0.66 px | **0.00 %** (limit 0.05) — the README row |
+| truck-ate (42) | 42/42 | 0.56 px | 0.02 % |
+
 ## 2026-09-17l (SH degree 0 did not compile on the branch — and does not run on main either)
 
 The user: SH 0 gives a gray cloud that trains "extremely fast". The chain
