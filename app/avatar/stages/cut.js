@@ -41,7 +41,28 @@ export async function run(ctx, manifest, hooks) {
     }
   }
   if (include.length) log(`cut: the hull box holds ${include.length} joint and floor points`);
-  const hull = src._buildHull({ hullOpts: include.length ? { include } : undefined });
+  // The cut's generosity (2026-09-17, the user: hands, feet and the face chipped; a ceiling column
+  // above Filip). Switches, all read from the URL:
+  //   ?hulldilate=px   grow the matte before carving (thin parts the matte drops in a few frames)
+  //   ?hullsigma=S     probe the splat's extent at S sigma (default 2)
+  //   ?hullout=N       probes outside before a splat goes (default 4 of 6)
+  //   ?hulltop=F       the hard top, F x the body height above the highest head landmark (default 0.15; 0 = off)
+  const Q = new URLSearchParams(location.search);
+  const hullOpts = { ...(include.length ? { include } : {}) };
+  // the generous verdict is the DEFAULT since 2026-09-17 (Tom: 88,652 -> 93,049 splats kept, the
+  // binder's "far" count 0 either way; the user saw chipped hands, feet and face at 2 sigma / 4 of 6):
+  // matte dilated 6 px, probes at 1 sigma, 5 of 6 outside before a splat goes. The switches revert.
+  hullOpts.dilatePx = Q.get('hulldilate') != null ? +Q.get('hulldilate') : 6;
+  hullOpts.sigma = +Q.get('hullsigma') > 0 ? +Q.get('hullsigma') : 1;
+  hullOpts.maxOut = +Q.get('hullout') > 0 ? +Q.get('hullout') : 5;
+  const topF = Q.get('hulltop') != null ? +Q.get('hulltop') : 0.15;
+  if (lm && lm.landmarks && lm.floorY != null && topF > 0) {
+    let headY = -Infinity; for (const [name, X] of Object.entries(lm.landmarks)) { if (/nose|eye|ear/i.test(name) && Array.isArray(X) && X.length >= 3 && X[1] > headY) headY = X[1]; }
+    // the recon's Y may point either way (camera-frame Y is DOWN): up is whichever side of the
+    // floor the head is on; the first cut of this kind killed the whole body because it assumed +Y
+    if (Number.isFinite(headY)) { const up = headY >= lm.floorY ? 1 : -1; const bodyH = Math.abs(headY - lm.floorY) || 1e-6; hullOpts.topY = headY + up * topF * bodyH; hullOpts.topUp = up; log(`cut: hard top ${(topF * 100).toFixed(0)} % of the body height above the highest head landmark (up is ${up > 0 ? '+' : '-'}Y)`); }
+  }
+  const hull = src._buildHull({ hullOpts });
   if (!hull || !src.splatTest) {
     log(`cut: no hull (${src.recon.points.length} of ${before} points on the subject) — the whole scene stays`);
     return { skipped: true, note: 'no hull — scene kept' };
@@ -62,7 +83,7 @@ export async function run(ctx, manifest, hooks) {
     if (sh2) sh2.set(sh.subarray(i * shK * 3, (i + 1) * shK * 3), j * shK * 3);
     j++;
   }
-  log(`cut: hull ${hull.dim.join('x')} voxels of ${hull.cell.toFixed(3)}, ${(hull.fill * 100).toFixed(1)}% solid; ${kept.toLocaleString()} of ${n.toLocaleString()} splats are the person`);
+  log(`cut: hull ${hull.dim.join('x')} voxels of ${hull.cell.toFixed(3)}, ${(hull.fill * 100).toFixed(1)}% solid${hull.capped ? `, ${hull.capped.toLocaleString()} voxels above the top` : ''}${hull.dilatePx ? `, matte dilated ${hull.dilatePx} px` : ''}${hullOpts.sigma || hullOpts.maxOut ? `, verdict ${hullOpts.sigma || 2} sigma / ${hullOpts.maxOut || 4} of 6` : ''}; ${kept.toLocaleString()} of ${n.toLocaleString()} splats are the person`);
   // 3. a fresh session on the same frames and cameras, seeded with the survivors
   hooks.progress?.(2, 4, 'loading the isolated model …');
   const iter = src.trainer.iter;

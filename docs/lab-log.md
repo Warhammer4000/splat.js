@@ -4,6 +4,38 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-17n (the Isolate cut: a hard top, a generous verdict)
+
+The user on the last avatar export: hands, feet and the face chipped
+although nothing but the person is nearby; on Filip, ceiling splats a metre
+above the head. The mechanism (`gs/hull.js`): a visual hull carved in a
+MAD box — a voxel dies when > 15 % of the views that see it land on a
+known-empty matte pixel, out-of-frame is NO evidence and leaves a voxel
+alive; a splat goes when its centre is outside or >= 4 of 6 probes at 2 sigma
+are. Two consequences: thin parts the matte loses in a few frames carve away
+(and flat discs on nose and chin fail the 2-sigma probes with their centres
+inside); and from an eye-level portrait orbit the space above the head is out
+of frame in most views — an uncarved column up to the box's top.
+
+Now: `?hulltop=F` (default 0.15 x body height above the highest head
+landmark; up is whichever side of the floor the head is on — the first
+version assumed +Y and killed the whole body, camera-frame Y points down),
+`?hulldilate=px` (matte max-filtered before carving), `?hullsigma=S`,
+`?hullout=N`. Measured at 3k on the avatar toggles off:
+
+| | hull solid | above the top | kept | binder "far" |
+|---|---|---|---|---|
+| Tom, 2 sigma / 4 of 6, no dilation | 3.1 % | 708 voxels | 88,652 of 188,096 | 0 |
+| Tom, **6 px / 1 sigma / 5 of 6** | 4.2 % | 708 | **93,049** | 0 |
+| Filip, top OFF | 7.2 % | — | 22,465 | **177** |
+| Filip, top ON | **1.0 %** | **27,298 voxels** | 22,258 | **0** |
+
+Filip's hull was six times the body — the column — and the 177 splats the
+binder could not reach were the ceiling; with the top they are gone. The
+generous verdict and the top are the defaults; the switches revert. The
+per-splat vote over views (evidence, not a voxel carve) remains the real
+next step for hair and hands.
+
 ## 2026-09-17m (the README's Truck rows on this tree)
 
 Merge check for the solver work. `tests/bench/bench_run.html?set=truck` (the
