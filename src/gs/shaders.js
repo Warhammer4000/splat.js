@@ -123,12 +123,6 @@ fn shActiveK() -> u32 {
   let ad = u32(cam.misc3.x + 0.5);
   return min((ad + 1u) * (ad + 1u) - 1u, ${K}u);
 }
-fn camPosWorld() -> vec3f {
-  return -vec3f(
-    cam.R0.x * cam.t.x + cam.R1.x * cam.t.y + cam.R2.x * cam.t.z,
-    cam.R0.y * cam.t.x + cam.R1.y * cam.t.y + cam.R2.y * cam.t.z,
-    cam.R0.z * cam.t.x + cam.R1.z * cam.t.y + cam.R2.z * cam.t.z);
-}
 fn shBasis(v: vec3f) -> array<f32, ${K}> {
   var Y: array<f32, ${K}>;
   ${pre}${y}
@@ -180,6 +174,15 @@ const WFIX = 8.0;
 // point, projection T = J*W, 2D covariance (va, vb, vc). Used identically by
 // project and chain so both see the same forward quantities.
 const GEOM_FNS = /* wgsl */ `
+// the camera centre in world space — shared: the orientation regularizer (OREG) and the
+// SH view direction both need it, and OREG compiles at every SH degree (degree 0 used
+// to fail with 'unresolved call target camPosWorld', 2026-09-17)
+fn camPosWorld() -> vec3f {
+  return -vec3f(
+    cam.R0.x * cam.t.x + cam.R1.x * cam.t.y + cam.R2.x * cam.t.z,
+    cam.R0.y * cam.t.x + cam.R1.y * cam.t.y + cam.R2.y * cam.t.z,
+    cam.R0.z * cam.t.x + cam.R1.z * cam.t.y + cam.R2.z * cam.t.z);
+}
 struct Geom {
   ok: f32,
   pc: vec3f,          // cam-space point

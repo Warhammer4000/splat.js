@@ -4,6 +4,21 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-17l (SH degree 0 did not compile on the branch — and does not run on main either)
+
+The user: SH 0 gives a gray cloud that trains "extremely fast". The chain
+shader failed to compile at degree 0 — `unresolved call target
+'camPosWorld'`: the 09-15 orientation regularizer's branch is compiled at
+every degree but `camPosWorld()` lived in the SH-only function block. Every
+step then ran on an invalid pipeline: no gradients, the seed never moved.
+Moved into the shared functions. Tom 3k, plain route: SH 0 now trains
+(27.0 dB) against SH 3 (28.0 dB).
+
+Two `Invalid CommandBuffer` errors remain per run at degree 0 — and main
+shows the same two without ever having the compile error, so that is a
+second, older defect (something still binds or copies SH state at degree
+0). The Draft macro on phones is `sh: 0`. Being chased on main's copy.
+
 ## 2026-09-17k (app: the avatar manifest was sticky; settings polish)
 
 - `S.avatar` was only ever cleared inside the video path, so a wall preset or
