@@ -14,10 +14,16 @@ step then ran on an invalid pipeline: no gradients, the seed never moved.
 Moved into the shared functions. Tom 3k, plain route: SH 0 now trains
 (27.0 dB) against SH 3 (28.0 dB).
 
-Two `Invalid CommandBuffer` errors remain per run at degree 0 — and main
-shows the same two without ever having the compile error, so that is a
-second, older defect (something still binds or copies SH state at degree
-0). The Draft macro on phones is `sh: 0`. Being chased on main's copy.
+The two `Invalid CommandBuffer` errors that remained per run at degree 0 —
+on main too — were `_refinePatch`: the kernel's three SH bindings are
+read_write and ONE 16-byte dummy was bound to all three, an aliased-writable-
+bindings validation error at dispatch. Every refine's patch submit was
+rejected and the relocations and growth it carried silently dropped (the
+refine-apply path already had three distinct dummies). Named by wrapping
+every command encoder with a JS stack and every submit with an error scope
+(`scratch/probe_sh0_stack.mjs`). Three dummies now: Tom 3k at degree 0,
+0 rejected submits, 27.5 dB (was 27.0 with the refines lost). The Draft macro
+on phones is `sh: 0`; this one is cherry-picked to main.
 
 ## 2026-09-17k (app: the avatar manifest was sticky; settings polish)
 
