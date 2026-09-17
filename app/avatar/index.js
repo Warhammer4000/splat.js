@@ -83,12 +83,44 @@ export async function prepareCapture(frames, source, { card, flash = () => {}, l
   return manifest;
 }
 
+// The avatar's splat ceiling. `cap` is an UP-FRONT allocation in the trainer
+// (min(seed x capMult, maxSplats)), so "no cap" means a ceiling high enough never to
+// bind, not the absence of one — an unbounded value is not available at any price.
+// Two costs scale with it, both allocated whether or not the model grows into them:
+// at SH degree 3 a capped splat is ~1.2 kB of per-splat buffers, and the tile-entry
+// budget is maxSplats x 24 pairs x 8 B = ~192 B/splat. So 2M is ~2.8 GB.
+//
+// The ceiling is clamped at 4M because the allocation is paid TWICE: the cut stage
+// builds a second session while the source is still resident (nothing disposes it),
+// so 4M is ~11.4 GB across the two, plus targets — the practical limit of a 16 GB
+// card. 8M would survive its first createBuffer and then lose the device at the cut,
+// after the whole training run had finished. Worst possible place to fail.
+//
+// WHEN IT BINDS: the app's avatar run grows +5 % per refine (growRate 0.05, the MCMC
+// set) every ~550 iters (mcmcActive is on by default -> refineEvery 500; the session's
+// own 2500 / 0.15 defaults are NOT what runs), until 0.75 x the horizon. Measured on
+// Tom's 65 frames (2026-09-17, scratch/diag_tom_console.log, 20k horizon): 100k seed
+// -> 339,504 live at the last growth step (iter 14,867). Extrapolated to 30k (41
+// steps): ~740k, so the old 600k held only the last few steps of a 30k run and bit
+// hard on anything longer (100k: 5.8M nominal). Read the cadence off a log before
+// doing this arithmetic again — two people got it wrong from the defaults.
+//   ?maxsplats=N  the ceiling, clamped to [100k, 4M]
+//   ?capmult=M    the growth multiplier off the seed
+const AV_Q = (k) => (typeof location !== 'undefined' ? new URLSearchParams(location.search).get(k) : null);
+const AV_MAX_SPLATS = Math.min(4000000, Math.max(100000, +AV_Q('maxsplats') || 2000000));
+const AV_CAP_MULT = Math.max(2, +AV_Q('capmult') || 24);
+
 /** Session/trainer options for the masked run. The session turns the masks
  *  into the random-background target, the seed filter and the hull on its
  *  own; here only the sizing differs from a scene: a person is one subject,
  *  not a room. */
-export function trainingOptions(manifest, { iters = 30000, shHorizontal = false } = {}) {
+export function trainingOptions(manifest, { iters = 30000, shHorizontal = false, av = null } = {}) {
+  // av: the avatar specifics as toggles (app settings.av; every key on when absent). With all of
+  // them off the session and trainer options are the app's scene defaults, so an avatar run solves
+  // and trains exactly like a plain run — only the stages after training differ.
+  const on = (k) => !av || (av[k] !== false && av[k] !== 'off');
   return {
+    budget: on('budget'),   // read by the app: the 1.1 GB decode budget
     // the precise solve tier: an orbit around a person is a small, low-texture
     // scene, and the quick/standard tiers collapsed a 1080p orbit into a
     // rotation-only solution once (2026-09-13) — nothing downstream survives that
@@ -100,9 +132,12 @@ export function trainingOptions(manifest, { iters = 30000, shHorizontal = false 
     // unconstrained — blotches from above; the highlight still turns with the walk-around.
     // viewers and the client evaluate SH on the full direction, so 'on' needs the export refit to ship faithfully.
     // ?sfmall=1: the focal search on every image even above 120 frames (experiment, 2026-09-15)
-    session: { evalSplit: 0, initTarget: 100000, sfm: { ...solveTierOpts('precise'), ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('sfmall') === '1' ? { searchSubset: false } : {}) }, maskTraining: false, shHorizontal: shHorizontal || (typeof location !== 'undefined' && new URLSearchParams(location.search).get('shup') === '1') },
-    // the 600k cap is hit at 30k+ with the person crops, but lifting it to 1M only
-    // grew low-opacity splats the export prunes (package 108.9k either way; 2026-09-14)
+    session: { evalSplit: 0, ...(on('seed') ? { initTarget: 100000 } : {}), sfm: { ...(on('tier') ? solveTierOpts('precise') : {}), ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('sfmall') === '1' ? { searchSubset: false } : {}), ...(+AV_Q('pairiters') > 0 ? { pairIters: +AV_Q('pairiters') } : {}), ...(AV_Q('pairdebug') === '1' ? { pairDebug: true } : {}) }, maskTraining: false, shHorizontal: shHorizontal || (typeof location !== 'undefined' && new URLSearchParams(location.search).get('shup') === '1') },
+    // NO FLAT CEILING (the user, 2026-09-17): see AV_MAX_SPLATS above for the cost, the
+    // 4M clamp and the growth arithmetic that says which runs this actually frees.
+    // The 09-14 note said lifting 600k -> 1M only grew low-opacity splats the export
+    // pruned (package 108.9k either way) — that predates opaRegUntil 0.5 (09-15p),
+    // which stops the very pressure that was dimming them. Retest, don't assume.
     // ?camopt=1 (experiment, 2026-09-14): photometric pose refinement of every camera
     // during training — Filip's front views ghost (the head moved between the far
     // start and the close-up end of the orbit); the target is per-window pose
@@ -116,7 +151,7 @@ export function trainingOptions(manifest, { iters = 30000, shHorizontal = false 
     // the opacity pressure stops at half the run (2026-09-15p): it prunes while the model
     // grows, as a per-iteration pull it scaled with the run length — 30k: visible face
     // 1,383 -> 2,700; 100k: 926 -> 3,370, half-size splats, readable skin
-    trainer: { maxSplats: 600000, capMult: 8, opacityReg: 0.004, opaRegUntil: 0.5, needleReg: 0.03, ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('avsh') != null ? { shDeg: +new URLSearchParams(location.search).get('avsh') } : {}), ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('camopt') ? { camOpt: true, ...(new URLSearchParams(location.search).get('camopt') === 'crop' ? { camOptOnly: 'crop' } : {}) } : {}),
+    trainer: { maxSplats: AV_MAX_SPLATS, capMult: AV_CAP_MULT, ...(on('opa') ? { opacityReg: 0.004, opaRegUntil: 0.5 } : {}), ...(on('needle') ? { needleReg: 0.03 } : {}), ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('avsh') != null ? { shDeg: +new URLSearchParams(location.search).get('avsh') } : {}), ...(typeof location !== 'undefined' && new URLSearchParams(location.search).get('camopt') ? { camOpt: true, ...(new URLSearchParams(location.search).get('camopt') === 'crop' ? { camOptOnly: 'crop' } : {}) } : {}),
       // ?needle=W[,T] (experiment, 2026-09-15): the needle regularizer — the longest axis over
       // the middle one beyond ratio T (default 3) is pulled in; discs stay ("every needle
       // destroys the illusion in a close-up")

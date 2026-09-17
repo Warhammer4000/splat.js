@@ -513,6 +513,7 @@ body { overflow: hidden; }
   padding: 4px 0;
 }
 .setrow label { font: 400 12.5px var(--ui); color: var(--muted); }
+.setgroup { margin: 12px 0 2px; padding-top: 8px; border-top: 1px solid var(--line, rgba(255,255,255,.08)); font: 600 11px var(--ui); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .setrow select, .setrow input[type="number"] {
   width: 104px; padding: 4px 8px; text-align: right; text-align-last: right;
   font: 500 12px var(--mono); color: var(--paper);
@@ -1060,6 +1061,7 @@ a.cbtn { text-decoration: none; }
 .vid-avatar { display: flex; align-items: center; gap: 8px; margin: 6px 0 2px; font: 500 13px var(--sans, system-ui); color: var(--paper); cursor: pointer; }
 .vid-avatar input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); }
 .vid-avatar small { color: var(--muted); font-weight: 400; }
+.vid-avatar.sub { margin: 0 0 2px 23px; font-weight: 400; }   /* the avatar's own option, indented under its box */
 .av-strip { display: flex; gap: 6px; overflow-x: auto; padding: 8px 0 8px; scroll-snap-type: x proximity; cursor: grab; scrollbar-width: thin; touch-action: pan-x; user-select: none; }
 .av-strip:active { cursor: grabbing; }
 .av-strip canvas { flex: 0 0 auto; scroll-snap-align: start; border-radius: 4px; }

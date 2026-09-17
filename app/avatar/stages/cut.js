@@ -66,7 +66,14 @@ export async function run(ctx, manifest, hooks) {
   // 3. a fresh session on the same frames and cameras, seeded with the survivors
   hooks.progress?.(2, 4, 'loading the isolated model …');
   const iter = src.trainer.iter;
-  const ses = createSession({ ...src.opts, maxIters: iter, evalSplit: 0, holdout: -1, maskTraining: false });
+  // the cut session's allocation is sized to the SURVIVORS, not inherited: `...src.opts`
+  // carries the avatar's splat ceiling, and the source session is still resident (nothing
+  // disposes it — the app's viewer and S.session still point at it), so inheriting a 2M
+  // ceiling means two fully-allocated trainers, ~2.8 GB each, at the same moment. This
+  // one never trains (maxIters is the iter it is already at); 2x kept is headroom for a
+  // continue, at a fraction of the cost.
+  const ses = createSession({ ...src.opts, maxIters: iter, evalSplit: 0, holdout: -1, maskTraining: false,
+    trainer: { ...(src.opts.trainer || {}), maxSplats: Math.max(2 * kept, 1000), capMult: 2 } });
   // the SAME decoded frames as the source — no second decode: a 4K clip's 206 frames
   // are gigabytes of pixels and the reload failed with 'Array buffer allocation
   // failed' (Lisa, 2026-09-15). Body cameras only; the crop windows stay behind.

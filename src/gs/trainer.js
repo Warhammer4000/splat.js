@@ -74,6 +74,16 @@ export class GSTrainer {
     // collapsing PSNR); default unchanged unless maxSplats is raised
     this.entriesCap = this.opts.entriesCap ??
       (this.opts.maxSplats ? Math.max(ENTRIES_CAP, this.opts.maxSplats * 24) : ENTRIES_CAP);
+    // ...but no buffer may exceed a SINGLE storage binding, and a raised ceiling
+    // is the one thing that can push one over: 2M splats is a 384 MB entries
+    // buffer, fine against a desktop adapter's 2 GB and impossible against the
+    // WebGPU default 128 MiB (integrated and mobile adapters, which get exactly
+    // what they offer — context.js asks for min(adapter, 4 GB)). Clamp instead of
+    // failing validation in the constructor. Desktop is untouched: 2 GB / 8 B is
+    // 268M entries, far above anything the capacity laws ask for.
+    this.bindLimit = d.limits.maxStorageBufferBindingSize;
+    const entLimit = Math.floor(this.bindLimit / 8);
+    if (this.entriesCap > entLimit) this.entriesCap = entLimit;
     // SSAA renders ssaa^2 x the pixels; entries scale with covered pixels
     this.ssaa = this.opts.ssaa ?? 0;
     this.gradFixed = this.opts.gradFixed ?? 16384;
@@ -243,6 +253,18 @@ export class GSTrainer {
     this.cap = Math.min(
       Math.max(Math.floor(gaussians.n * (this.opts.capMult ?? 4)), gaussians.n),
       this.opts.maxSplats ?? 600000);
+    // the same binding ceiling as entriesCap, now against the per-splat buffers:
+    // the widest is one SH buffer (shK x 3 floats), then proj (params + its tail).
+    // A 128 MiB adapter tops out near 745k splats at degree 3; a 2 GB desktop one
+    // near 11.9M, so this never binds on the machines the capacity laws target.
+    // Never clamp below the seed — `this.n > this.cap` truncation below is silent.
+    const perSplat = Math.max(STRIDE * 4 + 4, this.shK * 3 * 4);
+    const capLimit = Math.max(gaussians.n, Math.floor(this.bindLimit / perSplat));
+    if (this.cap > capLimit) {
+      console.warn(`[trainer] splat ceiling ${this.cap.toLocaleString()} exceeds this adapter's ` +
+        `${(this.bindLimit / 1e6).toFixed(0)}MB storage binding — capped at ${capLimit.toLocaleString()}`);
+      this.cap = capLimit;
+    }
     if (this.n > this.cap) {
       // seed clone rounding can overshoot maxSplats (e.g. 7825 pts x 4 clones
       // = 31300 vs a 30000 budget). A seed larger than cap made the boot

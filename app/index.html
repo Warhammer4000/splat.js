@@ -98,13 +98,16 @@
           <option value="showcase">Showcase</option>
           <option value="custom" hidden>Custom</option>
         </select></div>
-      <div class="setrow" title="Largest image dimension the photos are downscaled to for training. Auto picks from image size, count and GPU memory."><label for="set-res">Training resolution</label>
+      <div class="setrow" title="Largest image dimension the photos are downscaled to for training. Auto picks from image size, count and GPU memory. Full = the pictures' own size, as far as the memory budget allows; only steps the pictures can fill are listed."><label for="set-res">Training resolution</label>
         <select id="set-res">
           <option value="">Auto</option>
           <option value="480">480 px</option>
           <option value="640">640 px</option>
           <option value="960">960 px</option>
           <option value="1280">1280 px</option>
+          <option value="1600">1600 px</option>
+          <option value="1920">1920 px</option>
+          <option value="-1">Full size</option>
         </select></div>
       <div class="setrow" title="Image dimension the camera solver finds its landmarks at. Higher = more precise camera poses (sharper splats), slower solve, more memory."><label for="set-feat">Solve resolution</label>
         <select id="set-feat">
@@ -129,11 +132,6 @@
           <option value="1">1</option>
           <option value="2">2</option>
           <option value="3">3</option>
-        </select></div>
-      <div class="setrow" title="Avatar runs only. Evaluates the colour harmonics on the horizontal part of the view direction: an orbit never looks down at a person, so the vertical colour variation is unconstrained and shows as blotches from above. Off = full harmonics."><label for="set-shup">Horizontal SH (avatar)</label>
-        <select id="set-shup">
-          <option value="0" selected>Off</option>
-          <option value="1">On</option>
         </select></div>
       <div class="setrow" title="Splat budget the model grows toward. More splats, finer detail — and a larger export file and more GPU memory. Auto sizes from the cycle budget and device (a short run cannot feed a large budget)."><label for="set-splats">Splats</label>
         <select id="set-splats">
@@ -161,6 +159,43 @@
           <option value="30000">30,000</option>
           <option value="40000">40,000</option>
           <option value="100000">100,000</option>
+        </select></div>
+      <div class="setgroup av-only" title="These rows apply to avatar runs only (the box on the video card). All off (the default) solves and trains like a scene run; each row adds one avatar specific.">Avatar</div>
+      <div class="setrow av-only" title="Avatar runs only. Evaluates the colour harmonics on the horizontal part of the view direction: an orbit never looks down at a person, so the vertical colour variation is unconstrained and shows as blotches from above. Off = full harmonics."><label for="set-shup">Horizontal SH</label>
+        <select id="set-shup">
+          <option value="0" selected>Off</option>
+          <option value="1">On</option>
+        </select></div>
+      <div class="setrow av-only" title="Avatar runs only. Native-resolution windows of the person join the cameras so the face and body train at full pixel detail. Re-posed: when the head moved against the room, the head windows take a face-PnP pose of their own. Room pose: every window keeps its frame's pose. Off = the room frames only, like a scene run."><label for="set-av-crops">Person crops</label>
+        <select id="set-av-crops">
+          <option value="off" selected>Off</option>
+          <option value="room">On, room pose</option>
+          <option value="face">On, head re-posed to the face</option>
+        </select></div>
+      <div class="setrow av-only" title="Avatar runs only. The precise camera-solve tier regardless of the Camera solve setting. Off = the panel's Camera solve, like a scene run."><label for="set-av-tier">Precise solve</label>
+        <select id="set-av-tier">
+          <option value="0" selected>Off</option>
+          <option value="1">On</option>
+        </select></div>
+      <div class="setrow av-only" title="Avatar runs only. A 1.1 GB decode budget so the frames train larger. Off = the default budget, like a scene run."><label for="set-av-budget">Large decode</label>
+        <select id="set-av-budget">
+          <option value="0" selected>Off</option>
+          <option value="1">On</option>
+        </select></div>
+      <div class="setrow av-only" title="Avatar runs only. The model starts from 100,000 Gaussians. Off = the seed scales with the solve's point count, like a scene run."><label for="set-av-seed">100k seed</label>
+        <select id="set-av-seed">
+          <option value="0" selected>Off</option>
+          <option value="1">On</option>
+        </select></div>
+      <div class="setrow av-only" title="Avatar runs only. Opacity pressure 0.004 that stops at half the run, keeping the face dense. Off = the scene pressure 0.01 throughout."><label for="set-av-opa">Opacity pressure</label>
+        <select id="set-av-opa">
+          <option value="0" selected>Off</option>
+          <option value="1">On</option>
+        </select></div>
+      <div class="setrow av-only" title="Avatar runs only. A small penalty on needle-shaped splats (0.03). Off = none, like a scene run."><label for="set-av-needle">Needle term</label>
+        <select id="set-av-needle">
+          <option value="0" selected>Off</option>
+          <option value="1">On</option>
         </select></div>
     </div>
   </div>
