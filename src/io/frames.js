@@ -337,7 +337,9 @@ export async function decodeFrames(files, opts = {}) {
       // the photo's focal length, when the file carries it (JPEG / HEIC EXIF):
       // the solver turns an agreeing set into a focal prior and skips its
       // four-candidate focal search (session.solve)
-      if (source instanceof Blob && opts.exif !== false) frame.exif = await readExifFocal(source);
+      // a caller-supplied exif ({ f35, lens, video }) wins: video frames carry the container's lens data
+      if (file.exif) frame.exif = file.exif;
+      else if (source instanceof Blob && opts.exif !== false) frame.exif = await readExifFocal(source);
       out.push(frame);
     } catch (e) {
       log(`skipped ${name}: ${e.message}`);

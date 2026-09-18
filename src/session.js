@@ -253,6 +253,22 @@ export class Session {
           opts.focalPrior = focalPxFrom35(med, fr.fw, fr.fh);
           this._log(`EXIF focal ${med} mm (35 mm-equivalent) on ${f35s.length}/${this.frames.length} photos → ` +
             `prior ${opts.focalPrior.toFixed(1)} px at the ${fr.fw} px feature frame`);
+          // a VIDEO's 35 mm value names the lens, not the recording: stabilisation and
+          // the video sensor crop lengthen the effective focal by up to ~1.5x. The prior
+          // is tried first (accepted at >= 60 % registration); the fallback search then
+          // runs on a narrow grid of crop factors around it instead of the whole range,
+          // which on a person orbit picked three different focals at three feature
+          // resolutions (2026-09-15)
+          if (this.frames.some((f) => f.exif && f.exif.video)) {
+            // a VIDEO's 35 mm value names the lens, not the recording: taken as the
+            // focal it is accepted at >= 60 % registration and bent (Tom: 0.37x, 62/65);
+            // narrowed to crop factors 1.0-1.55 the search still picked 0.46x (62/65,
+            // ghosting) where the free search on every frame finds 0.55x with 65/65
+            // and a clean model (2026-09-15). So for video the lens is logged and the
+            // focal search keeps its own range; the every-frame search carries it.
+            opts.focalPrior = 0;
+            this._log(`video lens ${med} mm (35 mm-equivalent): noted, the focal search keeps its full range (a person orbit's effective focal is the lens x an unknown crop)`);
+          }
         } else {
           this._log(`EXIF focal varies across the set (${sorted[0]}–${sorted[sorted.length - 1]} mm) — focal search kept`);
         }
@@ -343,6 +359,12 @@ export class Session {
     const dropped = before - this.recon.points.length;
     this._log(`subject mask: seeding from ${this.recon.points.length} of ${before} points `
       + `(${(100 * dropped / before).toFixed(0)}% of the sparse cloud was background)`);
+    // a solve that registered the room but not the person (a wrong focal
+    // winner: Lisa's 4K orbit put 108 of 13741 points on her once, seeded 14,
+    // and trained 2,814 splats for 20k iterations, 2026-09-14) must stop
+    // here — nothing downstream can recover a subject that was never seeded
+    if (before >= 2000 && this.recon.points.length < Math.max(150, 0.01 * before))
+      throw new Error(`the solve missed the person: only ${this.recon.points.length} of ${before} sparse points land on the subject — try again, or shoot a slower orbit at arm's length`);
     return dropped;
   }
 
@@ -361,10 +383,20 @@ export class Session {
     // a point that sits along the viewing ray through the subject, and those
     // stragglers are what blow the scene bounds out
     const before = this.recon.points.length;
-    this.recon.points = this.recon.points.filter((p) => this.hullTest(p.X[0], p.X[1], p.X[2]));
-    this._log(`subject hull: ${hull.dim.join('x')} voxels, ${(hull.fill * 100).toFixed(1)}% solid, `
+    const inside = this.recon.points.filter((p) => this.hullTest(p.X[0], p.X[1], p.X[2]));
+    this._log(`subject hull: ${hull.dim.join('x')} voxels of ${hull.cell.toFixed(3)} (box ${hull.dim.map((d) => (d * hull.cell).toFixed(2)).join('x')}), ${(hull.fill * 100).toFixed(1)}% solid, `
       + `carved in ${((Date.now() - t0) / 1000).toFixed(1)}s; seeding from `
-      + `${this.recon.points.length} of ${before} points inside it`);
+      + `${inside.length} of ${before} points inside it`);
+    // a hull that disagrees with the masks (a bounding box blown out by ray
+    // stragglers, a matte that does not line up) would seed NOTHING and
+    // kill every splat that grows — the run trained 0 Gaussians in the app,
+    // 2026-09-13. Then the masks alone must do: no hull, all mask-filtered points.
+    if (inside.length < Math.max(8, 0.05 * before) || hull.fill < 0.002) {
+      this._log(`subject hull rejected (${inside.length} of ${before} points, ${(hull.fill * 100).toFixed(2)}% solid) — training on the masks alone`);
+      this.hull = null; this.hullTest = null; this.splatTest = null;
+      return null;
+    }
+    this.recon.points = inside;
     return hull;
   }
 
@@ -372,8 +404,20 @@ export class Session {
   async seed(extra = {}) {
     if (!this.recon) throw new Error('solve() first');
     this._stage({ stage: 'seed', done: 0, total: 1 });
-    if (extra.maskPoints !== false) this.maskPoints(extra.maskKeep ?? 0.5);
-    this._buildHull(extra);
+    const allPoints = this.recon.points;
+    // opts.maskTraining === false: the mattes stay on the frames (the hull and
+    // the cut after training read them) but training does not see them — no
+    // seed filter, no hull kill, no random background, alpha 255 in the
+    // targets. The masked recipe drove the needle look on a person (needle
+    // ratio 344 vs 15 for the same clip trained as a room, 2026-09-14b).
+    const masked = this.opts.maskTraining !== false;
+    if (masked && extra.maskPoints !== false) this.maskPoints(extra.maskKeep ?? 0.5);
+    if (masked) this._buildHull(extra);
+    if (this.recon.points.length < 8) {
+      // never seed from nothing: the whole cloud beats an empty model
+      this._log(`subject filters left ${this.recon.points.length} points — seeding from the whole cloud instead`);
+      this.recon.points = allPoints;
+    }
     // default seed scales with the solve's point count: the flat 60k
     // default seed-bound capacity (cap = seed x capMult) on point-rich
     // scenes — garden measured +0.4 dB from lifting it. Explicit
@@ -391,17 +435,31 @@ export class Session {
     const v2 = this.opts.trainer && this.opts.trainer.engine === 'v2';
     this.model = initGaussians(this.recon.points, clones, undefined,
       v2 ? { dc: 'sh', randRot: true } : {});
+    // extra.appendGaussians: ready-made rows (stride 16, sigmoid-DC convention) joined to
+    // the cloud seed as they are — flat, oriented, sized (a face mesh seed, avatar mode)
+    if (extra.appendGaussians && extra.appendGaussians.n > 0) {
+      const g = extra.appendGaussians; const m = this.model; const merged = new Float32Array((m.n + g.n) * 16);
+      merged.set(m.data.subarray(0, m.n * 16), 0); merged.set(g.data.subarray(0, g.n * 16), m.n * 16);
+      this.model = { ...m, data: merged, n: m.n + g.n };
+      this._appendedSeed = { from: m.n, to: m.n + g.n, protectIters: g.protectIters || 0, freezePos: !!g.freezePos };
+      this._log(`+ ${g.n} seed Gaussians appended (${g.note || 'ready-made'})${g.protectIters ? `, protected from relocation for ${g.protectIters} iterations` : ''}`);
+    }
     this._log(`initialized ${this.model.n} Gaussians (scene radius ${this.model.radius.toFixed(2)})`);
 
     if (!this.gpu) this.gpu = await createGpu({ device: this.opts.device });
     this.gpu.onLost = (info) => this._deviceLost(info);
     const gi = this.gpu.info || {};
+    // opts.shHorizontal: SH evaluated on the view direction's horizontal part only —
+    // the up axis is the cameras' dominant up (minus each R's second row)
+    const shUp = this.opts.shHorizontal ? this._camerasUp() : null;
+    if (shUp) this._log(`SH on the horizontal view direction only (up ${shUp.map((v) => v.toFixed(2)).join(', ')})`);
     const trainerOpts = {
       maxIters: this.opts.maxIters ?? 60000,
+      ...(shUp ? { shUp } : {}),
       // a masked set trains its empty pixels against a random background by
       // default (gs/shaders.js randBg) — the thing that keeps splats out of
       // the cleared area at full photometric strength
-      ...(this.frames && this.frames.some((f) => f.emptyFrac > 0) ? { randomBg: true } : {}),
+      ...(masked && this.frames && this.frames.some((f) => f.emptyFrac > 0) ? { randomBg: true } : {}),
       ...this.opts.trainer, ...extra.trainer,
       gpu: this.gpu,
     };
@@ -423,7 +481,7 @@ export class Session {
     // interactive canvases are usually LARGER than the training resolution
     const maxW = Math.max(this.opts.maxViewW ?? 2560, ...cams.map((c) => c.w));
     const maxH = Math.max(this.opts.maxViewH ?? 1440, ...cams.map((c) => c.h));
-    this.trainer.setup(this.model, cams, this.frames, maxW, maxH, this.model.radius);
+    this._setupTrainer(cams, this.frames, maxW, maxH, this.model.radius);
     if (this.opts.lowMem) {
       // targets now live on the GPU (packed RGBA8); the float32 CPU copies
       // are 3x that size and nothing reads them after setup
@@ -432,9 +490,45 @@ export class Session {
 
     this._applyTrainingSplit(extra);
 
-    if (this.splatTest) this.trainer.hullKill = this.splatTest;
+    if (masked && this.splatTest) this.trainer.hullKill = this.splatTest;
+    if (this._appendedSeed && this._appendedSeed.protectIters > 0) this.trainer.protect = { from: this._appendedSeed.from, to: this._appendedSeed.to, until: this._appendedSeed.protectIters };
+    if (this._appendedSeed && this._appendedSeed.freezePos) { this.trainer.setFreezePos(this._appendedSeed.from, this._appendedSeed.to); this._log(`seed rows ${this._appendedSeed.from}-${this._appendedSeed.to} keep their positions`); }
     this._stage({ stage: 'seed', done: 1, total: 1, detail: { splats: this.model.n } });
     return this.model;
+  }
+
+  /** the cameras' dominant up axis (unit, world) */
+  _camerasUp() {
+    const u = [0, 0, 0];
+    for (const c of this.recon.cams) { u[0] -= c.R[3]; u[1] -= c.R[4]; u[2] -= c.R[5]; }
+    const l = Math.hypot(u[0], u[1], u[2]) || 1; return [u[0] / l, u[1] / l, u[2] / l];
+  }
+
+  /** trainer.setup with the frame alphas hidden when the session trains unmasked
+   *  (opts.maskTraining === false): the packed targets then carry alpha 255. */
+  _setupTrainer(cams, frames, maxW, maxH, radius) {
+    const hide = this.opts.maskTraining === false && frames && frames.some((f) => f.alpha);
+    const saved = hide ? frames.map((f) => f.alpha) : null;
+    if (hide) for (const f of frames) f.alpha = null;
+    try { this.trainer.setup(this.model, cams, frames, maxW, maxH, radius); }
+    finally { if (hide) frames.forEach((f, i) => { f.alpha = saved[i]; }); }
+  }
+
+  /** After a run with photometric pose optimisation (trainer opts.camOpt): log how far
+   *  the cameras moved and write the moved poses back into recon.cams, so everything
+   *  after training (hull, cut, landmarks, body fit) sees the frame the model was
+   *  trained in. camMeta and recon.cams share their order. */
+  _camDriftDone() {
+    try {
+      const tr = this.trainer; if (!tr || !tr.opts.camOpt || !this.recon || !this.recon.cams) return;
+      const dr = tr.camDrift(); if (!dr) return;
+      let moved = 0;
+      for (let i = 0; i < tr.camMeta.length && i < this.recon.cams.length; i++) {
+        const m = tr.camMeta[i], c = this.recon.cams[i]; if (!m || !c) continue;
+        c.R = Array.from(m.R); c.t = Array.from(m.t); moved++;
+      }
+      this._log(`pose optimisation: ${dr.n} cameras moved — rotation median ${dr.rotDegMedian.toFixed(3)}° max ${dr.rotDegMax.toFixed(2)}°, centre median ${dr.trnMedian.toFixed(4)} max ${dr.trnMax.toFixed(3)} scene units; ${moved} poses written back to the reconstruction`);
+    } catch (e) { this._log(`pose drift report failed: ${e.message || e}`); }
   }
 
   /** Which cameras train and which are scored: blur exclusions, the chart
@@ -444,15 +538,31 @@ export class Session {
     // blur-aware training: the blurriest frames stay registered (their poses
     // hold the chain together) but are excluded from the loss so the model
     // doesn't learn their motion blur
+    // opts.lossCams(cam): which registered cameras carry the loss at all — the
+    // others keep their poses (hull, cut, landmarks) but never train. Avatar
+    // crops-only training (2026-09-15): the person's native windows train, the
+    // room frames do not.
+    const inLoss = typeof this.opts.lossCams === 'function' && this.recon && this.recon.cams
+      ? this.trainer.camMeta.map((m, i) => !!this.opts.lossCams(this.recon.cams[i], i)) : null;
     const sh = this.trainer.camMeta.map((m) => this.frames[m.imgIdx].sharpness);
-    const med = [...sh].sort((a, b) => a - b)[sh.length >> 1];
+    // the blur median is taken per camera GROUP (the frames that solved the scene vs
+    // the avatar's crop windows, cams flagged crop): the groups decode at different
+    // scales and their sharpness is not comparable — one median over the mix threw
+    // out 87 of 519 cameras on a 4K orbit (2026-09-15), 1 of 208 without crops
+    const group = this.trainer.camMeta.map((m, i) => (this.recon && this.recon.cams && this.recon.cams[i] && this.recon.cams[i].crop) ? 1 : 0);
+    const medOf = (g) => { const v = sh.filter((x, i) => group[i] === g && (!inLoss || inLoss[i])).sort((a, b) => a - b); return v.length ? v[v.length >> 1] : 0; };
+    const med = [medOf(0), medOf(1)];
     this.trainer.excluded = new Set();
+    const blurry = [0, 0];
     this.trainer.camMeta.forEach((m, i) => {
-      if (sh[i] < med * 0.45) this.trainer.excluded.add(i);
+      if (inLoss && !inLoss[i]) { this.trainer.excluded.add(i); return; }
+      if (sh[i] < med[group[i]] * 0.45) { this.trainer.excluded.add(i); blurry[group[i]]++; }
     });
-    if (this.trainer.excluded.size) {
-      this._log(`excluding ${this.trainer.excluded.size} blurry cameras from the training loss ` +
-        `(sharpness < 45% of median; poses kept)`);
+    if (inLoss) this._log(`training loss on ${inLoss.filter(Boolean).length} of ${inLoss.length} cameras (opts.lossCams; the rest keep their poses)`);
+    if (blurry[0] + blurry[1]) {
+      const nCrop = group.filter((g) => g === 1).length;
+      this._log(`excluding ${blurry[0] + blurry[1]} blurry cameras from the training loss ` +
+        `(sharpness < 45% of the group median; poses kept)` + (nCrop ? ` — ${blurry[0]} of ${group.length - nCrop} frames, ${blurry[1]} of ${nCrop} crop windows` : ''));
     }
 
     // holdout: one sharp mid-sequence frame excluded from training and scored
@@ -522,12 +632,14 @@ export class Session {
 
     if (!this.gpu) this.gpu = await createGpu({ device: this.opts.device });
     this.gpu.onLost = (info) => this._deviceLost(info);
+    const shUp2 = this.opts.shHorizontal && this.recon?.cams?.length ? this._camerasUp() : null;
     const trainerOpts = {
       maxIters: this.opts.maxIters ?? 60000,
+      ...(shUp2 ? { shUp: shUp2 } : {}),
       // same masked-set default as seed(): without it a continuation trained
       // its empty pixels against BLACK (2026-09-12: 200 steps from a
       // converged person grew opaque dark needles out of the subject)
-      ...(this.frames && this.frames.some((f) => f.emptyFrac > 0) ? { randomBg: true } : {}),
+      ...(this.opts.maskTraining !== false && this.frames && this.frames.some((f) => f.emptyFrac > 0) ? { randomBg: true } : {}),
       ...this.opts.trainer, ...opts.trainer,
       gpu: this.gpu,
     };
@@ -560,7 +672,7 @@ export class Session {
       this.model.data = unbakeOpacityCompensation(this.model.data, this.model.n, f0, pos, this.trainer.dilate);
       this._log(`unbaked the export's opacity compensation (f ${f0.toFixed(1)}, ${this.recon.cams.length} cams, dilate ${this.trainer.dilate})`);
     }
-    this.trainer.setup(this.model, cams, this.frames || [], maxW, maxH, radius);
+    this._setupTrainer(cams, this.frames || [], maxW, maxH, radius);
     // setup zero-fills SH (view dependence is normally learned) — a restored
     // model brings its own
     if (gaussians.sh && this.trainer.bufSH) {
@@ -618,6 +730,7 @@ export class Session {
     this.training = false;
     this._log(`training finished early at ${this.trainer.iter} iterations`);
     await this._emitMetrics(true);
+    this._camDriftDone();
     this._em.emit('event', { kind: 'train-complete', iter: this.trainer.iter, splats: this.trainer.n });
   }
 
@@ -715,6 +828,7 @@ export class Session {
       await this._emitMetrics(true);
       // emitted AFTER the final readback: listeners typically call metrics()
       // right away, which must not interleave with ours on the staging buffer
+      this._camDriftDone();
       this._em.emit('event', { kind: 'train-complete', iter: trainer.iter, splats: trainer.n });
     }
 

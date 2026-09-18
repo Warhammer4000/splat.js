@@ -27,10 +27,25 @@
  *   (not enough evidence to carve it away)
  * @param {number} [opts.kMad=4]      half-extent of the carving box, in median
  *   absolute deviations of the subject cloud
+ * @param {Array<number[]>} [opts.include] points the box must contain (joints, floor)
  * @returns {object|null} hull, or null when the frames carry no masks
  */
 export function buildVisualHull(recon, frames, opts = {}) {
-  const { res = 128, margin = 0.15, keep = 0.85, minViews = 8, kMad = 4 } = opts;
+  const { res = 128, margin = 0.15, keep = 0.85, minViews = 8, kMad = 4, dilatePx = 0, topY = null, topUp = 1 } = opts;   // topUp: +1 when up is +Y, -1 when the recon's Y points down
+  // dilatePx: the subject is grown by this many matte pixels before it votes to carve — a
+  // matte that loses fingers, foot edges or hair in a few frames used to carve them out of
+  // the hull (10 misses of 65 kill a voxel). A separable max filter over the alpha, per frame,
+  // on the fly. topY: voxels above this Y (the scene's up) die regardless of evidence — an
+  // eye-level orbit has the space above the head OUTSIDE its frames, and out of frame is
+  // "no evidence", which left an uncarved column up to the box's top (ceiling splats on
+  // Filip's export, 2026-09-17). The cut stage sets it from the landmarks.
+  const dilated = (im, r) => {
+    if (!(r > 0)) return im.alpha;
+    const W = im.tw, H = im.th, a = im.alpha, tmp = new Uint8Array(W * H), out = new Uint8Array(W * H);
+    for (let y = 0; y < H; y++) { const o = y * W; for (let x = 0; x < W; x++) { let m = 0; for (let k = Math.max(0, x - r); k <= Math.min(W - 1, x + r); k++) { const v = a[o + k]; if (v > m) m = v; } tmp[o + x] = m; } }
+    for (let x = 0; x < W; x++) { for (let y = 0; y < H; y++) { let m = 0; for (let k = Math.max(0, y - r); k <= Math.min(H - 1, y + r); k++) { const v = tmp[k * W + x]; if (v > m) m = v; } out[y * W + x] = m; } }
+    return out;
+  };
   if (!frames.some((f) => f.alpha && f.emptyFrac > 0)) return null;
   const pts = recon.points;
   if (!pts || pts.length < 8) return null;
@@ -45,10 +60,26 @@ export function buildVisualHull(recon, frames, opts = {}) {
   const lo = [0, 0, 0], hi = [0, 0, 0];
   const mid = (arr) => { const a = Float64Array.from(arr).sort(); return a[a.length >> 1]; };
   for (let a = 0; a < 3; a++) {
-    med[a] = mid(pts.map((p) => p.X[a]));
+    const v = Float64Array.from(pts.map((p) => p.X[a])).sort();
+    med[a] = v[v.length >> 1];
     mad[a] = mid(pts.map((p) => Math.abs(p.X[a] - med[a]))) || 1e-3;
-    const half = kMad * mad[a] * (1 + margin);
+    // MAD alone collapsed to a 1 cm box on a cloud whose subject points sat in
+    // one tight cluster (2026-09-13, the app's 1080p test clip): never let the
+    // box be narrower than the cloud's 10-90 percentile span
+    const p10 = v[Math.floor(0.1 * (v.length - 1))], p90 = v[Math.floor(0.9 * (v.length - 1))];
+    const half = Math.max(kMad * mad[a], 0.5 * (p90 - p10)) * (1 + margin);
     lo[a] = med[a] - half; hi[a] = med[a] + half;
+  }
+  // opts.include: points the box must contain (the avatar's joints and its floor
+  // point). The MAD box is symmetric about the cloud's median, and a person's
+  // features sit on the head and torso: the box reached 40 cm above the floor
+  // and cut the feet off (2026-09-15). Padded by `margin` of the box's longest side.
+  if (Array.isArray(opts.include) && opts.include.length) {
+    const pad = margin * Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
+    for (const P of opts.include) {
+      if (!P || !Number.isFinite(P[0] + P[1] + P[2])) continue;
+      for (let a = 0; a < 3; a++) { lo[a] = Math.min(lo[a], P[a] - pad); hi[a] = Math.max(hi[a], P[a] + pad); }
+    }
   }
   const span = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
   const cell = span / res;
@@ -71,6 +102,7 @@ export function buildVisualHull(recon, frames, opts = {}) {
   for (const c of recon.cams) {
     const im = frames[c.imgIdx];
     if (!im || !im.alpha || !(im.emptyFrac > 0)) continue;
+    const alpha = dilated(im, dilatePx | 0);
     const sx = im.tw / im.fw, sy = im.th / im.fh;
     const { R, t } = c;
     const fy = c.fy ?? c.f;
@@ -90,7 +122,7 @@ export function buildVisualHull(recon, frames, opts = {}) {
           seen[v]++;
           // only a KNOWN-empty pixel (alpha <= 0.25) votes to carve; the
           // matte's soft edge abstains, so a fuzzy matte cannot erode the subject
-          if (im.alpha[(w | 0) * im.tw + (u | 0)] <= 64) {
+          if (alpha[(w | 0) * im.tw + (u | 0)] <= 64) {
             miss[v]++;
             if (miss[v] > killAt) alive[v] = 0;
           }
@@ -99,13 +131,17 @@ export function buildVisualHull(recon, frames, opts = {}) {
     }
   }
 
-  let live = 0;
+  let live = 0, capped = 0;
   for (let i = 0; i < nvox; i++) {
     // a voxel too rarely seen never had enough evidence: leave it alive
     if (alive[i] && seen[i] >= minViews && miss[i] > (1 - keep) * seen[i]) alive[i] = 0;
+    if (alive[i] && topY != null) {   // the hard top: nothing above the head, evidence or not
+      const iy = ((i / dim[0]) | 0) % dim[1];
+      if ((lo[1] + (iy + 0.5) * cell - topY) * topUp > 0) { alive[i] = 0; capped++; }
+    }
     if (alive[i]) live++;
   }
-  return { lo, cell, dim, alive, nvox, live, fill: live / nvox };
+  return { lo, cell, dim, alive, nvox, live, fill: live / nvox, capped, dilatePx: dilatePx | 0, topY };
 }
 
 /** (x, y, z) -> is this point inside the carved volume? Outside the grid

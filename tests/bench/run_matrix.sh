@@ -6,7 +6,7 @@
 CHROME="/c/Program Files/Google/Chrome/Application/chrome.exe"
 BASE="http://localhost:8734/tests/bench/bench_run.html"
 OUT="tests/bench/results/bench_results.jsonl"
-cd /c/Dev/arrival.space/Browser_3DGS
+cd /c/Dev/arrival.space/splat-js
 
 SETS="synthetic camping truck garden bicycle playroom train bar360"
 

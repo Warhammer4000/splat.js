@@ -123,12 +123,6 @@ fn shActiveK() -> u32 {
   let ad = u32(cam.misc3.x + 0.5);
   return min((ad + 1u) * (ad + 1u) - 1u, ${K}u);
 }
-fn camPosWorld() -> vec3f {
-  return -vec3f(
-    cam.R0.x * cam.t.x + cam.R1.x * cam.t.y + cam.R2.x * cam.t.z,
-    cam.R0.y * cam.t.x + cam.R1.y * cam.t.y + cam.R2.y * cam.t.z,
-    cam.R0.z * cam.t.x + cam.R1.z * cam.t.y + cam.R2.z * cam.t.z);
-}
 fn shBasis(v: vec3f) -> array<f32, ${K}> {
   var Y: array<f32, ${K}>;
   ${pre}${y}
@@ -154,7 +148,15 @@ struct Cam {
   misc2: vec4f,   // x = trainMode (1/0), y = camera index, z = numCams, w = exposure bias
   misc3: vec4f,   // x = active SH degree, z = fy (0 = fx; cameras with
                   //     fx != fy: non-uniformly resized datasets, COLMAP PINHOLE)
+  shup: vec4f,    // xyz = the scene's up axis, w = 1: SH sees only the view direction's
+                  //     horizontal part (an avatar seen from above has no training views
+                  //     there — the vertical colour variation is unconstrained, 2026-09-14)
 };
+fn shDir(v: vec3f) -> vec3f {
+  if (cam.shup.w < 0.5) { return v; }
+  let h = v - cam.shup.xyz * dot(v, cam.shup.xyz);
+  return h / max(length(h), 1e-6);
+}
 @group(0) @binding(0) var<uniform> cam: Cam;
 const TILEF = ${TILE}.0;
 const SHSORT = ${SHARED_SORT}u;
@@ -172,6 +174,15 @@ const WFIX = 8.0;
 // point, projection T = J*W, 2D covariance (va, vb, vc). Used identically by
 // project and chain so both see the same forward quantities.
 const GEOM_FNS = /* wgsl */ `
+// the camera centre in world space — shared: the orientation regularizer (OREG) and the
+// SH view direction both need it, and OREG compiles at every SH degree (degree 0 used
+// to fail with 'unresolved call target camPosWorld', 2026-09-17)
+fn camPosWorld() -> vec3f {
+  return -vec3f(
+    cam.R0.x * cam.t.x + cam.R1.x * cam.t.y + cam.R2.x * cam.t.z,
+    cam.R0.y * cam.t.x + cam.R1.y * cam.t.y + cam.R2.y * cam.t.z,
+    cam.R0.z * cam.t.x + cam.R1.z * cam.t.y + cam.R2.z * cam.t.z);
+}
 struct Geom {
   ok: f32,
   pc: vec3f,          // cam-space point
@@ -325,7 +336,7 @@ ${shDeg > 0 ? /* wgsl */ `
   // view-dependent color: SH rest bands added to the sigmoid DC, clamp at 0
   {
     let un = vec3f(params[b], params[b + 1u], params[b + 2u]) - camPosWorld();
-    let v = un / max(length(un), 1e-9);
+    let v = shDir(un / max(length(un), 1e-9));
     var Y = shBasis(v);
     let aK = shActiveK();
     let sb = i * ${3 * shRestCoefs(shDeg)}u;
@@ -1055,8 +1066,11 @@ export const makeRenderSrc = (E, A, tileGrad, subgroups, mode, ssimW, ssaa, D, s
   return pvec ? projVec(s) : s;
 };
 
-export const makeChainSrc = (AREG = 0.02, shDeg = 0, dc = 'sigmoid', statMax = false, D = 0.3, C = true, compact = false, camGrad = true) => CAM_STRUCT + /* wgsl */ `
+export const makeChainSrc = (AREG = 0.02, shDeg = 0, dc = 'sigmoid', statMax = false, D = 0.3, C = true, compact = false, camGrad = true, NREG = 0, NRATIO = 3, OREG = 0) => CAM_STRUCT + /* wgsl */ `
 const AREG = ${AREG.toExponential()};
+const OREG = ${OREG.toExponential()};
+const NREG = ${NREG.toExponential()};
+const NLOGT = ${Math.log(NRATIO).toExponential()};
 const DILATE = ${D.toExponential()};
 const MIPCOMP = ${C ? 'true' : 'false'};
 ` + /* wgsl */ `
@@ -1069,6 +1083,40 @@ const MIPCOMP = ${C ? 'true' : 'false'};
 @group(0) @binding(5) var<storage, read_write> gradCam: array<atomic<i32>>;
 ${shDeg > 0 ? `@group(0) @binding(6) var<storage, read> sh: array<f32>;
 @group(0) @binding(7) var<storage, read_write> shGrad: array<f32>;` : ''}
+// the face-skin field (trainer opts.skinField; a 1-cell dummy with par.w = 0 when absent):
+// per cell 8 floats [signed distance, normal xyz, weight, pad x3] over a grid
+// origin/cell/dims; par = (wNorm, thickness, dref, on)
+struct SkinU { origin: vec4f, dims: vec4f, par: vec4f };
+@group(0) @binding(8) var<uniform> su: SkinU;
+@group(0) @binding(9) var<storage, read> skin: array<f32>;
+struct SkinS { d: f32, n: vec3f, w: f32 };
+fn skinCell(ix: i32, iy: i32, iz: i32) -> vec4f {
+  let dx = i32(su.dims.x); let dy = i32(su.dims.y); let dz = i32(su.dims.z);
+  if (ix < 0 || iy < 0 || iz < 0 || ix >= dx || iy >= dy || iz >= dz) { return vec4f(0.0); }
+  let o = u32((iz * dy + iy) * dx + ix) * 8u;
+  return vec4f(skin[o], skin[o + 4u], skin[o + 1u], skin[o + 2u]);   // d, w, nx, ny (nz below)
+}
+fn skinNz(ix: i32, iy: i32, iz: i32) -> f32 {
+  let dx = i32(su.dims.x); let dy = i32(su.dims.y); let dz = i32(su.dims.z);
+  if (ix < 0 || iy < 0 || iz < 0 || ix >= dx || iy >= dy || iz >= dz) { return 0.0; }
+  return skin[u32((iz * dy + iy) * dx + ix) * 8u + 3u];
+}
+fn skinSample(p: vec3f) -> SkinS {
+  var out: SkinS; out.d = 0.0; out.n = vec3f(0.0); out.w = 0.0;
+  let c = (p - su.origin.xyz) / su.origin.w - 0.5;
+  let f0 = floor(c); let fr = c - f0; let i0 = vec3i(f0);
+  var d = 0.0; var w = 0.0; var n = vec3f(0.0);
+  for (var k = 0; k < 8; k++) {
+    let ox = k & 1; let oy = (k >> 1) & 1; let oz = (k >> 2) & 1;
+    let wt = (select(1.0 - fr.x, fr.x, ox == 1)) * (select(1.0 - fr.y, fr.y, oy == 1)) * (select(1.0 - fr.z, fr.z, oz == 1));
+    let v = skinCell(i0.x + ox, i0.y + oy, i0.z + oz);
+    d += wt * v.x; w += wt * v.y; n += wt * vec3f(v.z, v.w, skinNz(i0.x + ox, i0.y + oy, i0.z + oz));
+  }
+  let nl = length(n);
+  if (nl < 1e-6 || w <= 0.0) { return out; }
+  out.d = d; out.n = n / nl; out.w = w;
+  return out;
+}
 
 fn camAdd(idx: u32, v: f32) {
   atomicAdd(&gradCam[idx], i32(clamp(v * FIXCAM, -1.0e9, 1.0e9)));
@@ -1253,14 +1301,69 @@ ${camGrad ? /* wgsl */ `
     clamp(params[b + 4u], -12.0, 6.0),
     clamp(params[b + 5u], -12.0, 6.0));
   let mls = (ls.x + ls.y + ls.z) / 3.0;
-  gradF[b + 3u] = dsv.x * g.s.x + AREG * (ls.x - mls);
-  gradF[b + 4u] = dsv.y * g.s.y + AREG * (ls.y - mls);
-  gradF[b + 5u] = dsv.z * g.s.z + AREG * (ls.z - mls);
+  // Needle regularizer (NREG > 0): a needle has ONE long axis — longest over
+  // middle beyond NRATIO — while a disc has two. Only the excess of the longest
+  // over the middle axis is pulled in (the longest down, the middle up), so
+  // flat discs are untouched and needles widen into discs. The anisotropy
+  // term above pulls every axis to the mean and made face discs round (2026-09-15).
+  var nr = vec3f(0.0);
+  if (NREG > 0.0) {
+    var imax = 0u; var vmax = ls.x; if (ls.y > vmax) { imax = 1u; vmax = ls.y; } if (ls.z > vmax) { imax = 2u; vmax = ls.z; }
+    var imin = 0u; var vmin = ls.x; if (ls.y < vmin) { imin = 1u; vmin = ls.y; } if (ls.z < vmin) { imin = 2u; vmin = ls.z; }
+    if (imin == imax) { imin = (imax + 1u) % 3u; }
+    let imid = 3u - imax - imin;
+    let vmid = select(select(ls.x, ls.y, imid == 1u), ls.z, imid == 2u);
+    let ex = max(0.0, vmax - vmid - NLOGT);
+    if (ex > 0.0) { nr[imax] = NREG * ex; nr[imid] = -NREG * ex; }
+  }
+  gradF[b + 3u] = dsv.x * g.s.x + AREG * (ls.x - mls) + nr.x;
+  gradF[b + 4u] = dsv.y * g.s.y + AREG * (ls.y - mls) + nr.y;
+  gradF[b + 5u] = dsv.z * g.s.z + AREG * (ls.z - mls) + nr.z;
 
   // dL/dR = dM * diag(s)
-  let dR0 = dM0 * g.s;
-  let dR1 = dM1 * g.s;
-  let dR2 = dM2 * g.s;
+  var dR0 = dM0 * g.s;
+  var dR1 = dM1 * g.s;
+  var dR2 = dM2 * g.s;
+  // Orientation regularizer (OREG > 0): a disc seen edge-on draws a line. The
+  // shortest axis is the disc's normal n (column imin of R); the penalty
+  // OREG * (1 - |n . v|) with v the view direction turns the disc toward the
+  // cameras that see it — over an orbit that is the surface normal. On Tom's
+  // face a quarter of the visible splats were edge-on to the frontal camera and
+  // removing them cleared the lines (2026-09-15).
+  if (OREG > 0.0) {
+    var imin = 0u; var vmin = ls.x; if (ls.y < vmin) { imin = 1u; vmin = ls.y; } if (ls.z < vmin) { imin = 2u; vmin = ls.z; }
+    let un = vec3f(params[b], params[b + 1u], params[b + 2u]) - camPosWorld();
+    let vdir = un / max(length(un), 1e-9);
+    let n = vec3f(g.r0[imin], g.r1[imin], g.r2[imin]);
+    let d = dot(n, vdir);
+    let dn = -OREG * select(-1.0, 1.0, d >= 0.0) * vdir;   // d(1 - |d|)/dn
+    dR0[imin] += dn.x; dR1[imin] += dn.y; dR2[imin] += dn.z;
+  }
+
+  // Skin term (su.par.w > 0.5): a splat inside the face-skin field pays for its
+  // signed distance to the skin (both sides) and for its extent along the skin
+  // normal beyond a thickness — the face trains as a skin, not a volume (the
+  // user's idea, 2026-09-15). Loss per splat, w the field's weight (0 off the
+  // face, fading at the mesh boundary): wPos w (d/dref)^2 + wNorm w (max(0, sigma_n - t)/dref)^2
+  // with sigma_n^2 = sum_k s_k^2 (n . r_k)^2, r_k the columns of R.
+  if (su.par.w > 0.5) {
+    let sk = skinSample(vec3f(params[b], params[b + 1u], params[b + 2u]));
+    if (sk.w > 0.0) {
+      let dref2 = su.par.z * su.par.z;
+      let gpos = (2.0 * su.dims.w * sk.w * sk.d / dref2) * sk.n;
+      gradF[b] += gpos.x; gradF[b + 1u] += gpos.y; gradF[b + 2u] += gpos.z;
+      let nr = vec3f(dot(sk.n, vec3f(g.r0.x, g.r1.x, g.r2.x)), dot(sk.n, vec3f(g.r0.y, g.r1.y, g.r2.y)), dot(sk.n, vec3f(g.r0.z, g.r1.z, g.r2.z)));
+      let s2 = g.s * g.s; let sig = sqrt(max(dot(s2, nr * nr), 1e-12));
+      let ex = max(0.0, sig - su.par.y);
+      if (ex > 0.0) {
+        let dL = 2.0 * su.par.x * sk.w * ex / dref2;
+        let gs = dL * s2 * nr * nr / sig;              // d sigma / d log s_k
+        gradF[b + 3u] += gs.x; gradF[b + 4u] += gs.y; gradF[b + 5u] += gs.z;
+        let gk = dL * s2 * nr / sig;                   // d sigma / d r_k = s_k^2 (n.r_k) n / sigma
+        dR0 += sk.n.x * gk; dR1 += sk.n.y * gk; dR2 += sk.n.z * gk;
+      }
+    }
+  }
 
   // quaternion backward (normalized q = (w,x,y,z))
   let qw = g.q.x; let qx = g.q.y; let qy = g.q.z; let qz = g.q.w;
@@ -1287,7 +1390,7 @@ ${shDeg > 0 ? /* wgsl */ `
   {
     let un = vec3f(params[b], params[b + 1u], params[b + 2u]) - camPosWorld();
     let ulen = max(length(un), 1e-9);
-    let v = un / ulen;
+    let v = shDir(un / ulen);
     var Y = shBasis(v);
     var D = shBasisGrad(v);
     let aK = shActiveK();
@@ -1309,8 +1412,19 @@ ${shDeg > 0 ? /* wgsl */ `
       let w = dRGB.x * sh[sb + k] + dRGB.y * sh[sb + SHK + k] + dRGB.z * sh[sb + 2u * SHK + k];
       gv += w * D[k];
     }
-    // dL/dp through the view direction v = (p - cam)/|p - cam|
-    let shPos = (gv - v * dot(v, gv)) / ulen;
+    // dL/dp through the view direction: u = (p - cam)/|p - cam|, and with
+    // horizontal SH v = h/|h|, h = u - up (up . u). The chain is
+    // (I - u u^T)/|u| . (I - up up^T) . (I - v v^T)/|h| . gv — before 2026-09-15
+    // only the last factor was applied (with 1/|u|): the vertical part of gv
+    // leaked into the position gradient, a colour-driven push along up.
+    let u = un / ulen;
+    var g1 = gv - v * dot(v, gv);
+    if (cam.shup.w > 0.5) {
+      let hlen = max(length(u - cam.shup.xyz * dot(u, cam.shup.xyz)), 1e-6);
+      g1 = g1 / hlen;
+      g1 = g1 - cam.shup.xyz * dot(cam.shup.xyz, g1);
+    }
+    let shPos = (g1 - u * dot(u, g1)) / ulen;
     gradF[b]      += shPos.x;
     gradF[b + 1u] += shPos.y;
     gradF[b + 2u] += shPos.z;
@@ -1413,6 +1527,40 @@ fn main(@builtin(global_invocation_id) gid: vec3u,
 }
 `;
 
+// Shape clamp (trainer opts.blobRatio): after every Adam step the longest
+// log-scale of a splat is held within log(ratio) of its shortest — "only train
+// blobs" (the user, 2026-09-15: a disc seen edge-on draws a line, a needle
+// always does; a near-round volume never does). Both ends move toward each
+// other by half the excess so the geometric mean size is kept; the middle
+// axis is clamped into the new range. Same uniform as Adam (cl.w = n*16).
+export const makeShapeClampSrc = (ratio = 3) => /* wgsl */ `
+struct AdamU { lr0: vec4f, lr1: vec4f, lr2: vec4f, lr3: vec4f, hp: vec4f, cl: vec4f, reg: vec4f, flg: vec4f, bc: vec4f };
+@group(0) @binding(0) var<uniform> au: AdamU;
+@group(0) @binding(1) var<storage, read_write> params: array<f32>;
+// region: xyz = centre, w = radius in scene units; w <= 0 clamps every splat.
+// A face-only clamp (blobs on the skin, discs elsewhere): the region is the
+// face points' bounding sphere, set by the avatar hook before training.
+struct ShapeU { region: vec4f };
+@group(0) @binding(2) var<uniform> su: ShapeU;
+const LOGR = ${Math.log(ratio).toExponential()};
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nw: vec3u) {
+  let i = gid.x + gid.y * nw.x * 256u;
+  if (i * 16u >= u32(au.cl.w)) { return; }
+  let b = i * 16u;
+  if (su.region.w > 0.0) {
+    let dp = vec3f(params[b], params[b + 1u], params[b + 2u]) - su.region.xyz;
+    if (dot(dp, dp) > su.region.w * su.region.w) { return; }
+  }
+  var l = vec3f(params[b + 3u], params[b + 4u], params[b + 5u]);
+  let lmax = max(l.x, max(l.y, l.z)); let lmin = min(l.x, min(l.y, l.z));
+  let ex = lmax - lmin - LOGR;
+  if (ex <= 0.0) { return; }
+  let hi = lmax - 0.5 * ex; let lo = lmin + 0.5 * ex;
+  l = clamp(l, vec3f(lo), vec3f(hi));
+  params[b + 3u] = l.x; params[b + 4u] = l.y; params[b + 5u] = l.z;
+}
+`;
 export const ADAM_SRC = /* wgsl */ `
 struct AdamU {
   lr0: vec4f,   // lr slots 0..3   (pos xyz, logScale x)
@@ -1426,6 +1574,7 @@ struct AdamU {
   flg: vec4f,   // x = regs only on splats that rendered this step (>0.5),
                 // y = opacity logit floor (0 = cl.z), z = opacity decay, w = proj tail (compact)
   bc: vec4f,    // x = 1/(1-beta1^t), y = 1/(1-beta2^t) — computed once per step on the CPU (speed plan #6)
+                // z, w = rows [z, w) keep their POSITION (a seed the caller pins, avatar head seed; 0,0 = none)
 };
 @group(0) @binding(0) var<uniform> au: AdamU;
 @group(0) @binding(1) var<storage, read_write> params: array<f32>;
@@ -1440,6 +1589,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u,
   let j = gid.x + gid.y * nw.x * 256u;
   if (j >= u32(au.cl.w)) { return; }
   let slot = j % 16u;
+  if (slot < 3u && au.bc.w > au.bc.z) { let row = f32(j / 16u); if (row >= au.bc.z && row < au.bc.w) { return; } }   // pinned positions
   var lr: f32;
   if (slot < 4u) { lr = au.lr0[slot]; }
   else if (slot < 8u) { lr = au.lr1[slot - 4u]; }

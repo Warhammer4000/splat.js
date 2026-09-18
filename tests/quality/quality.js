@@ -89,6 +89,13 @@ const SETS = {
   synthetic: { dir: 'synthetic', pattern: 'synthetic_{i:2}.png', start: 0, end: 11 },
   truck: { dir: 'truck', pattern: '{i:6}.jpg', start: 1, end: 42 },
   camping: { dir: 'camping', pattern: 'frame_{i:5}.jpg', start: 1, end: 113 },
+  // the README's Truck row is the FULL set (250/250, 0.00 % ATE); truck-ate above is the 42-image gate
+  truckfull: { dir: 'truck', pattern: '{i:6}.jpg', start: 1, end: 251 },
+  // a person orbit from video (Tom, 65 picked frames of a 1080p iPhone clip) against a COLMAP
+  // reference: the video chain solved with the app's video gates (absolute pair gates 100 / 15,
+  // what app.js VIDEO_GATES passes) and the default final trials — the merge gate for the
+  // 2026-09-17 solver work (RANSAC underflow, clean passes, trials)
+  tom: { dir: 'tom', pattern: 'frame_{i:5}.jpg', start: 1, end: 65, sfm: { pairMinInliers: 100, pairMinInliersAdj: 15 } },
 };
 
 async function solveSet(setName, session) {
@@ -176,13 +183,15 @@ try {
       gt.push(raw[c.imgIdx].eye);
     }
     await post({ cams: recon.cams.length, total: raw.length, rmsBA: recon.rmsBA, solveSec, atePct: hornAtePct(rec, gt) });
-  } else if (scene === 'truck-ate' || scene === 'camping-ate') {
+  } else if (scene === 'truck-ate' || scene === 'camping-ate' || scene === 'truckfull-ate' || scene === 'tom-ate') {
     const setName = scene.split('-')[0];
-    const { recon, solveSec, total } = await solveSet(setName, session);
+    const ses = SETS[setName].sfm ? createSession({ maxIters: 3000, evalHoldEvery: 1500, sfm: SETS[setName].sfm }) : session;
+    if (ses !== session) ses.on('log', say);
+    const { recon, solveSec, total } = await solveSet(setName, ses);
     await post({
       cams: recon.cams.length, total, rmsBA: recon.rmsBA, solveSec,
       poses: recon.cams.map((c) => ({
-        name: session.frames[c.imgIdx].name, R: Array.from(c.R), t: Array.from(c.t), f: c.f,
+        name: ses.frames[c.imgIdx].name, R: Array.from(c.R), t: Array.from(c.t), f: c.f,
       })),
     });
   } else {

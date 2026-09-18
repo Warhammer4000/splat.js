@@ -3,7 +3,7 @@
 import {
   STRIDE, TILE, ENTRIES_CAP, makeProjectSrc, makeRenderSrc, makeChainSrc,
   SCAN_SRC, SCATTER_SRC, SORT_SRC, ADAM_SRC, SH_ADAM_SRC, BLIT_SRC, shRestCoefs,
-  VIS_COUNT_SRC, VIS_SCAN_SRC, VIS_SCATTER_SRC, makeAdamSrc, makeSHAdamSrc,
+  VIS_COUNT_SRC, VIS_SCAN_SRC, VIS_SCATTER_SRC, makeAdamSrc, makeSHAdamSrc, makeShapeClampSrc,
   GATHER_SRC, REFINE_APPLY_SRC, REFINE_PATCH_SRC, SSIM_SRC, makeSsaaLossSrc,
 } from './shaders.js';
 import { rodrigues, m3mul, makeRng } from '../sfm/geometry.js';
@@ -74,6 +74,16 @@ export class GSTrainer {
     // collapsing PSNR); default unchanged unless maxSplats is raised
     this.entriesCap = this.opts.entriesCap ??
       (this.opts.maxSplats ? Math.max(ENTRIES_CAP, this.opts.maxSplats * 24) : ENTRIES_CAP);
+    // ...but no buffer may exceed a SINGLE storage binding, and a raised ceiling
+    // is the one thing that can push one over: 2M splats is a 384 MB entries
+    // buffer, fine against a desktop adapter's 2 GB and impossible against the
+    // WebGPU default 128 MiB (integrated and mobile adapters, which get exactly
+    // what they offer — context.js asks for min(adapter, 4 GB)). Clamp instead of
+    // failing validation in the constructor. Desktop is untouched: 2 GB / 8 B is
+    // 268M entries, far above anything the capacity laws ask for.
+    this.bindLimit = d.limits.maxStorageBufferBindingSize;
+    const entLimit = Math.floor(this.bindLimit / 8);
+    if (this.entriesCap > entLimit) this.entriesCap = entLimit;
     // SSAA renders ssaa^2 x the pixels; entries scale with covered pixels
     this.ssaa = this.opts.ssaa ?? 0;
     this.gradFixed = this.opts.gradFixed ?? 16384;
@@ -163,8 +173,10 @@ export class GSTrainer {
       // anisoReg default 0.005 (was 0.02): with SIFT-grade poses the needle
       // pathology is gone (camping p99 ratio 42:1) and the stronger pull
       // toward isotropy measurably blurs edges (-0.8dB holdout on train-84)
-      compute: { module: mk(makeChainSrc(this.opts.anisoReg ?? 0, this.shDeg, this.dcMode, this.opts.statMax ?? false, this.dilate, this.mipComp, false, this.camGrads), 'chain'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
+      compute: { module: mk(makeChainSrc(this.opts.anisoReg ?? 0, this.shDeg, this.dcMode, this.opts.statMax ?? false, this.dilate, this.mipComp, false, this.camGrads, this.opts.needleReg ?? 0, this.opts.needleRatio ?? 3, this.opts.orientReg ?? 0), 'chain'), entryPoint: 'main', constants: { FIXED: this.gradFixed } },
     });
+    // opts.blobRatio: a hard bound on every splat's longest/shortest axis, applied after each Adam step
+    this.pipeShape = this.opts.blobRatio > 1 ? d.createComputePipeline({ label: 'shape-clamp', layout: 'auto', compute: { module: mk(makeShapeClampSrc(this.opts.blobRatio), 'shape-clamp'), entryPoint: 'main' } }) : null;
     this.pipeAdam = d.createComputePipeline({
       label: 'adam', layout: 'auto',
       compute: { module: mk(ADAM_SRC, 'adam'), entryPoint: 'main' },
@@ -180,7 +192,7 @@ export class GSTrainer {
       this.pipeVisCount = cp('vis-count', VIS_COUNT_SRC);
       this.pipeVisScan = cp('vis-scan', VIS_SCAN_SRC);
       this.pipeVisScatter = cp('vis-scatter', VIS_SCATTER_SRC);
-      this.pipeChainC = cp('chain-compact', makeChainSrc(this.opts.anisoReg ?? 0, this.shDeg, this.dcMode, this.opts.statMax ?? false, this.dilate, this.mipComp, true, this.camGrads), { FIXED: this.gradFixed });
+      this.pipeChainC = cp('chain-compact', makeChainSrc(this.opts.anisoReg ?? 0, this.shDeg, this.dcMode, this.opts.statMax ?? false, this.dilate, this.mipComp, true, this.camGrads, this.opts.needleReg ?? 0, this.opts.needleRatio ?? 3, this.opts.orientReg ?? 0), { FIXED: this.gradFixed });
       this.pipeAdamC = cp('adam-compact', makeAdamSrc('compact'));
       this.pipeAdamI = cp('adam-invisible', makeAdamSrc('invis'));
       if (this.shK) this.pipeSHAdamC = cp('sh-adam-compact', makeSHAdamSrc('compact'));
@@ -241,6 +253,18 @@ export class GSTrainer {
     this.cap = Math.min(
       Math.max(Math.floor(gaussians.n * (this.opts.capMult ?? 4)), gaussians.n),
       this.opts.maxSplats ?? 600000);
+    // the same binding ceiling as entriesCap, now against the per-splat buffers:
+    // the widest is one SH buffer (shK x 3 floats), then proj (params + its tail).
+    // A 128 MiB adapter tops out near 745k splats at degree 3; a 2 GB desktop one
+    // near 11.9M, so this never binds on the machines the capacity laws target.
+    // Never clamp below the seed — `this.n > this.cap` truncation below is silent.
+    const perSplat = Math.max(STRIDE * 4 + 4, this.shK * 3 * 4);
+    const capLimit = Math.max(gaussians.n, Math.floor(this.bindLimit / perSplat));
+    if (this.cap > capLimit) {
+      console.warn(`[trainer] splat ceiling ${this.cap.toLocaleString()} exceeds this adapter's ` +
+        `${(this.bindLimit / 1e6).toFixed(0)}MB storage binding — capped at ${capLimit.toLocaleString()}`);
+      this.cap = capLimit;
+    }
     if (this.n > this.cap) {
       // seed clone rounding can overshoot maxSplats (e.g. 7825 pts x 4 clones
       // = 31300 vs a 30000 budget). A seed larger than cap made the boot
@@ -356,9 +380,22 @@ export class GSTrainer {
       this.uniSHAdam = buf(48, B.UNIFORM | B.COPY_DST, 'uniSHAdam');
     }
 
-    this.uniTrain = buf(144, B.UNIFORM | B.COPY_DST, 'uniTrain');
-    this.uniView = buf(144, B.UNIFORM | B.COPY_DST, 'uniView');
+    this.uniTrain = buf(160, B.UNIFORM | B.COPY_DST, 'uniTrain');
+    this.uniView = buf(160, B.UNIFORM | B.COPY_DST, 'uniView');
     this.uniAdam = buf(144, B.UNIFORM | B.COPY_DST, 'uniAdam');
+    this.uniShape = buf(16, B.UNIFORM | B.COPY_DST, 'uniShape');
+    // the face-skin field (opts.skinField {origin, cell, dims, data, scale} + opts.skin {wPos, wNorm, thickMm}); a dummy when absent
+    this.uniSkin = buf(48, B.UNIFORM | B.COPY_DST, 'uniSkin');
+    {
+      const F = this.opts.skinField, K = this.opts.skin || {};
+      const on = F && F.data && F.data.length >= 8 && (K.wPos > 0 || K.wNorm > 0);
+      this.bufSkin = buf(on ? F.data.byteLength : 32, B.STORAGE | B.COPY_DST, 'bufSkin');
+      if (on) {
+        d.queue.writeBuffer(this.bufSkin, 0, F.data.buffer, F.data.byteOffset, F.data.byteLength);
+        const sc = F.scale || 1;
+        d.queue.writeBuffer(this.uniSkin, 0, new Float32Array([F.origin[0], F.origin[1], F.origin[2], F.cell, F.dims[0], F.dims[1], F.dims[2], K.wPos || 0, K.wNorm || 0, (K.thickMm ?? 2) / 1000 * sc, 0.01 * sc, 1]));
+      } else d.queue.writeBuffer(this.uniSkin, 0, new Float32Array(12));
+    }   // shape clamp region (opts.blobRegion {centre, radius}; radius 0 = everywhere)
 
     // phase-2 refine: 16 bytes/splat gathered for the CPU decision, a plan of
     // 32-byte ops back, executed GPU-side (no params/moments round trip).
@@ -493,8 +530,8 @@ export class GSTrainer {
       // raster passes at ssaa x need their own scaled cam uniforms; the fwd
       // one carries trainMode 0 (render + walk-end only, loss lives in the
       // downsample pass), the bwd one trainMode 1
-      this.uniTrain2f = buf(144, B.UNIFORM | B.COPY_DST, 'uniTrain2f');
-      this.uniTrain2b = buf(144, B.UNIFORM | B.COPY_DST, 'uniTrain2b');
+      this.uniTrain2f = buf(160, B.UNIFORM | B.COPY_DST, 'uniTrain2f');
+      this.uniTrain2b = buf(160, B.UNIFORM | B.COPY_DST, 'uniTrain2b');
       this.bgProject2 = bgProject(this.uniTrain2f);
       this.bgScan2 = bgScan(this.uniTrain2f);
       this.bgScatter2 = bgScatter(this.uniTrain2f);
@@ -560,6 +597,8 @@ export class GSTrainer {
           { binding: 6, resource: { buffer: this.bufSH } },
           { binding: 7, resource: { buffer: this.bufSHGrad } },
         ] : []),
+        { binding: 8, resource: { buffer: this.uniSkin } },
+        { binding: 9, resource: { buffer: this.bufSkin } },
       ],
     });
     this.bgAdam = d.createBindGroup({
@@ -572,6 +611,11 @@ export class GSTrainer {
         { binding: 4, resource: { buffer: this.bufV } },
       ],
     });
+    if (this.pipeShape) {
+      this.bgShape = d.createBindGroup({ layout: this.pipeShape.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: this.uniAdam } }, { binding: 1, resource: { buffer: this.bufParams } }, { binding: 2, resource: { buffer: this.uniShape } }] });
+      const reg = this.opts.blobRegion; const c = reg && reg.centre ? reg.centre : [0, 0, 0];
+      d.queue.writeBuffer(this.uniShape, 0, new Float32Array([c[0], c[1], c[2], reg && reg.radius > 0 ? reg.radius : 0]));
+    }
     this.bgGather = d.createBindGroup({
       layout: this.pipeGather.getBindGroupLayout(0),
       entries: [
@@ -632,6 +676,8 @@ export class GSTrainer {
           { binding: 4, resource: { buffer: this.bufGradF } },
           { binding: 5, resource: { buffer: this.bufCamGrad } },
           ...(this.shK ? [{ binding: 6, resource: { buffer: this.bufSH } }, { binding: 7, resource: { buffer: this.bufSHGrad } }] : []),
+          { binding: 8, resource: { buffer: this.uniSkin } },
+          { binding: 9, resource: { buffer: this.bufSkin } },
         ],
       });
       this.bgAdamC = bg(this.pipeAdamC, [this.uniAdam, this.bufParams, this.bufGradF, this.bufM, this.bufV, this.bufProj]);
@@ -640,6 +686,7 @@ export class GSTrainer {
     }
 
     for (const m of this.camMeta) { m.f0 = m.f; m.fy0 = m.fy ?? m.f; } // original focals (shared scale + aspect are optimized)
+    this._camInit = this.camMeta.map((m) => ({ R: Array.from(m.R), t: Array.from(m.t) }));   // the solve's poses, for camDrift()
     this.logAspect = 0; // log(fy/fx) refinement (opts.aspectOpt)
     this.camUniforms = this.camMeta.map((m, i) => this._camUniform(m, 1, m.offset, i));
     // camera-pose optimizer state (opts.camOpt enables it)
@@ -654,7 +701,7 @@ export class GSTrainer {
     // training length (default matches main.js auto-stop) instead of a
     // hardcoded 30k that predates the longer default runs
     this.horizon = this.opts.maxIters ?? 60000;
-    this.adamData = new Float32Array(36);   // 8 vec4 + bc (bias corrections, _adamBias())
+    this.adamData = new Float32Array(36);   // 8 vec4 + bc (bias corrections, _adamBias(); z,w = pinned position rows)
     const r = sceneRadius;
     // posLrScale: experiment knob — the reference implementations run their
     // position lr 20-60x LOWER relative to scene extent (median vs our P90,
@@ -722,7 +769,9 @@ export class GSTrainer {
   }
 
   _camUniform({ R, t, f, fy, cx, cy, w, h, g = 0, b = 0, bg = null }, trainMode, offset, camIdx = 0) {
-    const u = new Float32Array(36);
+    const u = new Float32Array(40);
+    // shup: horizontal-only SH (opts.shUp = the scene's up axis, unit)
+    if (this.opts.shUp) { u[36] = this.opts.shUp[0]; u[37] = this.opts.shUp[1]; u[38] = this.opts.shUp[2]; u[39] = 1; }
     u.set([R[0], R[1], R[2], 0], 0);
     u.set([R[3], R[4], R[5], 0], 4);
     u.set([R[6], R[7], R[8], 0], 8);
@@ -1048,6 +1097,16 @@ export class GSTrainer {
       const f = Math.min(this.opts.opaRegRefMax ?? 1, this.opts.opaRegRefN / Math.max(1, this.n));
       this.adamData[24] = this.opaRegBase * f;
     }
+    // opts.opaRegUntil: the opacity pressure stops at this iteration (a fraction
+    // of the horizon when <= 1). The pressure exists to prune while the model
+    // grows; as a per-iteration pull it otherwise scales with the run length —
+    // an avatar at 100k kept half the visible face splats of the 30k run
+    // (2026-09-15e). After the cut-off the reg weight is 0.
+    if (this.opts.opaRegUntil != null) {
+      const until = this.opts.opaRegUntil <= 1 ? this.opts.opaRegUntil * this.horizon : this.opts.opaRegUntil;
+      if (this.iter >= until) this.adamData[24] = 0;
+      else if (!(this.opts.opaRegRefN > 0)) this.adamData[24] = this.opaRegBase;
+    }
     if (this.v2) { // log-scale 1e-2 -> 6e-3 exponential
       const sLr = 1e-2 * Math.pow(0.6, Math.min(1, this.iter / this.horizon));
       this.adamData[3] = this.adamData[4] = this.adamData[5] = sLr;
@@ -1085,6 +1144,7 @@ export class GSTrainer {
       run(this.pipeAdamC, this.bgAdamC); p.dispatchWorkgroupsIndirect(this.bufVisDisp, 16);
       run(this.pipeAdamI, this.bgAdamI); dispatch1D(p, this.n * 8); // 8 lanes per splat (slots 0-5, 13)
       if (this.shK) { run(this.pipeSHAdamC, this.bgSHAdamC); p.dispatchWorkgroupsIndirect(this.bufVisDisp, 32); }
+      if (this.pipeShape && this.bgShape) { run(this.pipeShape, this.bgShape); dispatch1D(p, this.n); }
     } else {
       p.setPipeline(this.pipeChain);
       p.setBindGroup(0, this.bgChain);
@@ -1097,6 +1157,7 @@ export class GSTrainer {
         p.setBindGroup(0, this.bgSHAdam);
         dispatch1D(p, this.n * this.shK * 3);
       }
+      if (this.pipeShape && this.bgShape) { p.setPipeline(this.pipeShape); p.setBindGroup(0, this.bgShape); dispatch1D(p, this.n); }
     }
     p.end();
     d.queue.submit([enc.finish()]);
@@ -1117,6 +1178,28 @@ export class GSTrainer {
       this._applyCamGrads();
     }
   }
+
+  /** How far the photometric pose optimisation moved the cameras from the solve:
+   *  rotation in degrees and translation in scene units, median and max over the
+   *  cameras that moved (opts.camOpt). Null when nothing was recorded. */
+  camDrift() {
+    if (!this._camInit || !this.camMeta) return null;
+    const rot = [], trn = [];
+    for (let i = 1; i < this.camMeta.length; i++) {
+      const a = this._camInit[i], m = this.camMeta[i]; if (!a) continue;
+      // angle of R_init^T R_now
+      let tr = 0; for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) tr += a.R[r * 3 + c] * m.R[r * 3 + c];
+      rot.push(Math.acos(Math.max(-1, Math.min(1, (tr - 1) / 2))) * 180 / Math.PI);
+      // camera centre C = -R^T t
+      const cen = (R, t) => [-(R[0] * t[0] + R[3] * t[1] + R[6] * t[2]), -(R[1] * t[0] + R[4] * t[1] + R[7] * t[2]), -(R[2] * t[0] + R[5] * t[1] + R[8] * t[2])];
+      const c0 = cen(a.R, a.t), c1 = cen(m.R, m.t); trn.push(Math.hypot(c1[0] - c0[0], c1[1] - c0[1], c1[2] - c0[2]));
+    }
+    const med = (v) => { const w = v.slice().sort((x, y) => x - y); return w.length ? w[w.length >> 1] : 0; };
+    return { n: rot.length, rotDegMedian: med(rot), rotDegMax: Math.max(0, ...rot), trnMedian: med(trn), trnMax: Math.max(0, ...trn), crop: this.camMeta.map((m) => !!m.crop) };
+  }
+
+  /** Rows [from, to) keep their position through every Adam step (the seed's discs stay on the mesh). */
+  setFreezePos(from, to) { this.adamData[34] = from || 0; this.adamData[35] = to || 0; }
 
   /** Read the accumulated per-camera gradients and take one Adam step on
    *  every camera pose (R <- exp(dw)R, t += dt) plus the shared log-focal.
@@ -1139,8 +1222,9 @@ export class GSTrainer {
       this.camStep++;
       const t = this.camStep;
       const decay = Math.pow(0.02, Math.min(1, this.iter / (0.75 * this.horizon)));
-      const rotLr = 2e-4 * decay;
-      const trnLr = 2e-4 * this.sceneRadius * decay;
+      const camLr = this.opts.camLr ?? 1;   // multiplier on the pose learning rates (experiment, 2026-09-15)
+      const rotLr = 2e-4 * decay * camLr;
+      const trnLr = 2e-4 * this.sceneRadius * decay * camLr;
       const focLr = 1e-4 * decay;
       const aspLr = (this.opts.aspectLr ?? 1e-4) * decay;
       const full = this.opts.camOpt ?? false;
@@ -1159,9 +1243,14 @@ export class GSTrainer {
       // captures with real auto-exposure drift via opts.expComp.
       const expLr = 5e-3;
       const doExp = this.opts.expComp ?? false;
+      // opts.camOptOnly === 'crop': only crop cameras (cams flagged crop: true — a
+      // person's native windows, avatar mode) move; the frames that solved the room
+      // stay the anchor and the shared focal is left alone (2026-09-14)
+      const cropOnly = this.opts.camOptOnly === 'crop';
       for (let r = 1; full && r < this.camMeta.length; r++) { // cam 0 pinned (gauge + exposure anchor)
         if (r === this.holdout) continue;
         const meta = this.camMeta[r];
+        if (cropOnly && !meta.crop) continue;
         const dw = [-step(r, 0, rotLr), -step(r, 1, rotLr), -step(r, 2, rotLr)];
         meta.R = Array.from(m3mul(rodrigues(dw), meta.R));
         meta.t = [
@@ -1178,7 +1267,7 @@ export class GSTrainer {
         }
       }
       const nr = this.camMeta.length;
-      if (full) this.logfScale = Math.max(-0.3, Math.min(0.3, this.logfScale - step(nr, 0, focLr)));
+      if (full && !cropOnly) this.logfScale = Math.max(-0.3, Math.min(0.3, this.logfScale - step(nr, 0, focLr)));
       if (this.opts.aspectOpt ?? false) {
         // ±3 %: real non-square pixels are well under 1 %; more is error absorption
         this.logAspect = Math.max(-0.03, Math.min(0.03, this.logAspect - step(nr, 1, aspLr)));
@@ -1861,12 +1950,16 @@ export class GSTrainer {
     // exactly what no opacity loss can reach any more. Relocating it puts the
     // capacity back on the subject instead of leaving a flare in the air.
     const hullKill = this.hullKill;
+    // protected rows (a seed the caller wants kept, e.g. a head mesh seed in avatar mode):
+    // neither relocated away nor used as donors until the window ends
+    const prot = this.protect && this.iter < this.protect.until ? this.protect : null;
     for (let i = 0; i < this.n; i++) {
       const b = i * STRIDE;
       const o = sig(params[b + 13]);
       const out = !!hullKill && hullKill(params[b], params[b + 1], params[b + 2],
         Math.exp(Math.max(params[b + 3], params[b + 4], params[b + 5])));
       if (out) outside++;
+      if (prot && i >= prot.from && i < prot.to) continue;
       if (o < deadThr || out) { deadAll++; if (canReloc) dead.push(i); }
       else if (o > 0.4) donors.push(i);   // donors are hull-clean by construction
     }

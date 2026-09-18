@@ -47,6 +47,12 @@ const WALL_FIRST = /splat-js2/.test(location.pathname)
 // 10k horizon the growth phase is squeezed against too few settle iterations
 // and the model comes out over-grown for its polish time.
 const INITIAL_ITERS = 20000;
+// a person is one small object seen from every side: 30k was visibly sharper than
+// 20k on the 1080p orbit (face splats 3.4k -> 4.7k), 40k added nothing with or
+// without a larger cap (2026-09-14, docs/lab-log.md); the phone budget gets
+// measured against this later, not the other way round
+const AVATAR_ITERS = 30000;
+const AVATAR_MAX_FRAMES = 0;     // frame thinning is OFF (0): thinning 208 -> 100 broke Lisa's chain and 208 -> 200 broke her landmark stage (2026-09-15); ?avframes=N thins for experiments
 const MORE_ITERS = 10000;
 
 // ?perf runs a short instrumented benchmark (default 1000 iterations, or
@@ -80,6 +86,29 @@ const EVAL = { on: EVAL_Q != null, split: Math.max(2, parseInt(EVAL_Q, 10) || 8)
 }
 const MCMC_ON = sessionStorage.getItem('splatjs_mcmc') === '1';
 const ITERS_OVERRIDE = parseInt(sessionStorage.getItem('splatjs_iters'), 10) || 0;
+// solver switches (2026-09-17, branch-vs-main A/B on Tom's orbit): ?sfmsubabove=N (focal search subsample
+// above N images; default 48 again since 09-17d, the branch's 120 is the experiment), ?finaltrials=N (final passes from the top
+// focal candidates, default 2), ?pairrelax=0 (no retry) / ?pairrelax=gap (the gap rule on) — the branch's three extra passes are opt-in
+const SFM_BISECT = (() => { const q = new URLSearchParams(location.search); const o = {};
+  if (+q.get('sfmsubabove') > 0) o.searchSubsetAbove = +q.get('sfmsubabove');
+  if (+q.get('finaltrials') > 0) o.finalTrials = +q.get('finaltrials');   // final passes from the top focal candidates, keep the lowest BA rms (default 2 up to 120 images; 1 = single pass)
+  if (+q.get('inittrialsupto') > 0) o.initTrialsUpTo = +q.get('inittrialsupto');   // init-pair trials on the final pass up to N images (default 60)
+  if (q.get('pairdebug') === '1') o.pairDebug = true;          // per-neighbour-pair RANSAC probe (plain route; the avatar route reads it too)
+  if (q.get('pairrelax') === '0') o.pairRelax = false;         // no retry at all
+  if (q.get('pairrelax') === 'gap') o.pairRelaxGap = true;     // the gap rule on top of the < 70 % rule
+  // ?pairabs=A,N: the absolute pair gates (any pair A inliers, neighbours N) in the FIRST pass — what the retry uses (100 / 15)
+  if (q.get('pairabs')) { const [a, nb] = q.get('pairabs').split(',').map(Number); if (a > 0) o.pairMinInliers = a; if (nb > 0) o.pairMinInliersAdj = nb; }
+  return o; })();
+// A video is a chain: consecutive frames overlap by construction, and the solver's default gate
+// (inlier RATIO >= 40 %, no absolute count since b806846) throws neighbour pairs with 215 of 600
+// inliers away. On Tom's orbit that left 175 usable pairs and a solve that depended on which video
+// DECODER produced the pixels (hardware vs software: 14 % apart, the user's tab a third answer,
+// 34 % off live). With the retry's gates in the FIRST pass — any pair 100 inliers, neighbours 15 —
+// 223 pairs, and both decoders land on live's solve within 0.2 % / 0.2° (2026-09-17). Photo sets
+// keep the ratio gate: the same gates cost the Truck 3 dB in 09-08's measurement. ?pairabs=0 turns
+// it off for an A/B; ?pairabs=A,N sets other values (SFM_BISECT wins over this).
+const VIDEO_GATES = () => (S.preset && S.preset.video && new URLSearchParams(location.search).get('pairabs') !== '0'
+  ? { pairMinInliers: 100, pairMinInliersAdj: 15 } : {});
 
 // ?dilate=<px2> + ?aniso=<w>: the NEEDLE experimental set — lower the
 // screen-space AA dilation floor and/or the isotropy spring so splats may
@@ -117,6 +146,18 @@ const PLACEMENT_ON = sessionStorage.getItem('splatjs_placement') === '1';
 // training settings (start-card panel), persisted across visits.
 // res 0 = auto, iters 0 = the 20k default, buf = working-buffer scale.
 // Phones start from lighter defaults; anything saved wins.
+// The avatar specifics, each a toggle (the user, 2026-09-17: "when I toggle all specifics off, it should
+// solve like non-avatar"). All on = today's avatar run; all off = a scene run that happens to be followed
+// by the avatar stages. Persisted with the settings (settings.av), rows in the panel's Avatar group.
+const AV_DEFAULTS = {   // ALL OFF by default (the user, 2026-09-17: "pretty happy with all off, make this the default")
+  crops: 'off',   // 'off' | 'room' (windows keep the frame's pose) | 'face' (head windows re-posed by face-PnP when the head moved)
+  tier: false,    // the precise solve tier instead of the panel's Camera solve
+  budget: false,  // 1.1 GB decode budget (frames decoded larger than the default 700 MB allows)
+  seed: false,    // 100k seed instead of the point-count law
+  opa: false,     // opacity pressure 0.004 stopping at half the run (scene: 0.01 throughout)
+  needle: false,  // needle term 0.03
+};   // no 'cap' toggle: an avatar never limits its splats — the ceiling is always the allocation maximum
+const AV_KEYS = Object.keys(AV_DEFAULTS);
 function deviceDefaults() {
   const phone = matchMedia('(any-pointer: coarse)').matches &&
     Math.min(screen.width, screen.height) <= 820;
@@ -127,8 +168,8 @@ function deviceDefaults() {
     // on the lean solve, desktops take the middle tier; the precise tier is
     // the High/Showcase macro's (a ten-minute solve behind a two-minute
     // draft training was the complaint, 2026-09-09)
-    ? { v: 2, res: 480, feat: 0, buf: 1, sh: 0, iters: 8000, splats: 0, lod: false, mcmc: false, solve: 'quick' }
-    : { v: 2, res: 0, feat: 0, buf: 1, sh: 3, iters: 0, splats: 0, lod: false, mcmc: false, solve: 'standard' };
+    ? { v: 2, res: 480, feat: 0, buf: 1, sh: 0, iters: 8000, splats: 0, lod: false, mcmc: false, solve: 'quick', av: { ...AV_DEFAULTS } }
+    : { v: 2, res: 0, feat: 0, buf: 1, sh: 3, iters: 0, splats: 0, lod: false, mcmc: false, solve: 'standard', av: { ...AV_DEFAULTS } };
 }
 function loadSettings() {
   const d = deviceDefaults();
@@ -137,6 +178,8 @@ function loadSettings() {
     // v gates out saves from older panel layouts (e.g. the phone-preset
     // button that wrote sh 0 onto desktops)
     const m = saved && saved.v === 2 ? { ...d, ...saved } : d;
+    m.av = { ...AV_DEFAULTS, ...(saved && saved.av || {}) };
+    if (m.av.crops === true) m.av.crops = 'face'; else if (m.av.crops === false) m.av.crops = 'off';   // saves from the boolean toggle
     // saved sh 2 predates the degree-3 default: those sessions were silently
     // training degree 3 (the old `!== 2` guard), so 3 preserves real behavior
     if (m.sh === 2) m.sh = 3;
@@ -333,11 +376,27 @@ function boot() {
   // the settings panel: values in, values out, persisted
   const st = S.settings;
   const showSettings = () => {
-    $('set-res').value = st.res ? String(st.res) : '';
+    // the Avatar group only when the loaded set is an avatar run — a plain run never reads it
+    document.querySelectorAll('#settings .av-only').forEach((el) => { el.hidden = !S.avatar; });
+    // Training resolution: only the steps the loaded pictures can fill (a 1080p video has no
+    // 1600 px row), and Full says what size that is. -1 = the pictures' own size (the user,
+    // 2026-09-17). A saved step at or above the set's size shows as Full.
+    {
+      const native = S.setMaxDim || 0;
+      for (const o of $('set-res').options) {
+        const v = parseInt(o.value, 10) || 0;
+        if (v > 0) { o.hidden = native > 0 && v >= native; o.textContent = `${v} px`; }
+        else if (v === -1) o.textContent = native ? `Full (${native} px)` : 'Full size';
+      }
+      const want = st.res > 0 && native > 0 && st.res >= native ? -1 : st.res;
+      $('set-res').value = want ? String(want) : '';
+    }
     $('set-feat').value = st.feat ? String(st.feat) : '';
     $('set-solve').value = st.solve === 'quick' ? 'quick' : 'standard';   // 'precise' (an alias) shows as Standard
     $('set-buf').value = String(st.buf);
     $('set-sh').value = String(st.sh);
+    $('set-shup').value = st.shup ? '1' : '0';
+    for (const k of AV_KEYS) { const el = $('set-av-' + k); if (!el) continue; el.value = k === 'crops' ? String(st.av && st.av.crops || 'face') : (st.av && st.av[k] === false ? '0' : '1'); }
     $('set-iters').value = st.iters ? String(st.iters) : '';
     $('set-splats').value = st.splats ? String(st.splats) : '';
     $('set-q').value = qualityOf(st);
@@ -362,6 +421,7 @@ function boot() {
   $('q-quick').addEventListener('change', () => pickQuality($('q-quick').value));
   $('btn-settings').addEventListener('click', () => {
     const open = $('settings').hidden;
+    if (open) showSettings();   // the rows depend on the loaded set (avatar or not, its picture size) — rebuilt on every open
     // the gear lives on whichever card is showing — start page or detail
     const card = $('detail').hidden ? $('start') : $('detail');
     if (open && matchMedia('(min-width: 641px)').matches) {
@@ -385,6 +445,8 @@ function boot() {
     st.solve = $('set-solve').value || 'standard';
     st.buf = parseFloat($('set-buf').value) || 1;
     st.sh = parseInt($('set-sh').value, 10);
+    st.shup = $('set-shup').value === '1';
+    st.av = { ...AV_DEFAULTS }; for (const k of AV_KEYS) { const el = $('set-av-' + k); if (!el) continue; st.av[k] = k === 'crops' ? el.value : el.value !== '0'; }
     st.iters = parseInt($('set-iters').value, 10) || 0;
     st.splats = parseInt($('set-splats').value, 10) || 0;
     st.lod = !!$('set-lod').value && st.splats >= 1000000;
@@ -392,8 +454,10 @@ function boot() {
     showSettings();
     saveSettings();
   };
-  for (const id of ['set-res', 'set-feat', 'set-solve', 'set-buf', 'set-sh', 'set-iters', 'set-splats', 'set-lod', 'set-mcmc']) {
-    $(id).addEventListener('change', readSettings);
+  // every select in the panel persists on change — the avatar rows (and Horizontal SH) were
+  // missing from this list, so their toggles changed the dropdown and nothing else (2026-09-17)
+  for (const id of ['set-res', 'set-feat', 'set-solve', 'set-buf', 'set-sh', 'set-iters', 'set-splats', 'set-lod', 'set-mcmc', 'set-shup', ...AV_KEYS.map((k) => 'set-av-' + k)]) {
+    const el = $(id); if (el) el.addEventListener('change', readSettings);
   }
   // count slider: live label while dragging, the (cheaper) photo-list rebuild
   // on release; the value label is also the "use all" button
@@ -644,13 +708,22 @@ function showIntro() {
 async function openCaptureSet(rec = null) {
   rec = rec || await loadLastCapture();
   if (!rec || !rec.files || rec.files.length < 2) return null;
-  const files = rec.files.map((e) => new File([e.blob], e.name, { type: e.blob.type || 'image/jpeg' }));
+  const files = rec.files.map((e) => {
+    const f = new File([e.blob], e.name, { type: e.blob.type || 'image/jpeg' });
+    if (e.mask) f.mask = e.mask;   // avatar mode: the person's matte rides with the frame
+    return f;
+  });
+  // an avatar capture restores as an avatar run (the manifest names the stages done so far)
+  S.avatar = rec.avatar && rec.avatar.kind === 'avatar' ? rec.avatar : null;
+  S.avatarOpts = S.avatar ? (await import('../avatar/index.js')).trainingOptions(S.avatar, { iters: S.settings.iters || AVATAR_ITERS, shHorizontal: !!S.settings.shup , av: S.settings.av }) : null;
   await sortByCapture(files);
   if (S.ownUrls) S.ownUrls.forEach(URL.revokeObjectURL);
   S.ownUrls = files.map((f) => URL.createObjectURL(f));
   const set = ownSet(files, S.ownUrls);
   set.id = '__last';
   set.kind = 'Saved on this device';
+  set.video = rec.kind === 'video';
+  set.avatar = S.avatar;
   set.origin = `${files.length} frames from your last capture, restored from this browser's ` +
     'own storage. They never left this device.';
   return set;
@@ -1093,6 +1166,7 @@ async function useOwnVideo(file) {
   meter('Reading your video', 'decoding …');
   $('stage').appendChild(card);
   const LABEL = { scan: 'scoring every frame', capture: 'saving the winners' };
+  let avatarWanted = false, videoMeta = {};   // the review card's "make an avatar" box
   try {
     const { frames, duration } = await extractSharpFrames(file, {
       thumbs: { width: window.innerWidth <= 560 ? 112 : 224 },   // scan-time thumbnails for the review card's filmstrip and hover preview
@@ -1106,7 +1180,18 @@ async function useOwnVideo(file) {
       },
       review: async (ctx) => {
         const r = await videoReview(card, ctx);
-        if (r) meter('Saving the frames', `0 / ${r.picks.length}`);
+        // an avatar orbit needs the person at resolution, not every frame: the decode
+        // budget (700 MB of targets) shrank 208 frames of 4K to 706 px, a third of a
+        // 1080p clip's per-frame detail (Lisa, 2026-09-15). Over AVATAR_MAX_FRAMES the
+        // picks thin evenly; the person's native windows carry the detail anyway.
+        const maxFrames = +(new URLSearchParams(location.search).get('avframes') || 0) || AVATAR_MAX_FRAMES;   // ?avframes=N thins (experiments)
+        if (r && r.avatar && maxFrames > 1 && r.picks.length > maxFrames) {
+          const n = r.picks.length; const keep = [];
+          for (let i = 0; i < maxFrames; i++) keep.push(r.picks[Math.round((i * (n - 1)) / (maxFrames - 1))]);
+          console.log(`[avatar] ${n} picked frames thinned to ${keep.length} for the avatar run`);
+          r.picks = keep;
+        }
+        if (r) { avatarWanted = r.avatar; videoMeta = { videoW: ctx.videoW, videoH: ctx.videoH }; meter('Saving the frames', `0 / ${r.picks.length}`); }
         return r;
       },
     });
@@ -1114,17 +1199,44 @@ async function useOwnVideo(file) {
       flash('That video is too short — a slow 20+ second pass works best.', 6000);
       return;
     }
+    // avatar mode (app/avatar, lazy): cut the person out of every frame and
+    // ask whether that is the subject — before anything expensive runs. A
+    // "no" continues as a plain scene; the masks ride on the frame entries
+    // and the session takes them as its per-file mask input.
+    // the container's lens data (iPhone MOV: lens model, 35 mm-equivalent focal): every
+    // frame carries it as its EXIF, so the solver starts from a focal prior instead of
+    // its search — an orbit around a person has weak focal observability (Tom's clip
+    // solved to 0.44x, 0.55x and 0.78x maxDim at three feature resolutions, 2026-09-15)
+    try {
+      const { readVideoMeta } = await import('../../src/io/qtmeta.js');
+      const vm = await readVideoMeta(file);
+      if (vm.focal35) {
+        for (const f of frames) f.exif = { f35: vm.focal35, lens: vm.lensModel, video: true };
+        videoMeta.focal35 = vm.focal35; videoMeta.lens = vm.lensModel;
+        console.log(`[video] lens: ${vm.lensModel || '?'} · ${vm.focal35} mm (35 mm-equivalent) · f/${vm.fNumber || '?'} — focal prior for the solve`);
+      }
+    } catch (e) { console.log('[video] lens metadata: ' + (e.message || e)); }
+    S.avatar = null; S.avatarOpts = null;
+    if (avatarWanted) {
+      const av = await import('../avatar/index.js');
+      const manifest = await av.prepareCapture(frames, { video: file.name, picks: frames.length, duration, ...videoMeta }, { card, flash });
+      if (manifest) { S.avatar = manifest; S.avatarOpts = av.trainingOptions(manifest, { iters: S.settings.iters || AVATAR_ITERS, shHorizontal: !!S.settings.shup , av: S.settings.av }); }
+    }
     if (S.ownUrls) S.ownUrls.forEach(URL.revokeObjectURL);
     S.ownUrls = frames.map((f) => URL.createObjectURL(f.source));
     // persist the EXTRACTED frames (small JPEGs), not the raw video
     persistCapture({
       kind: 'video', created: Date.now(),
-      files: frames.map((f) => ({ name: f.name, blob: f.source })),
+      files: frames.map((f) => ({ name: f.name, blob: f.source, ...(f.mask ? { mask: f.mask } : {}) })),
+      ...(S.avatar ? { avatar: S.avatar } : {}),
     });
     const set = ownSet(frames, S.ownUrls);
-    set.kind = 'Your video';
+    set.kind = S.avatar ? 'Your avatar' : 'Your video';
+    set.avatar = S.avatar;   // the manifest travels with the set (open() takes it from there)
+    set.video = true;   // sequential frames: the solver's neighbour gate applies (VIDEO_GATES)
     set.origin = `${frames.length} sharp frames picked from your ${Math.round(duration)}s video, ` +
-      'right here in this tab. Blurred moments lost to their sharper neighbours.';
+      'right here in this tab. Blurred moments lost to their sharper neighbours.' +
+      (S.avatar ? ' The room is cut away; only the person trains.' : '');
     open(set);
     showDetail(set);   // Start training lives on the detail card (the photo path does the same)
   } catch (e) {
@@ -1154,6 +1266,7 @@ function videoReview(card, ctx) {
       <canvas class="vid-tl" id="vid-tl"></canvas>
       <canvas class="vid-strip" id="vid-strip"></canvas>
       <div class="vid-read"><b id="vid-n"></b><span id="vid-span"></span><button class="linkish" id="vid-reset" hidden>whole video</button></div>
+      <label class="vid-avatar"><input type="checkbox" id="vid-avatar">This is a person — make an avatar <small>(orbit at arm's length, arms slightly out; the room trains too and is cut away after)</small></label>
       <div class="upcard-row"><p class="fine" id="vid-hint"></p><span style="display:flex;gap:8px"><button class="btn btn-outline" id="vid-cancel">Cancel</button><button class="btn btn-accent" id="vid-use">Use these frames</button></span></div>`;
     const tl = $('vid-tl'), strip = $('vid-strip');
     if (ctx.videoH > ctx.videoW) strip.style.height = (window.innerWidth <= 560 ? 150 : 110) + 'px';   // portrait clips: taller filmstrip
@@ -1352,7 +1465,7 @@ function videoReview(card, ctx) {
     $('vid-cancel').onclick = $('vid-x').onclick = () => { cleanup(); resolve(null); };
     const onKey = (e) => { if (e.key === 'Escape') { cleanup(); resolve(null); } };
     window.addEventListener('keydown', onKey);
-    $('vid-use').onclick = () => { cleanup(); resolve({ picks: plan.picks }); };
+    $('vid-use').onclick = () => { const avatar = !!$('vid-avatar')?.checked; cleanup(); resolve({ picks: plan.picks, avatar }); };
     const onResize = () => redraw();
     window.addEventListener('resize', onResize);
     function cleanup() { window.removeEventListener('resize', onResize); window.removeEventListener('keydown', onKey); S.videoReview = null; }
@@ -1378,6 +1491,12 @@ async function open(preset, autostart = false) {
   S.iter = 0; S.splats = 0; S.psnrTrain = null; S.psnrHold = null;
   S.prep = null; S.feats = new Map(); S.lastPairEv = null; S.shownPair = null; S.regCams = [];
   S.regPts = null; S.regPtsCount = 0;
+  // the avatar manifest comes from the SET being opened: a wall preset or a photo drop after an
+  // avatar run used to inherit S.avatar and run the avatar pipeline (and show its settings)
+  // (no await here: open() used to be synchronous to this point, and yielding let the start card
+  // win over the detail card — the options were computed by whichever path built the set)
+  S.avatar = preset.avatar || null;
+  if (!S.avatar) S.avatarOpts = null;
   S.growNote = null;
   S.tour = null;
   S.solveStats = { pairsChecked: 0, pairsUsable: 0, solveSec: 0 };
@@ -1498,7 +1617,7 @@ async function startPrep() {
       // benchmark mode pins NATIVE resolution: the adaptive memory budget
       // otherwise downscales big sets silently (truck-251 lands at 645px)
       // and PSNR at reduced resolution reads ~1 dB better than the papers'
-      trainMaxDim: st.res || (EVAL.on ? 1600 : undefined),
+      trainMaxDim: st.res === -1 ? (S.setMaxDim || undefined) : (st.res || (EVAL.on ? 1600 : undefined)),   // -1: the pictures' own size (as far as the memory budget allows)
       trainScale: st.buf !== 1 ? st.buf : undefined,
       ...(st.feat ? { featMaxDim: st.feat } : {}),
     } : undefined;
@@ -1573,6 +1692,8 @@ async function startPrep() {
     // scenes. Re-enable when the encoder handles unbounded DC.
     const engine = engineQ === 'v2' ? 'v2' : undefined;
     if (engine) { trainerOpts.engine = engine; }
+    // avatar mode: one subject, not a room — its own sizing (app/avatar)
+    if (S.avatarOpts) Object.assign(trainerOpts, S.avatarOpts.trainer);
     const session = createSession({
       maxIters: S.maxIters, evalHoldEvery: 2500,
       holdout: -1,
@@ -1580,6 +1701,7 @@ async function startPrep() {
       evalSplit: EVAL.on ? EVAL.split : 0,
       initTarget: lodOn ? 250000 : (st.splats ? Math.round(st.splats / 4) : (phoneClass ? 60000 : undefined)),
       maxViewW: mvW, maxViewH: mvH,
+      ...(S.avatarOpts ? S.avatarOpts.session : {}),
       // phones: iOS jetsams the tab long before the GPU is the limit —
       // decode-to-target (in the library), 720px features, a smaller SIFT
       // worker pool, and dropping gray/rgb once each stage has consumed them
@@ -1589,7 +1711,7 @@ async function startPrep() {
         // solve (10s+ frozen UI on phones). Training is untouched: measured
         // fine on-device, and fenceRing/gpuChunkMs (library opts) would tax
         // throughput for nothing.
-        sfm: { ...solveTierOpts(st.solve || 'quick'), workers: 3, uiYield: true },
+        sfm: { ...solveTierOpts(st.solve || 'quick'), workers: 3, uiYield: true, ...VIDEO_GATES(), ...(S.avatarOpts && S.avatarOpts.session && S.avatarOpts.session.sfm || {}), ...SFM_BISECT },
       } : {
         // desktop solver default since 2026-09-04: 8000 SIFT features from the
         // upsampled first octave (COLMAP's default). Feature localisation is
@@ -1604,19 +1726,24 @@ async function startPrep() {
         // Since 2026-09-09 that is the 'precise' solve tier (High / Showcase);
         // Standard takes the 8000 budget at the base octave, Draft the lean
         // 3900 / octave-0 solve — see SOLVE_TIERS in the library.
-        sfm: solveTierOpts(st.solve || 'standard'),
+        // the avatar's solve options win over the settings tier (they were overridden here until 2026-09-16: the precise tier and ?sfmall never reached the solver)
+        sfm: { ...solveTierOpts(st.solve || 'standard'), ...VIDEO_GATES(), ...(S.avatarOpts && S.avatarOpts.session && S.avatarOpts.session.sfm || {}), ...SFM_BISECT },
       }),
       // phones solve at the desktop feature resolution again: 720 was part
       // of the OOM firefight, but the real culprit was the UI bitmap cache —
       // and feature res is the measured pose-precision ceiling
       // phone default 960 — an explicit Solve-resolution choice still wins
-      frames: phoneClass ? { featMaxDim: 960, ...(frames || {}) } : frames,
+      // avatar runs on a desktop take a larger target budget (700 MB -> 1.1 GB, with the
+      // crop windows capped at 240 the trainer stays under its 2 GB binding): a 4K
+      // orbit's 208 frames decoded at 706 px under the default budget (2026-09-15)
+      frames: phoneClass ? { featMaxDim: 960, ...(frames || {}) } : (S.avatarOpts && S.avatarOpts.budget ? { targetBudgetBytes: 1.1e9, ...(frames || {}) } : frames),
       trainer: Object.keys(trainerOpts).length ? trainerOpts : undefined,
     });
     S.session = session;
     session.on('stage', (e) => { if (S.gen === gen) onStage(e); });
     session.on('metrics', (e) => { if (S.gen === gen) onMetrics(e); });
     session.on('event', (e) => { if (S.gen === gen) onTrainEvent(e); });
+    if (S.avatar || new URLSearchParams(location.search).has('sessionlog')) session.on('log', (m) => console.log('[session]', m));
 
     // 1) decode
     let files;
@@ -1666,9 +1793,92 @@ async function startPrep() {
       flash(`${placed} of ${S.photos.length} images placed — the ones tagged in the strip never connected.`, 9000);
     }
 
+    // avatar mode: native-resolution windows of the person join the cameras
+    // before the seed (app/avatar/crops.js) — the person trains at full pixel
+    // density inside the room's run
+    if (S.avatar) {
+      const av = await import('../avatar/index.js');
+      const alog = (m) => console.log('[avatar]', m);
+      // the joints and the face need only the solve: run them now, so the head
+      // windows get the head-stabilised poses (the head moves against the room —
+      // Filip's orbit ghosted by ~2 cm); the joints card is reviewed after training
+      let faceCams = null;
+      // the pre-training landmarks and face triangulation exist for the crop windows (head-stabilised
+      // poses); with Person crops off they are skipped — the joints stage still runs after training
+      const cropsMode = new URLSearchParams(location.search).get('crops') === '0' ? 'off' : ((S.settings.av && S.settings.av.crops) || 'face');
+      const cropsOn = cropsMode !== 'off';
+      if (!cropsOn) alog('person crops: off — landmarks and face wait until after training');
+      try { if (!cropsOn) throw Object.assign(new Error('skipped'), { skipped: true });
+        const lm = await import('../avatar/stages/landmarks.js');
+        const res = await lm.run({ session, frames: files }, S.avatar, { log: alog, progress: (d, t) => { S.prep = { stage: 'landmarks', done: d, total: t }; } });
+        av.setStage(S.avatar, 'landmarks', { status: 'done', ...res, reviewPending: true });
+        S._lmRes = res; faceCams = res.cropCams || null; S._facePoints = res.face && res.face.points || null; // the nose tip shifts under 1 cm over the orbit on BOTH clips, so head motion is not
+        // what separates them; what does is how well the room's poses agree on the person:
+        // the pose landmarks' multi-view residual (nose) is 1.8 px on Tom, 3.2 px on Filip
+        // (feature scale). Above 2.5 px the head windows take the face-PnP pose.
+        const noseErr = res.report && res.report.nose && res.report.nose.err;
+        // 'room': the head windows keep the frame's pose whatever the face says (the A/B against face-PnP re-posing, 2026-09-17)
+        S._headMoved = cropsMode === 'room' ? false : (noseErr != null ? +noseErr > 2.5 : null);
+        alog(`head windows: ${S._headMoved ? 'face-PnP poses' : 'room poses'}${cropsMode === 'room' ? ' (Person crops: room pose)' : ''} (nose residual ${noseErr} px, head shift ${res.headShiftCm} cm)`);
+      } catch (e) { if (!e.skipped) alog(`landmarks before training failed: ${e.message || e} — after training instead`); }
+      if (S.gen !== gen) return;
+      // ?crops=0 (experiment, 2026-09-15): no person windows — the user's 09-14 model without them held up against today's
+      if (!cropsOn) alog('person crops: off (settings / ?crops=0)');
+      else await av.addPersonCrops(session, files, { log: alog, faceCams, facePoints: S._facePoints || null, headMoved: S._headMoved, progress: (d, t) => { S.prep = { stage: 'crops', done: d, total: t }; } });
+      if (S.gen !== gen) return;
+      // ?cropsonly=1 (experiment, 2026-09-15): registration in full, the loss on the person's
+      // native windows only — every iteration at native resolution on the person, the room
+      // frames keep their poses for the hull and the cut (with ?cropmask=0 the windows keep
+      // the room around the person: rectangular, no mask)
+      if (new URLSearchParams(location.search).get('cropsonly') === '1') { session.opts.lossCams = (c) => !!c.crop; alog('crops only: the room frames leave the training loss'); }
+      // ?skin=wPos,wNorm[,thickMm] (experiment, 2026-09-15, the user's idea): the face-skin
+      // field — splats near the face are pulled onto the triangulated face mesh and flattened
+      // along its normal (a skin, not a volume); hair and everything past the face oval untouched
+      const skinQ = new URLSearchParams(location.search).get('skin');
+      if (skinQ && S._lmRes) {
+        const [wPos, wNorm, thickMm] = skinQ.split(',').map(Number);
+        try {
+          const { buildFaceSkinField } = await import('../avatar/faceskin.js');
+          const field = await buildFaceSkinField(S._lmRes, session.recon.cams, { log: alog });
+          if (field) session.opts.trainer = { ...(session.opts.trainer || {}), skinField: field, skin: { wPos: wPos || 0, wNorm: wNorm || 0, thickMm: thickMm > 0 ? thickMm : 2 } };
+          alog(`skin term: position ${wPos || 0}, normal extent ${wNorm || 0}, thickness ${thickMm > 0 ? thickMm : 2} mm`);
+        } catch (e) { alog(`skin field failed: ${e.message || e}`); }
+      }
+      // ?blob=R&blobface=1 (experiment, 2026-09-15): the blob clamp on the FACE only — blobs on
+      // the skin (no edge-on lines in the close-up), discs everywhere else (clean oblique views)
+      if (new URLSearchParams(location.search).get('blobface') === '1' && S._facePoints && S._facePoints.length > 50) {
+        const P = S._facePoints; const c = [0, 0, 0]; for (const p of P) { c[0] += p[0] / P.length; c[1] += p[1] / P.length; c[2] += p[2] / P.length; }
+        let rad = 0; for (const p of P) rad = Math.max(rad, Math.hypot(p[0] - c[0], p[1] - c[1], p[2] - c[2]));
+        session.opts.trainer = { ...(session.opts.trainer || {}), blobRegion: { centre: c, radius: rad * 1.15 } };
+        alog(`blob clamp on the face only: sphere radius ${(rad * 1.15 / (S._lmRes && S._lmRes.fit ? S._lmRes.fit.scale : 1) * 100).toFixed(0)} cm around the face points`);
+      }
+      // a dense seed on the face mesh, as ready-made flat Gaussians (?faceseed=1 or =N; off
+      // by default: as points it came out worse — see app/avatar/faceseed.js)
+      const fsq = new URLSearchParams(location.search).get('faceseed');
+      S._faceSeed = null;
+      if (fsq && fsq !== '0' && S._lmRes) {
+        try { S._faceSeed = await av.faceSeedGaussians(session, files, S._lmRes, { count: +fsq > 1 ? +fsq : 20000, log: alog }); } catch (e) { alog(`face seed failed: ${e.message || e}`); }
+      }
+      // the whole head from the body model, protected from relocation (?headseed=N[,protectIters])
+      const hsq = new URLSearchParams(location.search).get('headseed');
+      if (hsq && hsq !== '0' && S._lmRes) {
+        const [hn, hp, hf] = hsq.split(','); const hnN = +hn, hpN = +hp;
+        try {
+          S._faceSeed = await av.headSeedGaussians(session, files, S._lmRes, { count: hnN > 1 ? hnN : 50000, protectIters: hpN || 8000, log: alog, progress: (d, t) => { S.prep = { stage: 'headseed', done: d, total: t }; } });
+          if (S._faceSeed && hf === 'f') S._faceSeed.freezePos = true;   // ?headseed=N,P,f — the discs keep their positions
+          if (S._faceSeed && S._faceSeed.head) {   // the cloud seed leaves the head to the discs
+            const { centre: hc, radius: hr } = S._faceSeed.head; const before = session.recon.points.length;
+            session.recon.points = session.recon.points.filter((p) => Math.hypot(p.X[0] - hc[0], p.X[1] - hc[1], p.X[2] - hc[2]) > 1.3 * hr);
+            alog(`head seed: ${before - session.recon.points.length} sparse points inside the head sphere removed from the cloud seed`);
+          }
+        } catch (e) { alog(`head seed failed: ${e.message || e}`); }
+      }
+      if (S.gen !== gen) return;
+    }
+
     // 3) seed + trainer
     S.prep = { stage: 'seed', done: 0, total: 1 };
-    await session.seed();
+    await session.seed(S._faceSeed ? { appendGaussians: S._faceSeed } : {});
     if (S.gen !== gen) return;
     if (S.lodPlan) session.trainer.growLimit = S.lodPlan.levels[0];
 
@@ -1786,13 +1996,25 @@ function onStage(e) {
       if (p2 && p2.url) bmp(p2.url);
     }
   }
-  if (e.stage === 'register' && e.detail && e.detail.R) {
+  // every solver PASS — each focal candidate, the final run, the bracket re-check, the gap
+  // retry — registers the images again in its own world frame. The overlay used to keep
+  // every registration ever emitted, so the sparse-cloud stage showed several solves'
+  // frustums superimposed: one ring plus a stray arc, "wrong poses" that the finished
+  // reconstruction never had (the user, 2026-09-17, judging the solve by that view).
+  // A pass event clears the ring; a re-registration of an image replaces its frustum.
+  // Only a FINAL pass (the one whose poses become the solve) reaches the overlay: the focal-search
+  // candidates and the init trials register a subsample in throwaway frames — clearing on those
+  // made the ring hop and the cloud vanish six times before the real solve (the user, 09-17)
+  if (e.stage === 'pass' && e.detail && e.detail.final) { S.regCams = []; S.regPts = null; S.regRgb = null; S.regPtsCount = 0; }
+  if (e.stage === 'register' && e.detail && e.detail.R && e.detail.final) {
     const fr = S.session && S.session.frames && S.session.frames[e.detail.image];
     if (fr) {
-      S.regCams.push({
+      const cam = {
         i: e.detail.image, R: e.detail.R, t: e.detail.t, f: e.detail.f,
         w: fr.fw, h: fr.fh, cx: fr.fw / 2, cy: fr.fh / 2, state: 'placed',
-      });
+      };
+      const k = S.regCams.findIndex((c) => c.i === e.detail.image);
+      if (k >= 0) S.regCams[k] = cam; else S.regCams.push(cam);
     }
     if (e.detail.cloud && e.detail.cloud.length) {
       S.regPts = e.detail.cloud;
@@ -2258,10 +2480,35 @@ function enterDone() {
   if (S._detailsFromUrl) { S._detailsFromUrl = false; openDetails(); }   // ?details=<tab> reopens the sheet
 }
 
+/** Avatar mode: the trained, isolated splat is the halfway point — joints,
+ *  face, body model, binding and the account come after, on their own card
+ *  (app/avatar/runner.js). The app only mounts the card and persists the
+ *  manifest the stages write. */
+async function runAvatarStages() {
+  if (!S.avatar || !S.session) return;
+  const gen = S.gen;
+  try {
+    const av = await import('../avatar/index.js');
+    await av.afterTraining({
+      session: S.session, frames: S.preset.files || S.loadedFiles, manifest: S.avatar,
+      capture: S._capRec,
+      mount: (card) => $('stage').appendChild(card),
+      log: (m) => console.log('[avatar]', m), flash,
+      persist: (m) => { if (S._capRec && S.gen === gen) { S._capRec.avatar = m; persistCapture(S._capRec); } },
+      arrival: { hasToken, API_BASE },
+      thumb: () => renderShareThumb(),
+    });
+  } catch (e) {
+    console.error(e);
+    flash(`Avatar: ${e.message || e}`, 8000);
+  }
+}
+
 async function finish() {
   S.iter = S.session.trainer.iter;   // honest count — the run may end early
   S.minutes = Math.max(1, Math.round((performance.now() - S.trainT0) / 60000));
   enterDone();
+  if (S.avatar) runAvatarStages();
   const hold = S.psnrHold != null ? ` · ${S.psnrHold.toFixed(1)} dB on the photograph it never saw` : '';
   flash(`Done${hold}`, 6000);
   if (EVAL.on) {
@@ -2369,11 +2616,16 @@ async function restoreSession(src) {
       });
       ses.useFrames(reconJson.frames.map((f) => ({ ...f, sampleColor: () => [0.5, 0.5, 0.5] })));
     }
+    // ?shup=x,y,z: the model was trained with horizontal-only SH about this up axis
+    // (avatar runs); the viewer evaluates its SH the same way, else the bands that
+    // depend on the vertical view angle show values they were never trained for
+    const shupQ = (new URLSearchParams(location.search).get('shup') || '').split(',').map(Number);
+    const shUp = shupQ.length === 3 && shupQ.every((v) => Number.isFinite(v)) ? shupQ : null;
     await ses.seedFrom(gaussians, {
       viewOnly: true,
       sceneRadius: reconJson ? reconJson.sceneRadius : undefined,
       iter,
-      trainer: { maxSplats: gaussians.n, capMult: 1 },
+      trainer: { maxSplats: gaussians.n, capMult: 1, ...(shUp ? { shUp } : {}) },
     });
     finishRestore(ses, reconJson, gaussians.n, !!state, gaussians);
   } catch (e) {
@@ -3660,6 +3912,7 @@ function showDetail(setOrPreset) {
     hero.onload = () => {
       if (S.detailFacts !== facts || !hero.naturalWidth) return;
       facts.res = `${hero.naturalWidth} × ${hero.naturalHeight}`;
+      S.setMaxDim = Math.max(hero.naturalWidth, hero.naturalHeight);   // the Training resolution rows are built from this
       paintDetailStats();
     };
   }

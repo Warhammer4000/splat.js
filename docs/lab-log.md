@@ -4,6 +4,1383 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-17n (the Isolate cut: a hard top, a generous verdict)
+
+The user on the last avatar export: hands, feet and the face chipped
+although nothing but the person is nearby; on Filip, ceiling splats a metre
+above the head. The mechanism (`gs/hull.js`): a visual hull carved in a
+MAD box — a voxel dies when > 15 % of the views that see it land on a
+known-empty matte pixel, out-of-frame is NO evidence and leaves a voxel
+alive; a splat goes when its centre is outside or >= 4 of 6 probes at 2 sigma
+are. Two consequences: thin parts the matte loses in a few frames carve away
+(and flat discs on nose and chin fail the 2-sigma probes with their centres
+inside); and from an eye-level portrait orbit the space above the head is out
+of frame in most views — an uncarved column up to the box's top.
+
+Now: `?hulltop=F` (default 0.15 x body height above the highest head
+landmark; up is whichever side of the floor the head is on — the first
+version assumed +Y and killed the whole body, camera-frame Y points down),
+`?hulldilate=px` (matte max-filtered before carving), `?hullsigma=S`,
+`?hullout=N`. Measured at 3k on the avatar toggles off:
+
+| | hull solid | above the top | kept | binder "far" |
+|---|---|---|---|---|
+| Tom, 2 sigma / 4 of 6, no dilation | 3.1 % | 708 voxels | 88,652 of 188,096 | 0 |
+| Tom, **6 px / 1 sigma / 5 of 6** | 4.2 % | 708 | **93,049** | 0 |
+| Filip, top OFF | 7.2 % | — | 22,465 | **177** |
+| Filip, top ON | **1.0 %** | **27,298 voxels** | 22,258 | **0** |
+
+Filip's hull was six times the body — the column — and the 177 splats the
+binder could not reach were the ceiling; with the top they are gone. The
+generous verdict and the top are the defaults; the switches revert. The
+per-splat vote over views (evidence, not a voxel carve) remains the real
+next step for hair and hands.
+
+## 2026-09-17m (the README's Truck rows on this tree)
+
+Merge check for the solver work. `tests/bench/bench_run.html?set=truck` (the
+release-default trainer, precise solve tier, eval8):
+
+| row | README (09-09) | this tree |
+|---|---|---|
+| 40k cycles, held-out PSNR | 26.14 dB, 1.4 M splats, 10 min train | **26.25 dB**, 1.4 M, 6.6 min train, 251/251, rms 0.645, solve 10.1 min |
+| 30-min run (127k) | 26.55 dB, 1.05 M | **26.56 dB**, 26.5 min train, 251/251 (2 M allocated, 67 % dead at the end) |
+
+Within the ±0.1 dB noise band, on the good side; the solve time is the
+precise tier's 10.8 min of 09-09 (the RANSAC guard makes big pairs run their
+600 iterations instead of one, and it did not cost the Truck). New gates:
+`tom-ate` (a video orbit against COLMAP, the app's video gates) and
+`truckfull-ate` (the README's 250/250 pose row):
+
+| gate | registered | rms | ATE % of path |
+|---|---|---|---|
+| tom-ate (65 video frames, video gates, vs COLMAP) | 65/65 | 0.59 px | **0.03 %** (limit 0.5) |
+| truckfull-ate (251 photos, vs COLMAP) | 251/251 | 0.66 px | **0.00 %** (limit 0.05) — the README row |
+| truck-ate (42) | 42/42 | 0.56 px | 0.02 % |
+
+## 2026-09-17l (SH degree 0 did not compile on the branch — and does not run on main either)
+
+The user: SH 0 gives a gray cloud that trains "extremely fast". The chain
+shader failed to compile at degree 0 — `unresolved call target
+'camPosWorld'`: the 09-15 orientation regularizer's branch is compiled at
+every degree but `camPosWorld()` lived in the SH-only function block. Every
+step then ran on an invalid pipeline: no gradients, the seed never moved.
+Moved into the shared functions. Tom 3k, plain route: SH 0 now trains
+(27.0 dB) against SH 3 (28.0 dB).
+
+The two `Invalid CommandBuffer` errors that remained per run at degree 0 —
+on main too — were `_refinePatch`: the kernel's three SH bindings are
+read_write and ONE 16-byte dummy was bound to all three, an aliased-writable-
+bindings validation error at dispatch. Every refine's patch submit was
+rejected and the relocations and growth it carried silently dropped (the
+refine-apply path already had three distinct dummies). Named by wrapping
+every command encoder with a JS stack and every submit with an error scope
+(`scratch/probe_sh0_stack.mjs`). Three dummies now: Tom 3k at degree 0,
+0 rejected submits, 27.5 dB (was 27.0 with the refines lost). The Draft macro
+on phones is `sh: 0`; this one is cherry-picked to main.
+
+## 2026-09-17k (app: the avatar manifest was sticky; settings polish)
+
+- `S.avatar` was only ever cleared inside the video path, so a wall preset or
+  a photo drop opened AFTER an avatar run inherited the manifest and ran the
+  avatar pipeline (crops, stages) — and showed the avatar settings. The
+  manifest now travels on the set (`set.avatar`) and `open()` takes it from
+  there; no `await` in `open()` (a yield there let the start card win over
+  the detail card — caught by the harness).
+- Settings: the Avatar group (title + Horizontal SH + six toggles) sits at
+  the end of the panel and is hidden unless the loaded set is an avatar run;
+  no splat-ceiling toggle (an avatar never limits splats); the review card's
+  SH row is gone. Training resolution: 1600 / 1920 / Full (the pictures'
+  own size, labelled), rows above the set's size hidden.
+- **Avatar defaults are now ALL OFF** (the user, after running High + Auto with
+  every row off: "pretty happy with all off, make this the default"): crops
+  Off (three-way: Off / On room pose / On re-posed to the face), precise
+  tier, large decode, 100k seed, opacity pressure and needle term all off. An
+  avatar run is a scene run until a row is switched on; the rows are the
+  ladder. The trainer's ceiling stays the allocation maximum regardless.
+  (`trainingOptions` without an `av` argument still returns the full 09-15
+  recipe — the app always passes `settings.av`.)
+- Harness: `--dumpframes=dir` (picked frames, for COLMAP references),
+  `--browser=firefox` (needs `npx playwright install firefox`).
+
+## 2026-09-17j (the gate against truth on all three orbits)
+
+COLMAP references for Tom (65), Lisa (208) and Filip (59), all 100 %
+registered. The video gate (absolute pair gates 100 / neighbours 15 in the
+first pass) on the current tree (final trials, clean passes):
+
+| orbit | gate ON vs truth | gate OFF vs truth |
+|---|---|---|
+| Tom, Chrome hardware decode | 0.1 % / max 0.3 % | **3.9 % / max 10.5 %** — 65/65 registered, rms 0.65, WRONG (no retry: the count passed) |
+| Tom, Chrome software decode | 0.2 % / 0.3 % | first pass 39/65 → the retry (which IS the gate) → 0.2 % / 0.3 % |
+| Lisa | 0.3 % / **max 22.9 %** (119-121) | 0.3 % / max 0.9 % (206/208) |
+| Filip | 0.2 % / 0.4 % (59/59) | 0.1 % / 0.6 % (58/59) |
+
+So the gate is what makes Tom's solve correct under hardware decode — a
+65/65 registration at 0.65 px rms that is 4 % off truth is the failure the
+count-and-rms rulers cannot see — and it is what mis-bridges three of Lisa's
+cameras. Filip is right either way. Decision: the gate stays (two orbits
+right and one with three bad cameras beats one orbit silently wrong), and
+Lisa's three cameras are the next piece of work: a geometric admission check
+on gate-admitted pairs, or per-camera verification after the final pass
+(a mis-bridged camera has few observations and a residual its neighbours
+do not). Not a threshold.
+
+Rulers, again: registered count and BA rms passed Tom-gate-off with flying
+colours; only truth caught it.
+
+## 2026-09-17i (COLMAP truth for Lisa: the video gate mis-bridges three cameras)
+
+COLMAP on Lisa's 208 dumped frames (4K, CPU: features 185 s, exhaustive
+matching 1,263 s, mapper 194 s): 208/208, one model. Every Lisa solve
+against it:
+
+| solve | median | max | rotation max | cams > 2 % |
+|---|---|---|---|---|
+| main's solver (live) | 0.3 % | 0.6 % | 0.4° | — |
+| this tree, gate OFF (206/208) | 0.3 % | **0.9 %** | 0.3° | — |
+| this tree, default (gate on, 208/208) | 0.3 % | **22.9 %** | 3.1° | **119, 120, 121** |
+| this tree, single final pass | 47 % | 98 % | 179° | nearly all |
+
+So the bisect's reading was right against truth: the video gate registers
+two more cameras and places three wrongly (13-23 % of the path), main and
+gate-off are clean, and the final trials are what stands between Lisa and a
+wrong focal. The "jump at 75-76" in the gate-off solve was NOT an error
+(0.9 % max against COLMAP) — a fast real move; the continuity heuristic
+flagged it, the truth cleared it.
+
+Decision now depends on Tom without the gate on the CURRENT tree (final
+trials + clean passes came after the gate was measured): if Tom is clean
+under both decoders without it, the gate goes; if not, it needs a
+geometric admission check. Running.
+
+## 2026-09-17h (COLMAP truth for Tom: the day's rulers were honest)
+
+COLMAP 4.1.1 (CPU, `tools/colmap`, exhaustive, 8000 features, one shared
+SIMPLE_RADIAL camera) on the 65 picked frames: 65/65 in one model, 99 s.
+Every solve of the day aligned against it (`cmp_cams.mjs`, cameras matched
+by file name; centre residual as % of the path extent):
+
+| solve | median | p90 | max | rotation median / max |
+|---|---|---|---|---|
+| live export | 0.1 % | 0.2 % | 0.4 % | 0.1° / 0.2° |
+| Firefox "extremely good" (live's path + fixes) | 0.1 % | 0.2 % | 0.3 % | 0.2° / 0.3° |
+| **Chrome, current default** (trials, clean passes, gate) | **0.1 %** | 0.3 % | **0.3 %** | 0.2° / 0.3° |
+| Chrome, gate + branch passes | 0.2 % | 0.3 % | 0.4 % | 0.2° / 0.3° |
+| Firefox, final trials before the leak fix ("5 cm") | 0.2 % | 0.7 % | **1.3 %** | 0.2° / 0.6° |
+| Chrome, main's solver | 0.3 % | 0.6 % | 0.9 % | 0.2° / 0.6° |
+| Chrome, subsample without a trial ("5 cm") | 0.5 % | 1.4 % | 1.9 % | 0.3° / 0.6° |
+| Firefox, branch passes ("30 cm") | 2.5 % | 8.7 % | 11.6 % | 1.2° / 2.6° |
+| Chrome, software decode (pre-gate) | 13.7 % | 23.3 % | 32.7 % | 9.0° / 27.9° |
+| Firefox, gate off ("destroyed") = the morning export | 40.4 % | 65.0 % | 94.3 % | 39.3° / 104.8° |
+
+So: live is within 0.1 % of COLMAP, which is why "vs live" tracked the truth
+all day; the user's eye maps onto the MAX residual (0.3 % perfect, 1.3 %
+"5 cm", 11 % "30 cm"), not the median; and the current default on Chrome
+is at the top of the table. The morning's broken export and the gate-off run
+are the same solve to the digit — deterministic and wrong.
+
+(The avatar-route `camsAll` dumps carry no names and did not align in this
+run — not a solve verdict, a bookkeeping gap.)
+
+## 2026-09-17g (two more orbits, a bisect on Lisa, and every avatar specific as a toggle)
+
+**Overfit check** (plain route, High, main's solver on :8735 vs this tree,
+aligned with `cmp_cams.mjs`; no ground truth — "vs main" is agreement, the
+step jumps a heuristic):
+
+| clip | main | this tree | agreement |
+|---|---|---|---|
+| Filip, 59 frames | 43/59, jumps at 16-18 (the 09-14 gap) | **59/59**, 0.54 px, no jumps | 0.1 % on the 43 both have |
+| Lisa 4K, 208 frames | 208/208 | 208/208, 0.74 px | 0.2 % median, **cams 119-121 at 13-23 %**, jumps 120-122 |
+
+Lisa bisect: gate OFF → 206/208, 0.1 % of main (max 0.6 %), one jump at
+75-76 (a frame with one usable pair); gate on with a SINGLE final pass →
+181/208, wrong focal (432 vs 369 px), destroyed. So the final trials are
+what saves Lisa (not only Tom), and the video gate buys two cameras for
+three mis-bridged ones — the "low-inlier neighbour pair poisons the graph"
+failure of the 09-08 note, now seen on a video. Decision pending COLMAP
+truth (frames unpacked for Tom and dumped for Lisa; the 4.1.1 CPU binary the
+bench used is gone with `Browser_3DGS/tools`). The fix, if confirmed, is a
+geometric admission check on gate-admitted pairs, not a threshold.
+
+**Avatar specifics as toggles** (the user: "when I toggle all specifics off,
+it should solve like non-avatar"). `settings.av` — crops, tier, budget, seed,
+opa, needle, cap — seven rows in the panel under Horizontal SH, all on by
+default; `trainingOptions(…, { av })` and the app's crops/budget hooks honour
+them. Verified: an avatar run with every toggle off produces the plain
+route's solve to 0.0 % (same 1280 px decode, same 223 pairs, same 170,608
+seed), crops skipped. The user's report that started it: the avatar in the
+arrival.space app is the best it has been, while the reconstruction in
+splat-js with the avatar specifics is worse than without — some help, some
+hurt; the toggles are how to find which.
+
+## 2026-09-17f (a second pass was never a clean pass: two leaks between solver passes)
+
+Final trials kept the right candidate in Firefox too (`final trial 0.69x:
+65/65, rms 0.63px against 0.81px — keeping it`) and the user still saw 5 cm
+ghosts; aligned, the tail (frames 55-65) sat 1 % off live while his single
+pass at the same focal had been within 0.3 % everywhere. Same focal, same
+browser, a worse solve when it ran SECOND. Two things survive from one
+`runGeometry` call to the next:
+
+1. `refineObsLK` writes its sub-pixel-moved coordinates into `feats[].x/y`
+   (sfm.js:203); the next pass's observations start pulled toward the
+   previous pass's geometry.
+2. `extendTracks` pushes observations onto the shared `tracks[].obs` under
+   the previous pass's poses; the reset only cleared `o.ok`, so the next pass
+   inherited them as evidence.
+
+Both fixed in the reset at the top of `runGeometry`: keypoints restored from a
+first-pass snapshot (`f.x0/y0`), tracks truncated to their detected length
+(`tr.n0`). Every pass — candidate, trial, retry — now starts from the
+detected features. With that, Chrome default, both routes:
+
+| | trial kept | rms | vs live (median / max) |
+|---|---|---|---|
+| leaks (17e) | 0.69x | 0.64 px | 0.3 % / 0.5 %, tail 1 % |
+| keypoints restored only | 0.69x | 0.65 px | 0.3 % / 0.5 %, tail 1 % |
+| **both restored** | 0.69x | 0.82 px | **0.2 % / 0.4 %, no camera above 0.4 %** |
+
+The rms went UP and the geometry got better: the lower numbers were partly
+observations already fitted by a previous pass. The user's Firefox default run
+on this build: "perfect". Gates: synthetic 12/12 (focal 0.27 %, 0.47 px),
+Truck 42/42, ATE 0.02 %.
+
+Also tried, before the leaks were closed: init-pair trials on the final pass
+for sets up to 120 (`?inittrialsupto=120`; the mechanism exists for <= 60) —
+WORSE, 0.6 % median, the first half of the orbit 1 % off: the cheap median
+chose the rank-1 pair over rank-0. Untested on clean passes; not adopted.
+
+Overfit check owed: the video gate's benefit is measured on Tom only.
+## 2026-09-17e (final trials: the grid's ranking flips on pixels, the BA rms does not)
+
+Why live's path gave 0.2 % on Firefox and 0.5 % on Chrome, and the every-image
+path the reverse: the focal grid ranks near-tie candidates by the cheap
+pass's pixel median, and that ranking flips on the decoder's pixels — Chrome
+puts 0.96x first, Firefox 0.69x; both BA to f 445 px. But the final
+registration seeded from each lands in a DIFFERENT optimum: 0.88 px rms and
+0.5 % off live from 0.96x, 0.58-0.64 px and 0.2-0.3 % from 0.69x. The old
+bracket re-check rescued Chrome by accident: it re-solved the grid winner
+against the bracket's pick and kept the lower rms.
+
+That criterion is the right one, so it is now the mechanism: **final
+trials** (`sfm.js`, replacing `focalVerify`) — the final pass runs from the
+top candidates (the bracket winner, the grid winner when the bracket moved,
+the grid's runner-up), keeps the most cameras, then the lowest full-BA rms.
+Default 2 for sets up to 120 images (`?finaltrials=N`; 1 = single pass).
+Subsample 48, no gap rule, video gate on.
+
+| default, Chrome | grid | trial | kept | vs live |
+|---|---|---|---|---|
+| plain route | 0.96x, 0.88 px | 0.69x, 0.64 px | 0.69x | 0.3 % / 0.1°, max 0.5 % |
+| avatar route | 0.96x, 0.88 px | 0.69x, 0.64 px | 0.69x | 0.3 % / 0.1° (nose 2.01 px) |
+
+Cost: one extra final pass with BA (~16 s on 65 frames). Gates: synthetic
+12/12, BA 0.46 px; Truck 42/42, ATE 0.02 %.
+
+The overlay draws only FINAL passes now (`pass`/`register` events carry
+`final`): the focal candidates and init trials register a subsample in
+throwaway frames, and clearing the ring on those made it hop and the cloud
+vanish six times before the real solve. Ring at the end: 65 for 65.
+
+A note for the record: a python slice edit with `s.index` on two anchors that
+matched in the wrong order duplicated 170 lines of `sfm.js` and served a
+broken solver for two minutes. Assert `start < end` and re-count landmarks
+(`SfM done` lines: 3, as on main) before trusting a structural edit.
+
+## 2026-09-17d (three Firefox exports, aligned: the gate is essential, the branch's extra passes still cost 2.5 %)
+
+The user ran three URLs in his Firefox and exported each session
+(`tmp/tom_local_1*`); aligned against his live export with `cmp_cams.mjs`:
+
+| URL | solver path | vs live (centre / rotation, median; max) | psnr@iter |
+|---|---|---|---|
+| `?sfmsubabove=48&focalverify=0&pairrelax=0` | live's path + today's fixes | **0.2 % / 0.1°; 0.3 %** | 32.2 @ 11k ("EXTREMELY good") |
+| default | branch passes (every-image search, bracket check, gap retry) + gate | 2.5 % / 1.1°; **11.5 % at frame 55** | 26.7 @ 6.7k ("30 cm ghosts") |
+| `?pairabs=0` | video gate off | 40.5 % / 39.1°; 94 % | 21.2 @ 5.2k ("destroyed") |
+
+The good one also matches the Chrome default solve to 0.1 %. So: the video
+gate is essential (without it, the same wrong solve as this morning's export,
+bit-for-bit the same 40.5 %); and the branch's three solver additions, which
+are neutral on Chrome (0.3 % vs main), still bend the Firefox solve by 2.5 %
+with the tail 11 % off. They were written for the avatar route on the
+pre-fix graph (868f9b0: a 33-of-65 subsample picked 0.44x and morphed) — a
+condition that no longer holds. Decision pending the avatar check: make
+live's path the default again, keep the three as opt-in switches.
+
+## 2026-09-17c (the sparse-cloud frustums were several solves at once)
+
+The user's "wrong poses" were judged in the sparse-cloud stage — and his
+bisect of the branch's solver switches came out "all three off = as good as
+live, subsample alone = bad", which made no solver sense. It made overlay
+sense: every solver PASS (each focal candidate, the final run, the bracket
+re-check, the gap retry) registers the images again in its own world frame
+and fires `register` events; `app.js` pushed every one onto `S.regCams` and
+cleared it only at run start. The stage drew several solves' frustums
+superimposed — one ring plus a stray arc. The branch adds passes, so it
+showed more ghosts than live; switching passes off removed ghosts, not
+errors. The finished reconstruction never had those poses (training-time
+frustums were right all along).
+
+Fix: `sfm.js runGeometry` emits `stage: 'pass'` at the start of every
+registration pass; the app clears the ring (and the cloud) on it and a
+re-registered image REPLACES its frustum. Ring at the end of a 65-camera
+solve: 63, then 65 once the init pair emits its two events too — against hundreds before.
+
+Lesson (again): judge a solve by the exported cameras (`cmp_cams.mjs`
+against a reference) or by the training-time view, never by the sparse-cloud
+overlay — and a bisect whose answer contradicts the code is telling you the
+ruler is broken.
+
+## 2026-09-17b (the same clip solves four ways: the decoder chooses — until the neighbour gate is on)
+
+The user, after the RANSAC fix: still wrong, and reproducible on a plain scene
+run (High, no avatar box) — live solves it, local does not. He exported both
+sessions (`tmp/tom_live_session`, `tmp/tom_local_session`): same 65 frames,
+same focal (445 px), and after the best similarity fit the local cameras sit a
+median **34 %** of the path extent from live's, rotations **39°** (frames 13-19
+at 65-94 %). A different reconstruction, not noise.
+
+Direct A/B on this machine (`tests/e2e/avatar_mode.mjs --noavatar --solveonly
+--port`, a worktree of main served on 8735, cameras aligned with
+`scratchpad/cmp_cams.mjs`):
+
+| solve | vs live (centre / rotation, median) |
+|---|---|
+| branch, headless | 0.5 % / 0.3° |
+| main, headless (62/65 registered) | 0.4 % / 0.2° |
+| branch, headed, harness flags | 0.5 % / 0.3° |
+| branch, headed, plain flags | 0.5 % / 0.3° |
+| branch, headed, **software video decode** | **13.8 % / 9.1°** (repeat: identical to itself) |
+| the user's local export | 33.9 % / 39.1° |
+
+So: not branch-vs-main (they agree to 0.3 %), not the window, not the GPU
+flags. The solve is a pure function of the pixels — and the pixels depend on
+the video decoder. Hardware and software decode give the same feature count
+(2,948) and the same usable-pair count (175), yet different features, a
+different init pair (1+54 vs 17+18), a different self-consistent solve at the
+same focal. The user's tab produced a third pixel set (2,950 features) and a
+fourth solve. Which one you got was decided below anything a count can see.
+
+Why the clip admits several solves: the pair gate is ratio-only by default
+(`pairMinInliers ?? Infinity`, b806846 09-08), so neighbour pairs with 215 of
+600 E-inliers are thrown away — 175 usable pairs of 1,574, a thin chain with
+a seam at 44-46 / 51 and a scale-ambiguous tail.
+
+**The fix: a video is a chain.** For video-sourced runs the app now passes the
+retry's absolute gates into the FIRST pass (`pairMinInliers 100`,
+`pairMinInliersAdj 15`; `app.js VIDEO_GATES`, `set.video` on fresh and
+restored video sets; `?pairabs=0` off, `?pairabs=A,N` other values):
+
+| first pass with gates 100/15 | usable pairs | vs live | vs each other |
+|---|---|---|---|
+| hardware decode | 223 | 0.2 % / 0.2° | — |
+| software decode | 223 | 0.2 % / 0.1° | 0.1 % / 0.1° |
+
+Both decoders land on live's solve at live's exact focal (445.3 px).
+Verified with the gate on by DEFAULT (no URL switch): plain route hardware
+0.2 % / 0.2°, software 0.2 % / 0.1°, avatar route 0.2 % / 0.2° — all 223 pairs,
+65/65, rms 0.58-0.60 px. (The avatar's head windows read nose residual 2.13 px
+on this solve against 0.98 px on the 0.55x solve the ungated bracket found
+earlier today — a different metric on a different solve; live's solve is the
+one that trained to 36.9 dB.) Photo
+sets keep the ratio gate: those gates cost the Truck 3 dB on 09-08 (250/251
+registered at rms 0.62, 22.67 vs 25.72 dB) — a low-inlier neighbour pair on a
+photo set can be geometrically wrong; on a video it is overlap by construction.
+
+Also measured today: the pair stage is deterministic (seeded; two runs
+bit-identical under each decoder), the focal-search bracket (`focal check`)
+and the gap retry behave the same on branch and main for this clip, and the
+harness needed `?sessionlog=1` to see a plain run's solver at all (a plain
+scene run logs nothing — two 15-minute waits on a console line that never
+comes).
+
+## 2026-09-17 (RANSAC ran one iteration on the strongest pairs: a solver defect since the library split)
+
+The user: "camera alignment is broken on Tom, many poses are wrong" — a stray arc
+of frustums off the orbit, the trained room in shards. His panel: training
+resolution 1280, Cycles 40k, everything else default. Headless on the same clip
+(`tests/e2e/avatar_mode.mjs`, default settings) solved 65/65 at 0.55x, twice,
+bit-identical — but only through `runSfM`'s retry of a 48/65 first pass with
+an 11-frame gap. His tab's log had 2,950 features/image against 2,948 headless
+(the headed decode is not pixel-identical, and 1280 vs Auto shifts it again),
+a differently fragmented graph, the focal grid picking 1.20x on a wrong init,
+and cameras registered on 9-17 inliers (BA aspect 1.34). Nothing on the solve
+path had changed in the tree since the last good run.
+
+Probed the pair stage (`?pairdebug=1`: every neighbour pair's raw count,
+E-inliers, RANSAC bestCount, estimator failures, iterations run):
+
+| pair | raw | E-inl | best sample | iters |
+|---|---|---|---|---|
+| 7-8 | 1,335 | 0 | 3 | 1 |
+| 59-60 | 1,070 | 0 | 1 | 1 |
+| 16-17 | 813 | 0 | 4 | 1 |
+| 45-46 | 782 | 0 | 7 | 2 |
+| 4-5 | 764 | 0 | 4 | 1 |
+
+21 of 127 neighbour pairs ended after one or two RANSAC iterations. The
+adaptive termination in `ransacE` (`src/sfm/geometry.js`): `p = 1 - w^8`; on a
+big pair whose first sample is contaminated (most are — eight points from a
+50 %-inlier set are all inliers 0.4 % of the time) `count/n` is under 1 %,
+`w^8` is below double epsilon, `p` rounds to exactly 1, `log(p)` is 0, `need`
+is -Infinity and `iters` collapses to `it + 1`. The loop ends. It bit exactly
+the strongest adjacent pairs, and `?pairiters=5000` could not help because the
+cap was pinned. The line predates the library split (e745f4d, 08-19); the
+deployed `arrival.space/splat-js/src/sfm/geometry.js` has it too — live solves
+the same clip correctly through the plain-scene route (High tier, 48-image
+focal subsample), which is the same knife-edge landing on the other side.
+
+Fix: `need = p >= 1 ? maxIters : …`. Tom, headless, default settings:
+
+| | before | after |
+|---|---|---|
+| neighbour pairs with 0 E-inliers | 21 | **0** |
+| 7-8 inliers | 0 | 1,299 of 1,335 |
+| first pass | 48/65, retry to 65/65 | **65/65, no retry** |
+| BA final | 0.63 px, 16,708 pts | 0.63 px, 20,524 pts |
+| nose residual (head windows) | 1.77 px | **0.98 px** |
+| camera path | same shape (radius min/max 0.28 both), scale differs (arbitrary units) |
+
+Quality gates with the fix (`tests/quality/run.mjs synthetic-solve truck-ate`):
+synthetic 12/12, focal error 0.29 %, BA 0.475 px; Truck 42/42, BA 0.56 px,
+ATE 0.02 % of the path (gate 0.1) — the rich graph does not move.
+
+Still open, noted not changed: the pair gate is ratio-only by default
+(`pairMinInliers ?? Infinity` since b806846; the comment says "default 100")
+so neighbour pairs with 215 of 600 inliers are thrown away; and the retry is
+accepted on camera COUNT, never on geometry. The pair stage is deterministic
+(seeded; two runs identical) — the tab-vs-headless difference is the input.
+
+Tooling that stays: `?pairdebug=1`, `?pairiters=N` (avatar sfm opts),
+`ransacE(..., stats)`, `--solveonly` in the e2e, console lines kept whole
+(they were cut at 600 chars, which manufactured a "non-monotonic" paradox —
+pairs "usable at 600 iterations, 0 at 5000" — that cost an hour).
+
+## 2026-09-16b (the skin term: works as a mechanism, no visual gain at 30k)
+
+The user's idea (09-15 night): pull face splats onto the face mesh and
+flatten them along its normal, hair untouched. Built as
+`app/avatar/faceskin.js` (a signed-distance field: 39x40x40 cells of 5.5 mm
+over 1,681 face triangles, weight fading at the face oval and beyond
+2.5 cm, 0.7 s) + a term in the chain kernel (`trainer.skinField`/`skin`,
+avatar `?skin=wPos,wNorm[,thickMm]`), derivatives checked numerically.
+Tom 30k on the default (pressure stop at 15k):
+
+| weight | package | face visible | needles | edge-on (frontal cam) | thinnest | longest |
+|---|---|---|---|---|---|---|
+| off | 175,035 | 2,700 | 3.0 % | 20.2 % | 0.12 mm | 4.2 mm |
+| 1 / 1 | 178,159 | 3,068 | 2.4 % | 20.9 % | 0.05 mm | 4.2 mm |
+| 10 / 10 | 175,062 | 4,058 | 1.7 % | 23.7 % | 0.04 mm | 4.0 mm |
+| 50 / 50 | 169,686 | 5,035 | 1.6 % | 25.6 % | 0.04 mm | 4.0 mm |
+
+- The term bites with weight: visible face nearly doubles at 50, needles
+  halve, splats thin out (the normal-extent penalty). But the views do not
+  improve (`scratch/skin2_views.jpg`, `_ears.jpg`): frontal and profile at
+  the default's level, from 30° above dark rings around the eyes at 10 and
+  50, from below blotchier at 50. The edge-on share measured against the
+  frontal camera RISES, which is expected of discs lying in the cheek's
+  skin (edge-on from the front by construction) — that metric cannot judge
+  skin alignment; a normal-vs-skin metric would need the field offline.
+- Verdict: stays off. The face-only disc model of 09-14 was smooth because
+  nothing else shared its splats; pulling the default's splats onto the
+  skin does not reproduce that. The idea survives as a tool for the long
+  run (untested at 100k) and for a future face-only stage.
+
+## 2026-09-16 (Lisa at 100k; the avatar's solve options never reached the solver)
+
+Lisa, 100k + horizontal SH + needle off (the user's recipe, pressure stop
+at 50k), all 208 frames at 885 px, focal 0.69x (subsampled search, 206/208):
+
+| run | package | face rows / visible | median face opacity | needles | edge-on | longest |
+|---|---|---|---|---|---|---|
+| 30k default, full SH | 129,139 | 11,472 / 1,255 | 0.07 | 10.2 % | 29.4 % | 6.4 mm |
+| 100k + hSH + needle off | 152,727 | 11,380 / **5,377** | 0.28 | 4.2 % | 34.1 % | 3.9 mm |
+| same, no crops | 96,619 | 4,022 / 2,214 | 0.33 | 2.0 % | 42.5 % | 6.1 mm |
+
+- The long run with the pressure stop is her sharpest model (4x the visible
+  face of the 30k, `scratch/lisa_100k.jpg` row 3): eyes and skin readable,
+  a few cheek blotches and a red mark at the mouth, a ghost line on the
+  cheek in the right view — her poses again (no lens data, nose residual
+  3.0 px). Without crops she falls apart (row 4, doubled features): on a 4K
+  clip the crops are what registers the face to the training.
+- **Plumbing bug found**: `createSession` in app.js set `sfm:` from the
+  settings tier AFTER spreading the avatar's session options, so the
+  avatar's `precise` tier and the new `?sfmall=1` (every-image focal
+  search above 120 frames) never reached the solver — her "sfmall" run was
+  a duplicate of the base. Fixed (the avatar's sfm merges over the tier).
+- **Every-image search on Lisa** (208 images, 6 candidates + bracket on all
+  of them): winner 0.78x against 0.69x subsampled, both 206/208 registered,
+  both BA rms 0.72 px, nose residual 3.41 vs 2.98 px; face visible 5,841
+  vs 5,377, edge-on 33 vs 34 %. Views (`scratch/lisa_sfmall.jpg`): the
+  cheek ghost line a little softer at 0.78x, 30° above a little rougher —
+  not decisive either way. Her clip has no lens metadata (an mp4 export);
+  without it the orbit's focal stays ambiguous between the two, unlike Tom
+  where 65/65 vs 62/65 registration separated 0.55x from the rest.
+
+## 2026-09-15p (the pressure stops at half the run: the long run keeps its face)
+
+The user: "produce more face splats, more sharpness" on his 100k +
+horizontal SH + needle-off recipe. New `trainer.opaRegUntil` (avatar
+`?opuntil=F`): the opacity pressure is 0 after F x the horizon — it exists to
+prune while the model grows, as a per-iteration pull it scaled with the
+run length (100k kept half the 30k's visible face).
+
+| run | package | face rows / visible | median face opacity | longest | body visible |
+|---|---|---|---|---|---|
+| default 30k | 192,906 | 6,858 / 1,383 | 0.15 | 5.5 mm | 32,323 |
+| 100k + hSH + needle off, pressure all the way | 201,181 | 8,328 / 926 | 0.13 | 7.8 mm | 23,489 |
+| same, pressure stops at 50k | 216,765 | 7,293 / **3,370** | 0.28 | 3.6 mm | 112,867 |
+| same, pressure stops at 30k | 141,828 | 4,369 / 2,455 | 0.34 | 4.6 mm | 91,055 |
+
+- Stop at 50k: 3.6x the visible face of the same run with the pressure on
+  throughout, splats half the size, skin texture and stubble readable in
+  the profile, from above calm (horizontal SH), from below detailed
+  (`scratch/opuntil_views.jpg`, `_ears.jpg`). A small bright artefact at
+  the mouth corner in the three-quarter view. The best long run of the
+  day.
+- Stop at 30k: fewer splats overall (141k, the growth phase interplays),
+  face 2,455, rougher from above and a ghost hint at the eye in the
+  three-quarter. 50k is the value.
+- **30k check** (default recipe, pressure stops at 15k): visible face
+  1,383 -> 2,700, median face opacity 0.15 -> 0.36, longest 5.5 -> 4.2 mm,
+  body visible 32k -> 112k, package 175k. Frontal and right sharper; from
+  above and below at the default's level (`scratch/opuntil30k_views.jpg`).
+  **The cut-off at half the run is the avatar default now** (opaRegUntil
+  0.5, commit below).
+
+## 2026-09-15o (the redo ladder on the corrected solve)
+
+Seven Tom runs on the every-frame solve (all seven: first pass 0.78x with
+48/65, retry, 0.55x with 65/65 — identical poses; decode 1583 px, crops
+capped at 240). Sheets `scratch/ladder_views.jpg` (5 views) and
+`scratch/ladder_ears.jpg` (profile + three-quarter).
+
+| rung | package | face visible (10 cm) | needles | edge-on | longest |
+|---|---|---|---|---|---|
+| default: pressure 0.004, needle 0.03, full SH, crops, 30k | 192,906 | 1,383 | 3.0 % | 20.6 % | 5.5 mm |
+| pressure 0.01 | 167,954 | 684 | 2.6 % | 20.2 % | 6.9 mm |
+| needle term off | 190,385 | 1,263 | 6.3 % | 23.8 % | 5.6 mm |
+| + face pass 1500 | 177,778 | 1,528 | 4.1 % | 23.1 % | 5.1 mm |
+| horizontal SH | 187,784 | 1,404 | 2.6 % | 31.6 % | 5.7 mm |
+| no person crops | 111,253 | 1,157 | 3.2 % | 23.5 % | 6.8 mm |
+| 100k | 212,271 | 885 | 0.9 % | 27.5 % | 5.9 mm |
+
+- With the poses right, every rung has a clean profile: the ghosting was
+  the focal, not any of these knobs. The differences are now small and
+  where they were before: pressure 0.01 halves the visible face; the
+  needle term halves the needles; the face pass softens the eyes; horizontal
+  SH keeps the skin calmer from 30°/60° above and from below (the user's
+  case for it) at a higher edge-on share; no crops is smooth at eye level
+  with 40 % fewer splats and a softer face; 100k is sharper frontal and
+  rougher from above (the crown), visible face down to 885 (the pressure
+  accumulates with the horizon, still open).
+- Nothing reopens; the default stands. Horizontal SH remains the user's
+  candidate and needs the export refit before it can be the default.
+- **Added rung (the user's): 100k + horizontal SH + needle term off** —
+  package 201,181, face visible 926, needles 0.9 %, edge-on 38 %, longest
+  7.8 mm. Frontal and profile as sharp as the plain 100k; from 30°/60°
+  above the skin stays calm where the plain 100k breaks into colour
+  patches (`scratch/ladder_extra_views.jpg`, `_ears.jpg`); from below
+  clean. The strongest long-run combination of the day; the crown stays
+  soft (no view from above) and the pressure-over-horizon item stays open.
+
+## 2026-09-15n (lens prior: logged, not trusted; thinning off; the 09-14 model identified)
+
+- **The lens as a focal**: accepted at 0.37x (62/65) and bent
+  (`scratch/prior_cmp.jpg`). **Narrowed search** on the lens x crop factors
+  1.0–1.55: picked 0.46x, 62/65, ghosting again (`scratch/lensgrid_cmp.jpg`).
+  The free every-frame search (0.55x, 65/65, BA 0.86 px) is the only solve
+  of the day the user calls clean. Verdict: for video the container's lens
+  is logged, the search keeps its range; the reader (`src/io/qtmeta.js`) and
+  the frame exif stamping stay for the log and for later use.
+- **Thinning off**: 208 → 100 frames broke Lisa's chain (74/100, wrong
+  focal), 208 → 200 broke her landmark stage (nose residual 1e9 px, fit
+  scale 45818, hull box 3000 units) — unthinned she solves 206/208 at 0.69x
+  with the landmarks fine. The decode budget (1.1 GB for avatars, crops
+  capped at 240) carries the resolution instead: Lisa 885 px, Tom 1583 px
+  (was 1263). Her model at that (`scratch/lisa_cmp3.jpg`) is rougher than
+  the 706 px run — her poses are the next suspect (no lens data, nose
+  residual 3.0 px), not the recipe.
+- **The model the user likes** (`ugc …/90333b40…_tom_avatar.sog`): avatar
+  5669, uploaded 2026-09-14 12:48 UTC from his app run at commit d058bc5 —
+  room training + cut at 20k, NO person crops, full SH, pressure 0.01, no
+  needle term, face pass off, the same 0.44x solve; 63k splats after
+  export. "Sharper, less contrast, not worse" → crops on/off joins the
+  redo ladder (`?crops=0`).
+- Redo ladder queued on the every-frame solve: default, pressure 0.01,
+  needle off, face pass 1500, horizontal SH, crops off, 100k.
+
+## 2026-09-15m (the focal is unobservable from a person orbit — the container knows it)
+
+Three feature resolutions, three focals on Tom's clip with the every-frame
+search: 960 px → 0.55x maxDim (the "stunning" model), 1280 px → 0.78x,
+1600 px → 0.49x (48/65 registered). The orbit has almost no focal
+observability: the room is far, the person close, the search's pixel
+median cannot tell. The user: "with this whole focal shit we can literally
+do all the things again, because the data was shit" — right: every rung of
+the 09-15 ladder (pressure, needle, orientation, blob, pose refinement,
+crops-only, face clamp) was measured on the 0.44x solve. The relative
+verdicts may hold, the absolute ones do not; the key rungs are to be redone
+on a correct solve.
+
+- **The MOV knows the lens.** The static 'mdta' items in the container
+  carry `camera.lens_model` ("iPhone 12 Pro Max back camera 1.54mm f/2.4",
+  the 0.5x ultra-wide — the user confirms), `camera.focal_length.35mm_equivalent`
+  ("14") and `camera.lens_irisfnumber` ("F2.40"). Both Tom's and Filip's
+  clips carry it; Lisa's mp4 (another phone/app) carries nothing. New
+  `src/io/qtmeta.js` reads them (moov at either end of the file).
+- **Wired as a prior**: the app stamps `exif { f35, lens, video }` on every
+  extracted frame (decodeFrames takes a caller-supplied exif), the session
+  turns it into the existing `focalPrior` (tried first, accepted at ≥ 60 %
+  registration), and for VIDEO the fallback search runs on a narrow grid
+  of crop factors 1.0–1.55 around the prior (stabilisation and the video
+  sensor crop lengthen the effective focal) instead of the whole range.
+  14 mm at 1080x1920 = 0.37x maxDim nominal; the observed 0.44–0.55x is a
+  1.2–1.5x crop of it, 0.78x is not.
+- Also in this batch, pending their runs: crop windows undistorted with
+  the body frames' convention when |k| ≥ 0.01; bracket verification (a
+  bracket winner is re-solved against the grid winner, more registered
+  frames wins); avatar decode budget 1.1 GB with crops capped at 240;
+  frame thinning only above 200.
+
+## 2026-09-15l (the ghosting was the focal: search on every frame)
+
+The user, on every sheet of the day: "the view morphs into another face
+pose when I turn the camera — the cameras are not well matched". Traced:
+not the face pass, not solver randomness (every Tom solve ended BA at the
+same 0.811 px), not the pose optimiser (moves millimetres). The focal
+search ranked its candidates on a subsample — 33 of Tom's 65 frames — and
+chose 0.44x maxDim; searched on all 65 frames the bracket registers 65/65
+at 0.49–0.62x and the pixel median picks **0.55x**. With that solve the
+profiles are clean, the ear sits where it belongs and the face no longer
+morphs (`scratch/focal_cmp.jpg`, row 2). An orbit around a person has weak
+focal observability (the room is far, the person close), and a subsample
+hides it. Sets up to 120 images now search on every image (sfm.js).
+
+- Features at 1600 px (the user's persisted gear, probably): the poses are
+  precise where they register, but 48/65 frames registered and the front
+  of the orbit was extrapolated (row 3). 1280/1600 with the every-frame
+  search are running.
+- Lisa still fails: on her 100 thinned frames the bracket walks to 0.39x
+  (54→62 of 100 cameras registering, reproj 0.89→0.30 px) while 0.62–0.69x
+  is right (206/208 registered on the full set). The bracket's rule — more
+  cameras and lower pixel error — is satisfied by a wrong wide focal on a
+  person orbit. Next: verify a bracket winner with a full BA solve against
+  the grid winner and keep the one that registers more frames.
+- The user on the 0.55x Tom (`scratch/ab_tom_g_pkg`): "the middle tom row
+  looks stunning" — the reference model of the day.
+
+## 2026-09-15k (the feet were cut; the e2e's hidden face pass; Lisa's 4K cut)
+
+- **Feet cut off** (the user, from his localhost run: cut at the shins).
+  The visual hull's box is median ± k·MAD of the subject's feature cloud —
+  symmetric about a median that sits at chest height, so the bottom ended
+  ~40 cm above the floor: Tom's visible splats spanned 153 cm along the up
+  axis. Fix: `buildVisualHull` takes `opts.include`, and the cut stage
+  passes the landmarks' joints plus a floor point under each foot joint
+  (`floorY`), padded by the box margin. Tom: 189 cm span, shoes back
+  (`scratch/feet_cmp.jpg`); Lisa 188 cm.
+- **The e2e ran a face pass all day**: `tests/e2e/avatar_mode.mjs` passed
+  `faceiters=1500` unless told otherwise, so every 09-15 ladder run (a–j)
+  had a 1,500-iteration face pass the app itself does not run. The ladder's
+  relative verdicts stand (same pipeline throughout); the absolute default
+  had not been rendered. Now off unless `--faceiters` is given. Tom default
+  with vs without the pass (`scratch/default_final.jpg`): with it the eyes
+  are a touch crisper (face visible 1,873 vs 1,664, longest 4.7 vs 5.2 mm);
+  the user's earlier "worse" verdict was on the old masked recipe with
+  anisoReg. Worth a re-decision on the new recipe, later.
+- **Lisa's 4K cut** failed with 'Array buffer allocation failed': the cut
+  stage reloaded all 206 frames (2048 px) into a second session. It now
+  reuses the source session's decoded frames (body cameras only) — no
+  second decode, and a faster cut. Her default run: 208k person splats,
+  face soft (`scratch/default_final.jpg`, row 3).
+
+## 2026-09-15j (the default, decided — and the face-only clamp A/B on three people)
+
+Too many variants to choose from (the user). One recipe, one A/B. The
+avatar default is now: horizontal SH with the corrected gradient, opacity
+pressure 0.004, needle term 0.03; everything else off (blob clamp,
+orientation term, pose refinement, crops-only, face polish, seeds). The A/B:
+that default against the same plus a blob clamp (ratio 3) on the face only —
+the clamp pass takes a sphere (the landmarks' face points ×1.15, Tom 14 cm,
+Filip 12 cm) so blobs sit on the skin and discs stay elsewhere. 30k each.
+
+| person, run | face visible | needles | longest/shortest median (max) | edge-on to frontal cam | package |
+|---|---|---|---|---|---|
+| Tom, default | 1,873 | 1.7 % | 6.3 (138) | 22.9 % | 169,796 |
+| Tom, face clamp | 3,441 | 0.0 % | 2.4 (3) | 17.8 % | 178,444 |
+| Filip, default | 1,185 | 3.7 % | 5.1 (238) | 35.8 % | 87,981 |
+| Filip, face clamp | 1,524 | 0.1 % | 2.3 (8) | 27.9 % | 84,562 |
+
+- Tom (`scratch/ab_tom.jpg`): the default is the cleanest disc model of
+  the series; the face clamp removes the last eye-level lines and brings
+  the spots back from 30°/60° above and from below — the face is seen
+  obliquely too, so "face only" does not escape the trade.
+- Filip (`scratch/ab_filip.jpg`): the default is soft everywhere (the
+  orbit's island, a pose problem); the clamp breaks the mouth and spots
+  the skin. The user: Filip's default is better than the earlier runs.
+- Verdict (user agreed): the default stands, the face clamp stays an
+  experiment (`?blob=R&blobface=1`). Lisa's pair pending (her first pair
+  overflowed the 2 GB target binding: 934 crop windows from 206 4K frames;
+  fixed with a 320-window budget, 43a761f).
+
+## 2026-09-15i (pose refinement, once more: the cameras move millimetres and the face blurs)
+
+The user's premise: needles and edge-on discs are how the optimiser
+reconciles cameras that disagree, so refine the poses photometrically
+("we tried once, limited success — once more, without any needle clamp").
+New this time: the trainer records the solve's poses and reports the drift
+(`trainer.camDrift()`, logged at train-complete), the moved poses are
+written back into `recon.cams` so the hull, cut and landmarks see the
+trained frame, and `?camlr=N` scales the pose learning rates. Tom 30k at
+0.003, no shape terms, one run each (scene 15.09 units/m):
+
+| run | rotation median / max | camera centre median / max | face visible | face needles | edge-on to frontal cam | body needles |
+|---|---|---|---|---|---|---|
+| poses from the solve | – | – | 2,319 | 5.3 % | 21.4 % | 13.1 % |
+| pose opt, all cameras | 0.037° / 0.19° | 1.6 mm / 9.1 mm | 2,096 | 5.4 % | 27.0 % | 14.0 % |
+| pose opt, crop windows only | 0.023° / 0.14° | 0.9 mm / 6.9 mm | 2,095 | 4.4 % | 21.5 % | 13.2 % |
+| pose opt, all cameras, 5x rate | 0.075° / 0.34° | 2.7 mm / 13.8 mm | 2,063 | 5.8 % | 27.9 % | 14.4 % |
+
+- The cameras take millimetres, even at five times the rate: the solve is
+  at its information limit on Tom (the pose landmarks' nose residual was
+  1.8 px). The freedom is spent absorbing error, not fixing it.
+- Needles do not go down and the edge-on share goes UP with all-camera
+  refinement; the visible face count drops 10 %. Sheet
+  `scratch/camopt_cmp1.jpg`: all-camera runs are softer in the eyes, the
+  5x run doubles the mouth from below and the right; crop-only is the
+  baseline with a few more streaks.
+- Verdict: on Tom the discs and needles are not a pose problem. They are
+  the surface representation under an eye-level orbit (thin, view-hiding
+  primitives are the cheapest fit). Pose refinement stays off; the drift
+  report and the write-back stay (they make the next Filip test honest).
+
+## 2026-09-15h (only blobs: the lines are gone, the skin goes blotchy off-axis)
+
+The user's rule: "only train blobs — the longest axis at most 3x the
+shortest". `trainer.blobRatio` (avatar `?blob=R`): a pass after every Adam
+step moves the longest and shortest log-scale toward each other by half the
+excess over log R (the size is kept), the middle axis clamped into the
+range. Tom 30k at 0.003, one run:
+
+| run | package | face visible | longest/shortest median (max) | longest / shortest axis | body visible |
+|---|---|---|---|---|---|
+| 0.003, discs allowed | 179,778 | 2,319 | 5.75 (270) | 4.5 / 0.76 mm | 45,427 |
+| 0.003 + needle 0.03 | 190,399 | 2,216 | 5.54 (207) | 4.3 / 0.74 mm | 47,304 |
+| 0.003 + blob clamp 3 | 217,794 | 3,519 | 2.38 (3.00) | 2.9 / 1.31 mm | 66,230 |
+
+- The clamp holds (max ratio exactly 3.00). Frontal and three-quarter: no
+  lines at all, the first close-up of the series without a single streak;
+  the skin reads as smooth clay, slightly softer than the disc model
+  (`scratch/blob_cmp1.jpg`).
+- Off-axis it pays: from 30° and 60° above and from below the face shows a
+  field of dark and light spots (blobs that the level views placed can no
+  longer hide behind each other as thin discs do), the crown is worse
+  still. A blob has no direction to be right in; a disc has.
+- 348k of the 600k splats are the person (against 271k with discs): round
+  volumes need more of them for the same surface.
+- **Ratio 5** (same recipe): face visible 3,499, longest/shortest median
+  2.79 (max 5.00), longest 2.9 mm, shortest 1.08 mm, package 215,121.
+  Frontal and three-quarter: no lines, a touch sharper than ratio 3 (eyes,
+  brows). Off-axis the spots are the same as at ratio 3, from 30° above,
+  60° above and from below (`scratch/blob_cmp2.jpg`). The ratio between 3
+  and 5 does not buy the off-axis view back; the spots are the blob regime
+  itself (the look the disc/needle set replaced in August).
+- Verdict so far: discs give clean off-axis views and lines at eye level,
+  blobs give clean eye-level views and spots off-axis. A face-only clamp
+  would put the trade where the user looks closest; the crown is unsolved
+  in both.
+
+## 2026-09-15g (the lines are edge-on discs, not needles)
+
+The user, on the needle-regularised model: "so the many lines I still see
+are discs". Measured on the visible face splats (opacity > 0.3, 12 cm) of
+the 0.003 + needle 0.03 run: 24 % have their disc normal more than 75° off
+the frontal camera's view direction — a disc seen edge-on draws a line the
+width of its thinnest axis (median 0.74 mm). Test by removal
+(`scratch/edgeon_cmp1.jpg`): with those 2,463 splats taken out the lines on
+the face are gone and the face stays intact; a crude cull by the head's
+radial normal (5,276 splats) breaks the face, so the radial is not a usable
+normal there.
+
+- Shape regularisers cannot fix this: the needle term does its job (needles
+  5.3 → 1.5 %) and the lines stay. The cure is orientation. New
+  `trainer.orientReg` in the chain kernel: penalty `w (1 - |n . v|)`, n the
+  shortest axis (the disc normal), v the view direction of the camera being
+  trained — the gradient goes through the existing dR → quaternion chain.
+  Over an orbit that turns discs toward the surface normal. Avatar
+  `?orient=W`; runs at 0.01 and 0.03 on top of 0.003 + needle 0.03 queued.
+- The cull itself is view-dependent and no export fix.
+- **Orientation runs** (Tom 30k, 0.003 + needle 0.03): edge-on share of the
+  visible face splats to the frontal camera 22.6 % → 17.6 % (0.01) → 15.0 %
+  (0.03), median angle between disc normal and view 55° → 45° → 33°. The
+  term turns the discs, but the lines in the frontal close-up barely change
+  (`scratch/orient_cmp1.jpg`), and 0.03 is rougher from 30° above (a grey
+  patch on the temple) and messier at the crown. Not a cure at these
+  weights: what still draws lines is the 15 % that stay edge-on, and the
+  data gradient defends them. The hard blob clamp (`?blob=3`) is the next
+  test.
+
+## 2026-09-15f (a needle regulariser that leaves discs alone)
+
+The user: "at close up, every needle destroys the illusion". The old
+anisotropy term pulled all three log-scales to their mean and turned the
+face discs into round blobs (fp2). New `trainer.needleReg` (+ `needleRatio`,
+default 3) in the chain kernel: only the excess of the LONGEST axis over the
+MIDDLE one beyond the ratio is pulled in (longest down, middle up), so a
+disc (two long axes) is untouched and a needle widens into a disc. Avatar
+switch `?needle=W[,T]`. Tom 30k at opacity pressure 0.003, visible splats
+(opacity > 0.3), needle = longest/middle > 3 with middle/shortest < 2:
+
+| needle weight | face visible | face needles | face discs | body visible | body needles |
+|---|---|---|---|---|---|
+| 0 | 2,319 | 5.3 % | 32.9 % | 45,427 | 13.1 % |
+| 0.01 | 2,274 | 2.8 % | 34.2 % | 46,515 | 6.0 % |
+| 0.03 | 2,216 | 1.5 % | 33.3 % | 47,304 | 3.7 % |
+
+- The needle share falls 3.5x on the face and on the body while the disc
+  share and the visible count stay: the term does what it says and nothing
+  else. Sheet `scratch/needle_cmp1.jpg`: at eye level the three are close,
+  0.03 has the fewest fine streaks on the forehead from 30° above; the crown
+  from 60° is the same mess in all three (supervision, not shape).
+- Needles are not at zero; the next rung is weight 0.1 or ratio 2.5, and
+  the question whether the remaining 1.5 % still show in the user's close-up.
+
+## 2026-09-15e (100k at the new default 0.004: sharper at eye level, the crown pays)
+
+Avatar default opacity pressure 0.004 (75b1abd). Tom 100k, corrected SH
+gradient; 7.5 min of training on the 5080 (30k: 95 s).
+
+| run | package | face rows / visible (10 cm) | median face opacity | face long axis | needles | body visible |
+|---|---|---|---|---|---|---|
+| 0.01, 30k (old default) | 119,504 | 6,198 / 1,107 | 0.14 | 6.7 mm | 4.2 % | 16,090 |
+| 0.003, 30k | 179,778 | 8,225 / 2,319 | 0.18 | 4.5 mm | 5.3 % | 45,427 |
+| 0.004, 100k | 164,680 | 8,317 / 1,560 | 0.15 | 5.0 mm | 2.1 % | 30,905 |
+
+- Eye level: the cleanest frontal and three-quarter face of the series,
+  crisp eyes, fewer needles (sheet `scratch/long_cmp1.jpg`).
+- From 30° above the forehead is rougher than at 30k and a grey patch sits
+  on the temple; from 60° above the crown is a coloured streak field, worse
+  than every 30k run; the hair from behind streaks. More iterations
+  extrapolate harder where nothing looks down (growth runs to 50k there).
+- The pressure accumulates with length: at 0.004 for 100k the visible face
+  count (1,560) sits below 0.003 for 30k (2,319). A per-iteration pull
+  toward transparency is a function of the horizon, not a constant —
+  candidate: apply it only during the growth phase (it exists to prune),
+  or scale it by 30k/horizon.
+- Open: the crown needs a view from above (capture guidance) or a rule for
+  the unsupervised region; the horizontal-SH decision is still the user's.
+
+## 2026-09-15d (the opacity pressure IS the face-density lever)
+
+The face-only model had four times the visible face splats of the default
+at the same shapes (09-15), and crops-only training did not move that count
+(09-15c). The remaining suspect was the opacity pressure — 0.01 on every
+splat, all the time (3DGS-MCMC default). `?opreg=N` on the avatar run,
+Tom 30k, corrected SH gradient, one run each:
+
+| opacity pressure | package | face rows / visible (10 cm) | median face opacity | face long axis | body visible | person after the cut |
+|---|---|---|---|---|---|---|
+| 0.01 (default) | 119,504 | 6,198 / 1,107 | 0.14 | 6.7 mm | 16,090 | 214,126 |
+| 0.003 | 179,778 | 8,225 / 2,319 | 0.18 | 4.5 mm | 45,427 | 271,231 |
+| 0 | 181,499 | 3,783 / 2,651 | 0.46 | 3.7 mm | 122,679 | 193,682 |
+
+- Visible face splats double at 0.003 and the splats get smaller (long
+  axis 6.7 → 4.5 mm): the pressure was dimming the face, not the schedule.
+  Sheet `scratch/opreg_cmp1.jpg`: 0.003 has the cleanest frontal and
+  three-quarter skin of the series (fewer streaks), 30° above about level
+  with the default, the crown from 60° above rougher (more small splats in
+  the unsupervised region), a dark patch under the jaw from below.
+- 0: smoother still from the front but flatter, waxy; from above the
+  forehead and eyes show dark spots and the crown streaks; the body keeps
+  7.6× the visible splats of the default (nothing dies), package 1.5×.
+- The pressure removes what the loss does not defend; on a person the face
+  is exactly where that loses detail. 0.003 is the candidate default
+  (user's eyes decide); the long run and the relocation window are next on
+  it.
+
+## 2026-09-15c (crops-only training: register in full, train on the person's windows)
+
+The user's proposal from the knob discussion: keep the registration on the
+full frames, put the loss only on the person crops (native rectangular
+windows, room inside them, no mask). `session.opts.lossCams(cam)` marks
+which registered cameras carry the loss (the rest keep their poses for the
+hull, the cut and the landmarks); `?cropsonly=1` sets it to the crop
+cameras. Tom 30k, corrected SH gradient in all three, one run each:
+
+| run | person after the cut | face rows / visible (10 cm) | face long axis | body visible |
+|---|---|---|---|---|
+| default (62 room frames + 269 crops) | 214,126 | 6,198 / 1,107 | 6.7 mm | 16,090 |
+| crops only, rectangular (`cropmask=0`) | 148,192 | 4,788 / 1,045 | 7.6 mm | 18,004 |
+| crops only, person pixels (sentinel) | 233,070 | 6,235 / 1,078 | 6.6 mm | 15,668 |
+
+- The visible face count does not move: 1,045–1,107 in all three. Three
+  times the visits on the head do not keep more splats alive; the visible
+  density is set by the opacity pressure and relocation, not by the
+  schedule. Sheet `scratch/cropsonly_cmp1.jpg`.
+- Rectangular crops: the room inside the windows takes 66k splats of the
+  person's budget; the face is smoother but softer (larger splats, less eye
+  detail), fewer streaks from 30° above, a dark patch under the jaw from
+  below, and the top of the head smears from 60° above (the windows are
+  cut from an eye-level orbit, nothing looks down).
+- Person-pixel crops: close to the default, slightly more streaks from
+  above.
+- The switch stays in (off by default) as the base for a later long-run
+  test; at 30k it is not a win.
+
+## 2026-09-15b (the chin blob: a leaking position gradient in horizontal SH)
+
+The user traced a 1 cm grey blob under the chin through the screenshots of
+the last two days: every run with it trained horizontal-only SH, every clean
+run predates the switch (the logs agree: `grep 'SH on the horizontal'`
+over `scratch/avatar_tom_*_run.log`). Chin close-ups (`below:0:-25`,
+`belowR:-35:-20` in `scratch/render_views.mjs`) show the default with a grey
+smear under the chin where the pre-horizontal run has warm skin.
+
+- **Defect** (`src/gs/shaders.js`, SH backward): the forward evaluates the
+  SH on the view direction projected onto the horizontal plane; the backward
+  pushed the colour gradient into the splat position with the chain rule of
+  the UNPROJECTED direction, `(I - v v^T)/|u|`. The vertical part of the
+  gradient, which the projection should remove, leaked into the position
+  update: a colour-driven push along the up axis, strongest where the colour
+  changes fastest with the vertical view angle (the shadow under the chin,
+  the underside of the nose). Fixed with the full chain
+  `(I - u u^T)/|u| . (I - up up^T) . (I - v v^T)/|h|`; the finite-difference
+  check (`gradCheckSH` now takes `trainer: { shUp }`) passes for the full,
+  the vertical and the tilted up.
+- **Retrain** (Tom 30k, one run each): the blob under the chin is gone from
+  below and from the front; from above the run is at the level of the old
+  horizontal run (the reason horizontal SH exists). Face(10 cm) rows 6,198
+  with 1,107 visible, against 5,827 / 775 with the leaking gradient and
+  5,628 / 804 before horizontal SH.
+- **Viewer mismatch, small**: the coefficients assume the projected direction
+  but the app viewer and the client evaluate on the full direction.
+  `?shup=x,y,z` on a `?model=` view (and `--shup=auto` in render_views)
+  evaluates as trained; side by side the difference is a slightly different
+  skin tone from the front and nothing at the chin. An export refit of the
+  coefficients for full-direction viewers is the follow-up if horizontal SH
+  stays.
+
+## 2026-09-15 (the face polish stage: the transplant works, the seam does not — opt-in, off)
+
+The user asked for "the discs again with the smoothed skin like before that
+only had the halo issue": the face-only disc model (20k flat discs on the
+triangulated face mesh, trained on the 33 native head crops with the loss
+inside the landmark hull) as a stage that puts its face into the avatar.
+`app/avatar/stages/facepolish.js`, after the cut, `?facepolish=1`. Eight
+runs on Tom 30k, close-ups with `scratch/render_views.mjs`
+(`scratch/facepolish_cmp*.jpg`):
+
+| run | face model | transplant / stitch | result |
+|---|---|---|---|
+| fp2 | anisoReg on | 20 mm | discs go round (needle 1.1), blurry |
+| fp3 | flat discs | 20 mm | haze: the halo of unsupervised discs rides in |
+| fp4 | flat discs, opacity > 0.2 | 20 mm | the face itself is thrown out |
+| fp5 | **masked** (random background outside the hull, `maskTraining`) | keep 30 mm, replace 25 mm, opacity ≥ 0.05, no stitch | halo gone, smoothest face yet; hard seam along the mask edge; 13,037 face splats replace 8,033 |
+| fp6 | as fp5 | 1,500 stitch iterations on the full frames | fog (the cut-out model cannot explain the room) |
+| fp7 | as fp5 | stitch on person pixels only (sentinel) | seam softer, bloom OUTSIDE the silhouette |
+| fp8 | as fp5 | stitch with `maskTraining` + person crops, growth and relocation off | bloom gone, seam softer at eye level; from 30°/60° above the face is still a mask with a rim at the forehead and hollow eye sockets |
+
+Face(10 cm) rows: default 5,827 (775 visible), fp8 14,123 (3,030 visible),
+needle median 75 → 53. Frontal and side close-ups of fp8 are the smoothest
+skin of the whole 09-14 series, and the numbers say the face has more
+material. But the ruler is the user's eyes over all views, and from above
+the transplant loses to the default: the face-only model never sees a view
+from above (an eye-level orbit), so its shell has no roof, and the replaced
+25 mm band takes the avatar's own forehead and hairline splats with it.
+A feathered replacement band would soften the rim, not put the roof on.
+
+- **Verdict**: the stage stays in the pipeline, opt-in and off by default.
+  What it proves: a face trained alone IS smoother, the smoothness comes
+  from not serving hair, silhouette and room; and a masked face model has
+  no halo. What is missing is supervision of the transplant from above —
+  the same gap the crown has in every orbit clip (capture guidance).
+- Mask erosion (`?croperode=px`, chamfer on the person crops' sentinel,
+  24 px tested): neutral to slightly smoother, no seam; off by default.
+- Committed with this entry: facepolish stage, manifest/runner wiring,
+  crop erosion switch.
+
+## 2026-09-14b (invert the pipeline: train the room, cut the person out — the premise holds)
+
+The user's hunch: full-frame training beats the masked avatar recipe. Tested
+on his clip with the pieces that exist — the matte stage on the 65 frames in
+a headless page, `buildVisualHull` against the run's own reconstruction,
+`makeSplatTest` on every splat of the PLY (`scratch/cut_page.html`,
+`scratch/cut_run.mjs`), close-ups with `scratch/render_views.mjs`.
+
+| model | splats after the cut | needle ratio median | close-up |
+|---|---|---|---|
+| user's showcase scene (100k iters, 1280 px), hull cut | 95,294 of 310,043 | 130 | smooth skin, crisp eyes; colour fringe at the back of the head |
+| full scene at the DEFAULT 20k (no avatar tick), hull cut | 91,339 of 354,895 | **15** | smooth skin, some hair streaks |
+| masked avatar run, 20k + 12k face pass | 177,705 | 344 | streaks on skin |
+
+- **Same budget, no masks: the needles go from 344 to 15.** The masked
+  recipe (few seeds, random background at the silhouette, coverage/alpha
+  pressure) is what drives the spiky surface, not the clip and not the
+  iteration count alone; 100k on top adds the sharpness. The masked run's
+  12k face pass did not help it against a full-scene run with no face pass.
+- The hull cut is loose: wall colour rides along at the profile, a sliver of
+  floor can survive under the shoes. Those are the vote cut (per-splat
+  alpha-weighted inside/outside share over the views, a backward-kernel
+  variant) and a short masked polish pass, both still to build.
+- The user's downloaded PLY holds 310k splats while its recon says 1.19 M at
+  100k iterations — a pruned/LOD export; the full model may be better still.
+- Plan agreed in discussion: "Make an avatar from this scene" on a finished
+  run (session + photos + recon; COLMAP data from elsewhere qualifies too):
+  matte, face pass BEFORE the cut (crops see the real room), vote cut, short
+  polish, then the existing landmarks / body fit / bind / publish. Native
+  frames must be in the package for 4K crops. The video tick becomes one way
+  to get a base, not the only one.
+
+## 2026-09-14 (Tom's 19 s 1080p orbit vs Lisa: the spikes are the iteration count, and three defects on the way)
+
+The user shot `tom_avatar.MOV` (iPhone, 1080x1920 portrait, H.264, 19.3 s,
+579 frames, office with backlit windows) and ran avatar mode: "fine, but the
+surface is quite spiky — is it worse because of missing data?" Ran the same
+e2e (`tests/e2e/avatar_mode.mjs`, now with `--iters/--faceiters`) on both
+clips at the app defaults (20k + 12k face) and at the quick setting (3k +
+1.5k), and measured the OUTPUT distributions (scratchpad `splat_shape.py`:
+exp(scale) per splat, needle ratio = longest / shortest axis).
+
+| run | frames / registered | train res | splats | needle ratio median | >10 | body fit | face |
+|---|---|---|---|---|---|---|---|
+| Tom 1080p, 20k+12k | 65 / 62 | 1263 px | 177,705 | **344** | 81 % | 3.1 cm | 4.7 mm |
+| Tom 1080p, 3k+1.5k | 65 / 62 | 1263 px | 103,749 | 3.6 | 16 % | 2.0 cm | 4.5 mm |
+| Lisa 4K, 3k+1.5k (= dev avatar 5648) | 208 / 207 | 706 px | 78,878 | 3.0 | 7 % | 2.6 cm | 2.4 mm |
+| Lisa 4K, 20k+12k | 208 / 206 | 706 px | 153,437 | 44 | 81 % | 2.6 cm | 2.3 mm |
+| Lisa bench v3 SH3 (40k, CLI) | 186 | — | 336,674 | 583 | 99 % | — | — |
+
+(body fit / face in REAL cm / mm, see the units defect below; the old
+"1.0 cm" on Lisa was 2.6 cm.)
+
+- **Verdict: not the data.** The avatar the user compares against (dev 5648)
+  is the e2e's QUICK run — 3,020 iterations — and at 3k every model is a
+  smooth blob (needle ratio ~3). At the app default the trainer's needle
+  defaults (minScale 1e-5, anisoReg 0, 2026-09-08) take over: Tom 344, Lisa
+  44, the CLI 40k Lisa 583. Close-ups in the app viewer from each run's own
+  frontal camera (`scratch/spiky_cmp.jpg`, `scratch/render_views.mjs`)
+  show the streaks on Lisa 20k exactly as on Tom 20k, and Tom 3k as soft as
+  the dev Lisa. Tom's 20k face is the SHARPEST of the four: 65 frames train
+  at 1263 px, Lisa's 208 frames at 706 px (the tab's frame budget divides
+  the resolution by the frame count), and the face pass reached 29.4 dB.
+  So a 19 s 1080p orbit is enough; the spikes are the same hair-edge needle
+  streaks listed as open since 09-13 and now visible on skin at arm's
+  length. Next: an avatar-mode aniso cell (trainingOptions in
+  app/avatar/index.js: a scale floor / anisoReg for the person, judged on
+  the needle-ratio distribution AND the close-ups).
+- **Defect 1: scene units.** A solve's unit is arbitrary — Lisa's orbit came
+  out at 0.32-0.38 units per metre (3 m per unit), Tom's at 15-19 (7 cm per
+  unit). The body fitter (Huber 0.05, pose/shape regs), the head registration
+  (pin floor 0.012), the interior cull (reach 0.06, cell 0.02) and every
+  "cm/mm" report took scene units for metres, so on Tom the Huber was 3 mm,
+  the cull reach 4 mm (nothing culled — the mouth cavity was back), and the
+  fit read "105 cm". Now everything goes through the fit scale (residuals in
+  metres inside the LM, thresholds x scale), with constants chosen to
+  reproduce what Lisa's frame had validated (huber 0.13 m, regs 0.02, cull
+  reach 0.16 m / cell 0.05 m, pin floor 0.032 m). Tom: 6.4 -> 3.1 cm real
+  landmark residual, head 6.5 -> 4.7 mm. Lisa unchanged (2.6 cm / 2.3 mm).
+  export-binding-core was NOT touched: it already divides by the fit scale
+  (rig metres) — a first patch there smoothed weights over 1.35 m and leaked
+  4.9 % between the legs; reverted (leak 0.1 %, mean near 1.67 cm).
+- **Defect 2: the solve can lose the person.** Lisa 4K at 20k collapsed
+  once: the focal search subsample (every 5th of 208) registered only 5-6
+  of 42 cameras for EVERY candidate, the pixel median picked 1.20x maxDim
+  for a 0.69x ultra-wide clip, the final pass still registered 201/208 (so
+  the < 70 % retry never fired), and the mask filter kept 108 of 13,741
+  sparse points on her: 14 seeds, 2,814 splats after 20k iterations, body
+  fit and head garbage. The good runs got 0.69x only because the first
+  pass registered 137/208 and the relaxed retry re-searched. Two changes in
+  `src/sfm/sfm.js` / `src/session.js`: when the best search candidate holds
+  under a third of the subsample, search again on every 2nd frame (Lisa:
+  0.69x wins 71/104 vs 15/104 for 1.20x, +10 s; Tom's every-2nd search is
+  untouched), and a masked run whose subject keeps < max(150, 1 %) of the
+  sparse points stops with "the solve missed the person" instead of
+  training. Verified: the rerun took the densified path and solved 206/208
+  at 0.72 px.
+- **Defect 3 (small):** `tests/e2e/avatar_mode.mjs` hard-coded 3k/1.5k, so
+  the dev avatars 5647/5648 are quick runs — `--iters=20000 --faceiters=12000`
+  now reproduces the app. Note for the record: the Git Bash shell rewrites a
+  leading-slash argument into `C:/Program Files/Git/...` (MSYS path
+  conversion) — pass paths without the slash or set MSYS_NO_PATHCONV=1.
+- **Step 1 built** (abc5d61 + 7e49ffd): avatar mode trains the room
+  (session `maskTraining: false`), the face pass runs on the room, a new
+  `cut` stage isolates the person with the hull splat test into a fresh
+  session, then body fit / bind / publish. Tom 20k+12k: 76,857 splats, bind
+  0 far. The face pass brought streaks back around the head (needle median
+  32): anisotropy regulariser 0.01 on the face session -> 2.8 with the same
+  sharpness in the close-ups (`scratch/facepass_cmp.jpg`); scale floor 1e-3
+  -> 7.7, streaks remain; no face pass -> 15 but softer. anisoReg 0.01 is now
+  the face-pass default — and then the user's review: no visible sharpness
+  gain from the pass on the room-trained model, so the face pass is OFF by
+  default (`?faceiters=N` runs it); the isolate stage's fallback (a session
+  rebuilt from the capture files) verified, 56,160 of 119,567 splats, bind
+  0 far. Still open: the viewer keeps showing the room after
+  the run (the app's view stays on the first session); the loose hull cut.
+- **Person and head crops as extra cameras, from the start** (the user's
+  design: "we still train on the full scene, but add cropped images to train
+  with full res on the avatar"). `app/avatar/crops.js`, between solve and
+  seed: per picked frame the matte's box at native scale, split into tiles
+  of <= 1024 px (145 on Tom) plus a square head window of 0.3 x box height
+  around the matte's mass in the top rows (62, sampled x2); a crop camera is
+  the frame's pose with the principal point moved by the window origin, at
+  the crop's own feature scale. Two decoder traps: the app's buffer factor
+  (`trainScale` 0.67) and the per-set cap taken from the FIRST image (frame 1
+  has the person far away) both shrank the crops to 685 px — no trainScale,
+  largest window first. Tom 20k, one run, no face pass: face splats within
+  8 cm of the nose 1,554 -> 2,389 (visible 543 -> 699), median longest axis
+  6.2 -> 5.0 mm, person after the cut 79,726 -> 105,263; the close-ups are
+  visibly crisper (eyes, nose, lips) with no streaks (`scratch/crops_cmp.jpg`).
+  Not the doubling yet: the total splat count is fixed by the growth
+  schedule (367k in both runs, growth stops at 75 % of the horizon), the
+  crops only redirect it — a larger seed / growth rate for avatar runs is the
+  next knob. Peak memory: the crops decode as float copies next to the
+  frames (~0.6 GB on this clip); phones will need a stride.
+- The face pass as a continuation cannot do this: with its own growth window
+  it reached 2,387 face splats too, but three quarters of the growth went to
+  the room, and the shots got streaky (`scratch/facepass_pair2.jpg`). It
+  stays off; `?faceiters=N` keeps it for experiments.
+- **Iterations for a person** (Tom, crops, 20k / 30k / 40k / 40k with a 1M
+  cap): face splats within 10 cm of the nose 3,429 / 4,711 / 4,783 / 4,767;
+  package 90k / 109k / 102k / 109k; 30k visibly sharper than 20k (skin,
+  eyes, hairline), 40k the same as 30k, the lifted cap only grew
+  low-opacity splats the export prunes. Avatar default 30k (AVATAR_ITERS in
+  app.js), cap stays 600k. `scratch/iters_cmp.jpg`, `scratch/cap_cmp.jpg`.
+- **Filip's clip** (17 s, 1080p, a second person walks through): 43/59
+  registered, frames 17-30 form their own island (usable pairs among
+  themselves, none to the rest), 31/32 are the blur dip (half the
+  features). The new gap retry (>= 5 consecutive unregistered frames ->
+  relaxed pair gate) fired and registered 38 — kept the first pass: no
+  matching threshold bridges an island, one frame of it has to be PLACED
+  (landmark PnP prior, then the chain continues by features). And the front
+  views ghost: the head moved between the far start and the close-up end of
+  the orbit — per-window pose freedom for the crops is the fix to test
+  (`?camopt=1` = the trainer's photometric pose optimisation on all
+  cameras, the first check). `scratch/filip40_views.jpg`.
+- **Head-stabilised head windows** (the person as anchor, part 1). Filip's
+  nose triangulated from the start / middle / end of the orbit sits within
+  1.7-2.5 cm — enough to double the eyes at arm's length, and the trainer's
+  photometric pose optimisation on all cameras did nothing (every camera
+  also sees the room, which pins it). Person-only crops (pixels outside the
+  matte carry the invalid sentinel) neither helped nor hurt at 30k; free
+  crop cameras (`camOptOnly: 'crop'`, new trainer option) made the eyes
+  worse. What works: the landmarks stage now runs right after the solve and
+  its head-stabilised crop cameras (per-frame PnP on the 468-point face
+  triangulated from the frames) become the head windows — Filip's frontal
+  face goes from doubled to single (`scratch/filip_stab.jpg`, 29 of 43
+  head windows stabilised; the mouth still smears from the right, the
+  windows without a face keep the room pose); Tom neutral to slightly
+  better, face splats 4,711 -> 5,632 (`scratch/tom_stab.jpg`); the person
+  keeps far more splats after the cut (Filip 87k -> 133k, Tom 153k ->
+  225k). The joints card is reviewed after training (reviewPending). Knobs
+  kept for experiments: `?camopt=1|crop`, `?cropmask=0`.
+- **When to take the face pose** (user: "Tom head stabilised got worse"):
+  not head motion — the nose tip triangulated from the first vs last third
+  of the face views shifts 0.58 cm on Tom and 0.59 cm on Filip (the earlier
+  "2 cm" came from the body landmarks with a sloppy frame mapping); not the
+  per-frame pose difference either (median 2.8 / 3.0 px on both). What
+  separates them is how well the room's poses agree on the PERSON: the pose
+  landmarks' multi-view nose residual, 1.8 px on Tom vs 3.2 px on Filip
+  (feature scale). Rule: above 2.5 px the head windows take the face-PnP
+  pose (Filip: 29/29, single face again, `scratch/filip_rule.jpg`), below
+  they keep the room's (Tom). Two clips — the log prints both numbers on
+  every run to find the threshold.
+- **From above: the SH question** (user: heavy artifacts when the camera
+  looks down; keep the forehead highlight if possible). Tom 30k at four
+  elevations (`scratch/sh3_cmp.jpg`): the damage from 60 deg up is
+  GEOMETRY (hair streaks, the crown is a hole no camera saw); the colour
+  blotches at 30 deg are SH. **Horizontal-only SH** (new: the view direction
+  loses its component along the cameras' dominant up before the basis, in
+  training's forward and backward kernel — `session.shHorizontal`, Cam
+  struct + `shup` vec4) removes the blotches and keeps the highlight; the
+  export is stable in a plain full-SH viewer too (the vertical-only
+  coefficients never got a gradient). Now the avatar default (`?shup=0`
+  for full SH). SH0 as the "last resort" test collapsed in this pipeline
+  (92 % dead capacity at the last refine, 24k splats in the package, a
+  blurred face) — a defect of shDeg 0 with the current avatar recipe, not a
+  verdict on SH0; parked. The crown itself is a capture problem: a
+  tilt-down segment in the orbit.
+- **Face-mesh seed** (the user's experiment: "we know it's a face, seed all
+  of them uniformly"). Standalone first (`scratch/face_seed.html`): the 478
+  triangulated face points + MediaPipe's tessellation (1,681 triangles),
+  20k flat splats sampled by area, normals from the triangles, colours from
+  the frontal crop, trained 8k iterations on the 33 face crops alone with
+  everything outside the projected face hull masked out (invalid sentinel)
+  — a clean single face in a minute, on par with the pipeline's face region
+  in front and side views, but a halo of stretched splats where the hull
+  let hair and background through, and worse from above (only a face shell
+  was seeded); `scratch/faceseed_cmp.jpg`. Then as a SEED in the main run
+  (`app/avatar/faceseed.js`, the samples join the sparse cloud before
+  session.seed; `?faceseed=0|N`): Tom 30k face splats within 10 cm of the
+  nose 5,827 -> 7,235, median longest axis 4.7 -> 4.0 mm, skin a touch
+  smoother in the close-ups, from above unchanged (`scratch/faceseed_main.jpg`).
+  Trap: the seed points went into the sparse cloud the isolate stage bounds
+  the hull with — 20k on the head shrank the box to the head (package 54k
+  instead of 128k); the isolate stage now drops `faceSeed` points first.
+  The user saw it WORSE. Handed over as points the cloud seed sizes them by
+  nearest neighbour (dust) and orients at random; as ready-made flat discs
+  (`faceSeedGaussians`, `session.seed({ appendGaussians })`) it is neutral:
+  face splats 5,827 (none) / 7,235 (points) / 6,690 (discs) with the same
+  look (`scratch/faceseed3.jpg`). Is the mesh off? No: the triangulated
+  face points drawn over the unseeded model sit on eyes, nose and mouth
+  in every view (`scratch/face_overlay.jpg`, `scratch/overlay_face.py`),
+  median 7.0 mm from the nearest visible splat centre, -2.3 mm along the
+  view axis. The seed is placed right and then PRUNED: 20k seeded, ~1-1.5k
+  kept — the face density is set by the growth/prune equilibrium, not by
+  the start. Off by default (`?faceseed=1|N` keeps it for experiments);
+  the lever, if wanted, is protecting the seed from relocation for the
+  first thousands of iterations or a lower prune pressure on the head.
+- **Head seed, protected** (user: "complete the head, ~50k, protect them
+  from relocation"). `app/avatar/headseed.js`: Anny fitted to the joints
+  before training (no splat pull), its head registered to the 478 face
+  points (4.5 mm), 50k flat discs on 5,698 head triangles (1,087 cm²,
+  1.5 mm spacing), each coloured from the frame that looks at it most
+  squarely; `trainer.protect = {from, to, until}` keeps the rows out of the
+  dead list and the donor list. Tom 30k, within 16 cm of the nose:
+  none 13,313 (visible 1,845) / protected 8k 14,498 (1,851) / protected all
+  30k 10,400 (2,028). With the 8k window the first refine after it declared
+  83k dead (3x the usual) — the seed was only delayed. With full protection
+  the seed splats DIED IN PLACE: opacity regularisation and decay took them
+  below the export prune (fewer rows, +10 % visible). Views: no gain on the
+  face, a slightly fuller crown from above, the fully protected face a touch
+  softer (`scratch/headseed_cmp2.jpg`). Verdict: head density is set by the
+  opacity pressure and the data's resolution (1.3 mm/px at orbit distance =
+  1-2 px per splat at 50k), not by the seed. Off by default
+  (`?headseed=N[,protectIters]`). Iteration 0 rendered
+  (`scratch/seed_iter0.jpg`, `scratch/seed_view.html`): the 50k discs alone
+  are a complete, well-shaped head; in the real initial model they were
+  buried in the cloud seed's neighbour-sized blobs (fog). With the cloud
+  seed cleared inside the head sphere (1.3x the fitted head, 1,239 points)
+  the discs start alone — still pruned to the equilibrium (15,379 rows /
+  1,918 visible within 16 cm vs 13,313 / 1,845), views the same
+  (`scratch/headseed_cmp3.jpg`). Lever left: opacityReg per region — with
+  the blur risk of keeping half-dead splats.
+- **Frozen head seed only** (user: "fix the number of splats to the seed,
+  only train these, keep positions fixed"). `scratch/head_only.html`: the
+  50k discs alone, `posLrScale 0`, no growth/relocation (`growUntil` /
+  `relocUntil` 0, cap = count), 8k iterations on 65 native head windows
+  (a square around the projected head sphere in every frame), the room
+  masked out by the matte, splat size capped at ~1.2 cm (first pass without
+  the matte and the cap: streaks to the walls, 41 % of the discs dead).
+  Result: a head from every side, including behind and the crown (the mesh
+  is closed), but soft everywhere — 24,435 of 50k survive the export, only
+  22 % above opacity 0.3; the optimisation dims discs that sit off the true
+  surface (the Anny scalp has no hair volume, the face is 4-7 mm off in
+  places), and frozen positions cannot correct that. Worse than the
+  pipeline's head in every view except that the crown is filled (with
+  blur). `scratch/headonly_cmp2.jpg`. Closes the seeding line: the fitted
+  head is a good ANCHOR, not a good final surface.
+- **Default run + head seed with PINNED positions** (user: "train the
+  default in full, only protect the head seed positions"). New: the Adam
+  kernel skips the position slots for a row range (`AdamU.bc.zw`,
+  `trainer.setFreezePos`), the rows are also kept out of relocation for the
+  whole run. Tom 30k: within 16 cm 11,183 rows / 3,724 visible (vs 13,313 /
+  1,845) — twice the visible splats and a clearly WORSE face: dark and
+  coloured blotches on the cheeks and chin, a mottled forehead from above
+  (`scratch/headpin_cmp.jpg`). Pinned discs that sit off the true surface
+  (4-7 mm on the face, no hair volume on the scalp) cannot move out of the
+  way; they stay visible with colours from views where they are occluded,
+  and the free splats have to paint around them. This is the last variant
+  of the seeding idea; all of them lose to the plain sparse-cloud start.
+  Tooling kept (`?headseed=N,P,f`).
+- Still open on Filip: the back island (frames 17-30) — landmark PnP bridge;
+  and the unstabilised head windows (no face seen) on the room pose.
+- Packages: `scratch/avatar_tom_final_package.zip` (20k, metric fit,
+  correct binding), `scratch/avatar_tom3k_package.zip`,
+  `scratch/avatar_lisa20k_b_package.zip`. Nothing uploaded; dev still wears
+  5648.
+
+## 2026-09-13b (avatar mode in the Splat.js app — feature/avatar-mode)
+
+User: "design a nicely separated pipeline that fits into the Splat.js app …
+maybe a separate app". Design page: one app, three walls (library knows no
+people; `app/avatar/` lazy-loaded; one service for the body fit); the
+manifest on the capture record is the boundary. User: "Yes do it but on
+another feature branch" -> `feature/avatar-mode` in Browser_3DGS and
+client_git.
+
+- **Step 1 (344235e)**: the video review card grows a box; `app/avatar/`
+  (manifest, runner, stages/matte, ui/cutouts). RobustVideoMatting through
+  onnxruntime-web: the WebGPU provider accepts the model and refuses
+  AveragePool with ceil_mode at run time -> first-frame probe, wasm fallback
+  at 1280 px, 0.34 s/frame (149 frames in 50 s). The cut-outs checkpoint
+  works; masks ride on the frame entries into the session; the masked
+  preset trains; the finished run hands off to the stage runner.
+- **Shared rigger core (client_git 687df5984)**: `autofit-core.js`
+  (landmarks -> markers -> fit) and `export-binding-core.js` (fit + centres
+  [+ surface] -> SBA1), pure; the sidecar payload is byte-identical to
+  `tools/export-binding.mjs` on Lisa. Snapshotted into `app/avatar/rig/`
+  by `scripts/sync_rig.mjs` until it is a package.
+- **Stages** landmarks (tasks-vision pose + face in the tab, CPU delegate:
+  148 frames in 7 s; robust DLT with a Jacobi 4x4 eigen solver — inverse
+  iteration was the first version and is numerically wrong on these
+  systems; PnP by Huber-LM; unit-tested on synthetic cameras and
+  cross-checked against the python pipeline's real observations: 0.09 mm
+  mean vs `face_canon3d.json`), facepass (crop windows + a second session
+  continued from the raw state, crops weighted by face size), bodyfit
+  (service hook; rig mesh until the service exists), bind (the core, plus
+  the leakage ruler), publish (upload + `POST /avatars/splat`, behind a
+  click because sign-in needs one; a package download beside it).
+- **Two library bugs the app path exposed** (the bench never hit them):
+  the visual hull's median±MAD box collapsed to 1 cm on a cloud whose
+  subject points sat in one cluster -> 0 % solid -> 0 Gaussians seeded and
+  a run that trained NOTHING (the WebGPU "binding size is zero" errors);
+  fixed with a 10-90 percentile floor on the box, a rejection of a hull that
+  keeps < 5 % of the points, and a never-seed-from-nothing fallback in
+  `seed()`.
+- **The 1080p/40 s test clip solves degenerate** with the standard tier:
+  camera centres within ~20 cm of one point (a rotation-only solution, BA
+  rms fine) — the nose rays never meet, the fit scale came out 0.2. Avatar
+  mode now asks for the precise tier and the landmarks stage refuses a
+  collapsed camera set with a plain message. The 4K orbit (transcoded to
+  H.264 for headless Chrome) is the real end-to-end test.
+- **End to end on the 4K orbit** (`tests/e2e/avatar_mode.mjs --train`, test
+  budget 3000 + 1500 iterations): 1708 frames scored, 208 picked, matte
+  208 frames on wasm, precise solve 207 cameras (4 min), hull 4.8 % solid
+  (1878 of 3296 mask-filtered points), 99,534 Gaussians seeded, landmarks in
+  17 s (15 markers, residual 0.1 cm, 478/478 face points, 42 head-stabilised
+  crop cameras), face pass +1500 with 117 crop samples, bind 81,534 splats
+  at 2.73 cm / 0 far / leak 0.5 %, package 23 MB downloaded. The package
+  registered through the API as dev avatar **5640** and renders in the
+  fixed client with a clean face at 0.55 m (`scratch/closeup_app_sheet.jpg`).
+  The "Use as my avatar" button is the same upload path; sign-in needs a
+  human click, so that last step is untested headless.
+- **SOG** (user: "I am sure sog is fine"): the publish stage encodes the
+  PLY with the app's own encoder in the tab (21 MB -> 3.7 MB) and uploads
+  the .sog as the splat; the client streams it and the driver's centre remap
+  handles the reorder. Dev avatar **5642** from the app's SOG package renders
+  the same face as the PLY one (5640) at 0.55 m.
+- **The body fit, ported** (user: "Port it"; 1078de9): no service. Anny's
+  shape space (624 MakeHuman macro targets, 102 MB) is sampled over the six
+  phenotypes and snapshotted as a 23-component PCA over vertices + bone
+  heads + bone tails (`tests/bench/export_anny.py`, 1.5 MB, 0.4 mm rms;
+  the variance share is a bad criterion — 2 components hold 99.9 % of the
+  variance and miss by 8 mm). `app/avatar/body/anny.js` reproduces torch's
+  forward pass to ~1 mm (rest orientation from head/tail/roll, local-bone
+  FK — root-relative, that cost one 82 cm offset — and LBS, 4.5 ms).
+  `fit.js`: Levenberg-Marquardt with a forward-difference Jacobian over
+  similarity + 30 body-bone rotations + shape (Lisa offline: landmark
+  residual 1.4 cm vs Python's 2.6, markers 2 cm from the Python fit).
+  `head.js`: correspondences from a canvas-rendered head through the same
+  face landmarker, Laplacian deformation by conjugate gradients — the
+  Python result to the last bit. In the app on the 4K orbit: body fit
+  17.9 s, landmark residual 1.0 cm, 445 correspondences, face 0.6 mm,
+  bind against the fitted body 1.86 cm / 0 far (rig mesh: 2.73 cm). Dev
+  avatar **5647** from the app's package (SOG + body-model binding).
+- **Walks**: the app-made avatar (5647) walks in the client — W held two
+  seconds, four frames, legs separate, arms swing (`scratch/walk_sheet.jpg`).
+- **User: "the face fit still has the eye balls and inner mouth"** — right.
+  The largest-component filter caught the eyeballs (separate spheres) and
+  the teeth/tongue, not the mouth CAVITY (connected to the lips) nor the
+  socket lining. A normal-ray test misses the cavity too (closed mouth, the
+  walls touch). `cullHeadInterior`: a head vertex is interior when < 20 % of
+  20 Fibonacci-sphere rays from it escape within 6 cm — 529 interior
+  vertices / 1402 faces on Lisa in 3.7 s; the only face landmarks that lose
+  their triangle are the lip seam and the eye slits (25 of 468). Wired into
+  the in-tab fit before the head registration.
+- Not built: `pcsync` of the driver fix; merge to main.
+
 ## 2026-09-13 (the face in the APP: a client fix, one surface, and a head that sits on hers)
 
 User: the renders looked good but not the app. Close-ups through the real
@@ -2312,6 +3689,28 @@ suite green after all of it.
 - **Camping 1920 solve**: first-ever 113/113 registration; trajectory-tail
   disagreement vs server COLMAP grows (0.42% vs 0.19% @1600) — later
   settled by the in-app A/B (see 08-28): the tail drift is ours.
+
+### 2026-09-13c — the mouth relight artifact, confirmed and gone
+
+User report on avatar 5647 (app pipeline, before the interior cull): a
+lighting artifact on the mouth when the head turns away from the light, the
+size of the inner-mouth mesh. Read the relight normals straight out of both
+binding sidecars (`nrm:i8` block) and plotted the front 12 mm shell of the face
+through the frontal SfM camera (`scratch/mouth_normals_cmp.jpg`):
+
+- 5647: a mouth-shaped patch of normals pointing sideways/down — the splats on
+  the lips took their normal from the cavity walls behind them. Lit 55° from
+  the side, that patch lights up while the rest of the face is dark. That is
+  the artifact.
+- 5648 (same run with `cullHeadInterior`, escape-fraction cull): the patch is
+  gone, normals continuous across the lips; the side-lit map has no blob.
+
+Client renders (three-quarter + profile, relight on) agree but are subtle at
+those angles; the normal map is the ruler for this. 5648 is the assigned dev
+avatar. Tooling: `scratchpad/nrm_face2.py` (binding parser + normal/lambert
+scatter), `scratch/bindings/{id}_binding.bin` fetched from the avatar row's
+config json.
+
 ### 2026-09-16 — WEB-7774: the share that could not be pressed twice
 
 QA report: train without an account → Share → register → come back → "the

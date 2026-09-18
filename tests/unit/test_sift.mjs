@@ -15,15 +15,15 @@ function loadGray(path) {
 }
 
 function loadRef(img) {
-  const kpBuf = fs.readFileSync(`C:/Dev/arrival.space/Browser_3DGS/scratch/sift_ref_img${img}_kp.bin`);
+  const kpBuf = fs.readFileSync(`C:/Dev/arrival.space/splat-js/scratch/sift_ref_img${img}_kp.bin`);
   const kp = new Float32Array(kpBuf.buffer, kpBuf.byteOffset, kpBuf.length / 4);
   const n = kp.length / 6;
-  const descBuf = fs.readFileSync(`C:/Dev/arrival.space/Browser_3DGS/scratch/sift_ref_img${img}_desc.bin`);
+  const descBuf = fs.readFileSync(`C:/Dev/arrival.space/splat-js/scratch/sift_ref_img${img}_desc.bin`);
   return { n, kp, desc: new Uint8Array(descBuf.buffer, descBuf.byteOffset, descBuf.length) };
 }
 
 const t0 = Date.now();
-const im1 = loadGray('C:/Dev/arrival.space/Browser_3DGS/data/train/00001.jpg');
+const im1 = loadGray('C:/Dev/arrival.space/splat-js/data/train/00001.jpg');
 const f1 = detectSift(im1.g, im1.width, im1.height, 4000, -1);
 console.log(`mine img1: ${f1.n} features in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 
@@ -64,7 +64,7 @@ for (let r = 0; r < ref.n; r++) {
 console.log(`keypoint recall (2px): ${(100 * hits / ref.n).toFixed(1)}%, with scale agreement: ${(100 * scaleHits / ref.n).toFixed(1)}%`);
 
 // matching: mine img1 vs img2 -> compare count vs colmap's verified 2520
-const im2 = loadGray('C:/Dev/arrival.space/Browser_3DGS/data/train/00002.jpg');
+const im2 = loadGray('C:/Dev/arrival.space/splat-js/data/train/00002.jpg');
 const f2 = detectSift(im2.g, im2.width, im2.height, 4000, -1);
 console.log(`mine img2: ${f2.n} features`);
 const tM = Date.now();

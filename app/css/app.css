@@ -288,6 +288,8 @@ body { overflow: hidden; }
 .prep-sub { font: 400 12px var(--mono); color: var(--dim); }
 .prep-meter { height: 5px; background: var(--panel-2); border-radius: var(--pill); overflow: hidden; margin-top: 9px; position: relative; }
 .prep-meter i { display: block; height: 100%; background: var(--accent); transition: width .12s linear; }
+.prep-cut { display: block; margin: 12px auto 2px; height: 320px; max-width: 100%; border-radius: 8px; background: var(--panel-2); opacity: 0; transition: opacity .3s; }
+.prep-cut.on { opacity: 1; }
 /* compositor-driven liveness sweep: transform/opacity animations keep
    running through main-thread JS bursts (BA, RANSAC), so the meter visibly
    works even when progress numbers pause */
@@ -511,6 +513,7 @@ body { overflow: hidden; }
   padding: 4px 0;
 }
 .setrow label { font: 400 12.5px var(--ui); color: var(--muted); }
+.setgroup { margin: 12px 0 2px; padding-top: 8px; border-top: 1px solid var(--line, rgba(255,255,255,.08)); font: 600 11px var(--ui); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .setrow select, .setrow input[type="number"] {
   width: 104px; padding: 4px 8px; text-align: right; text-align-last: right;
   font: 500 12px var(--mono); color: var(--paper);
@@ -1053,3 +1056,32 @@ a.cbtn { text-decoration: none; }
 .sh-linkrow { justify-content: flex-end; align-items: center; flex-wrap: wrap; }
 .sh-enter { margin-right: auto; font-size: 13px; }
 .sh-linkrow .btn { text-decoration: none; padding: 8px 14px; font-size: 13px; }
+
+/* ── avatar mode (app/avatar) ─────────────────────────────────────────────── */
+.vid-avatar { display: flex; align-items: center; gap: 8px; margin: 6px 0 2px; font: 500 13px var(--sans, system-ui); color: var(--paper); cursor: pointer; }
+.vid-avatar input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); }
+.vid-avatar small { color: var(--muted); font-weight: 400; }
+.vid-avatar.sub { margin: 0 0 2px 23px; font-weight: 400; }   /* the avatar's own option, indented under its box */
+.av-strip { display: flex; gap: 6px; overflow-x: auto; padding: 8px 0 8px; scroll-snap-type: x proximity; cursor: grab; scrollbar-width: thin; touch-action: pan-x; user-select: none; }
+.av-strip:active { cursor: grabbing; }
+.av-strip canvas { flex: 0 0 auto; scroll-snap-align: start; border-radius: 4px; }
+.av-fine { margin: 6px 0 0; color: var(--dim); font-size: 13.5px; }
+.av-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+@media (max-width: 640px) { .av-actions .btn { flex: 1; } }
+.av-strip canvas { height: 160px !important; width: auto !important; border-radius: 6px; background: #fff; flex: none; }
+.av-stages { list-style: none; margin: 8px 0 4px; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 4px 10px; }
+.av-stages li { display: flex; justify-content: space-between; gap: 6px; font: 500 12px var(--sans, system-ui); color: var(--muted); padding: 4px 8px; border-radius: 6px; background: var(--panel-2); }
+.av-stages li em { font-style: normal; font-size: 11px; opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.av-stages li.done { color: var(--paper); }
+.av-stages li.done::before { content: '✓ '; color: var(--accent); }
+.av-stages li.running { color: var(--accent); }
+.av-stages li.failed { color: var(--red); }
+.av-card .av-overlay { display: flex; gap: 6px; overflow-x: auto; padding: 6px 0; }
+.av-card .av-overlay canvas { height: 200px; border-radius: 6px; flex: none; }
+.av-card #av-body { margin-top: 8px; }
+.av-card .av-overlay canvas, .av-strip canvas { position: static; display: block; }
+.av-card .upcard-row { align-items: center; margin-top: 8px; }
+.av-card .upcard-row .btn { white-space: nowrap; flex: none; }
+.av-card .upcard-row p.fine { flex: 1 1 auto; }
+.av-card .upcard-row { flex-wrap: wrap; }
+.av-card .upcard-row p.fine { flex: 1 1 100%; min-width: 0; margin: 0 0 8px; }

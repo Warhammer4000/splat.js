@@ -17,9 +17,10 @@ self.onmessage = (e) => {
       x1s[k] = [p.x1[2 * k], p.x1[2 * k + 1]];
       x2s[k] = [p.x2[2 * k], p.x2[2 * k + 1]];
     }
-    const res = ransacE(x1s, x2s, p.thresh, makeRng(p.seed), p.maxIters);
+    const stats = p.debug ? {} : null;
+    const res = ransacE(x1s, x2s, p.thresh, makeRng(p.seed), p.maxIters, stats);
     const inliers = res ? Int32Array.from(res.inliers) : null;
-    out.push({ idx: p.idx, inliers });
+    out.push({ idx: p.idx, inliers, stats });
     if (inliers) buffers.push(inliers.buffer);
   }
   self.postMessage({ out }, buffers);

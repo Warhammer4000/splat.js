@@ -32,6 +32,7 @@ if (!scenes.length) {
   scenes = ['synthetic-solve', 'synthetic-train', 'rig-ate'];
   if (existsSync(join(root, 'data/truck/000001.jpg'))) scenes.push('truck-ate');
   if (existsSync(join(root, 'data/camping/frame_00001.jpg'))) scenes.push('camping-ate');
+  if (existsSync(join(root, 'data/tom/frame_00001.jpg'))) scenes.push('tom-ate');   // truckfull-ate is on request (a 251-image solve, minutes)
 }
 
 function findChrome() {
@@ -83,9 +84,9 @@ async function runScene(chrome, scene, { headless }) {
 
 function ateFromPoses(scene, result) {
   // reuse the standalone comparer: write poses, parse its ATE line
-  const gt = scene === 'truck-ate'
+  const gt = scene === 'truck-ate' || scene === 'truckfull-ate'
     ? join(root, 'data/downloads/extracted/tandt/truck/sparse/0/images.bin')
-    : join(root, 'data/camping/gt_images.txt');
+    : join(root, `data/${scene.split('-')[0]}/gt_images.txt`);   // camping, tom: a COLMAP images.txt (pose lines)
   if (!existsSync(gt)) return { skip: `GT not present (${gt})` };
   const posesFile = join(root, 'scratch', `quality_poses_${scene}.json`);
   writeFileSync(posesFile, JSON.stringify({ cams: result.poses }));
