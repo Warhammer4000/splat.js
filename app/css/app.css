@@ -273,7 +273,7 @@ body { overflow: hidden; }
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 18px; align-items: center;
   position: relative; z-index: 5;   /* the stop-and-keep chip overhangs the stage */
 }
-.dock-prep { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; }
+.dock-prep, .dock-av { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; }
 
 /* the stage sequence doubles as the header: the active beat wears the title
    style, the rest queue beside it in the small mono of the old side list */
@@ -285,6 +285,10 @@ body { overflow: hidden; }
 .prep-stages span { transition: color .2s; }
 .prep-stages [data-on="1"] { font: 500 15px var(--ui); color: var(--accent); }
 .prep-stages [data-on="done"] { color: var(--accent-30); }
+.prep-stages [data-on="failed"] { color: var(--red); }
+/* the avatar's nine stages, not the solve's five: they wrap instead of
+   overflowing, and the active one keeps the title style */
+.av-beats { flex-wrap: wrap; row-gap: 2px; gap: 12px; }
 .prep-sub { font: 400 12px var(--mono); color: var(--dim); }
 .prep-meter { height: 5px; background: var(--panel-2); border-radius: var(--pill); overflow: hidden; margin-top: 9px; position: relative; }
 .prep-meter i { display: block; height: 100%; background: var(--accent); transition: width .12s linear; }
@@ -1058,10 +1062,17 @@ a.cbtn { text-decoration: none; }
 .sh-linkrow .btn { text-decoration: none; padding: 8px 14px; font-size: 13px; }
 
 /* ── avatar mode (app/avatar) ─────────────────────────────────────────────── */
-.vid-avatar { display: flex; align-items: center; gap: 8px; margin: 6px 0 2px; font: 500 13px var(--sans, system-ui); color: var(--paper); cursor: pointer; }
-.vid-avatar input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); }
-.vid-avatar small { color: var(--muted); font-weight: 400; }
-.vid-avatar.sub { margin: 0 0 2px 23px; font-weight: 400; }   /* the avatar's own option, indented under its box */
+/* the avatar route, on the start-training card (above the Start row) */
+.av-choice {
+  display: flex; align-items: flex-start; gap: 10px; cursor: pointer;
+  margin: 16px 0 2px; padding: 11px 13px;
+  border: 1px solid var(--line-2); border-radius: 12px; background: var(--panel-2);
+  font: 500 14px var(--sans, system-ui); color: var(--paper); text-align: left;
+}
+.av-choice input { width: 16px; height: 16px; margin: 1px 0 0; flex: none; accent-color: var(--accent); }
+.av-choice span { display: block; min-width: 0; }
+.av-choice small { display: block; margin-top: 3px; font-weight: 400; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
+.av-choice:hover { border-color: var(--accent-30); }
 .av-strip { display: flex; gap: 6px; overflow-x: auto; padding: 8px 0 8px; scroll-snap-type: x proximity; cursor: grab; scrollbar-width: thin; touch-action: pan-x; user-select: none; }
 .av-strip:active { cursor: grabbing; }
 .av-strip canvas { flex: 0 0 auto; scroll-snap-align: start; border-radius: 4px; }
@@ -1069,19 +1080,76 @@ a.cbtn { text-decoration: none; }
 .av-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
 @media (max-width: 640px) { .av-actions .btn { flex: 1; } }
 .av-strip canvas { height: 160px !important; width: auto !important; border-radius: 6px; background: #fff; flex: none; }
-.av-stages { list-style: none; margin: 8px 0 4px; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 4px 10px; }
-.av-stages li { display: flex; justify-content: space-between; gap: 6px; font: 500 12px var(--sans, system-ui); color: var(--muted); padding: 4px 8px; border-radius: 6px; background: var(--panel-2); }
-.av-stages li em { font-style: normal; font-size: 11px; opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.av-stages li.done { color: var(--paper); }
-.av-stages li.done::before { content: '✓ '; color: var(--accent); }
-.av-stages li.running { color: var(--accent); }
-.av-stages li.failed { color: var(--red); }
-.av-card .av-overlay { display: flex; gap: 6px; overflow-x: auto; padding: 6px 0; }
-.av-card .av-overlay canvas { height: 200px; border-radius: 6px; flex: none; }
-.av-card #av-body { margin-top: 8px; }
+/* The avatar's decision card. ABSOLUTE in the stage and anchored under the
+   dock, not centred in the viewport: centred, it sat exactly in front of the
+   face it was asking about — and at 340 px the three photos and two buttons
+   were unreadable (the user, 2026-09-18). The progress itself is in the dock
+   (.av-bar), so this card exists only while a stage asks something. */
+.av-card {
+  /* below the done-state controls (.controls: top 14px, 32px tall), so the
+     Train/Share row stays reachable while a stage asks its question */
+  position: absolute; left: 50%; top: 58px; transform: translateX(-50%);
+  width: fit-content;
+  min-width: min(520px, calc(100% - 24px)); max-width: min(880px, calc(100% - 24px));
+  max-height: calc(100% - 70px); overflow-y: auto; gap: 10px; z-index: 6;
+}
+.av-card .vid-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding-right: 30px; }
+.av-card .vid-head b { font: 600 17px var(--ui); }
+.av-card > .card-x { position: absolute; top: 10px; right: 12px; width: 32px; margin: 0; }
+.av-card .av-overlay { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0; }
+.av-card .av-overlay canvas { border-radius: 6px; flex: none; }
 .av-card .av-overlay canvas, .av-strip canvas { position: static; display: block; }
-.av-card .upcard-row { align-items: center; margin-top: 8px; }
+/* what the picture shows, and the stage's own numbers under it */
+.av-shotcap { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+
+/* The finished avatar's action: top right, UNDER the view controls, never in
+   front of the model. It has to be walked around and inspected — "there should
+   be no ui in front of it" (the user, 2026-09-18). */
+.av-act {
+  position: absolute; top: 56px; right: 14px; z-index: 6;
+  width: min(320px, calc(100% - 28px));
+  display: flex; flex-direction: column; gap: 9px;
+  padding: 12px 14px 13px; border-radius: 14px;
+  background: rgba(10, 13, 13, .92); border: 1px solid var(--line-2);
+  backdrop-filter: blur(8px);
+}
+.av-act-head { font: 600 14px var(--ui); color: var(--paper); }
+.av-act .upcard-row { display: flex; flex-direction: column; align-items: stretch; gap: 9px; margin: 0; }
+.av-act .upcard-row p.fine { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--muted); }
+.av-act .upcard-row > span { display: flex; gap: 8px; }
+.av-act .upcard-row .btn { flex: 1; white-space: nowrap; padding: 9px 12px; font-size: 13px; }
+.av-act #av-status { margin: 0; font-size: 12.5px; color: var(--dim); }
+/* the walk preview's own row, above the actions */
+.av-walk { display: flex; align-items: center; gap: 8px; }
+.av-walk .btn { flex: none; padding: 7px 12px; font-size: 12.5px; }
+.av-walk span { font: 400 12px var(--mono); color: var(--dim); }
+@media (max-width: 720px) {
+  .av-act { top: auto; bottom: 14px; right: 8px; left: 8px; width: auto; }
+}
+/* the text and the buttons share one line at this width */
+.av-card .upcard-row { align-items: center; margin-top: 10px; flex-wrap: nowrap; gap: 14px; }
 .av-card .upcard-row .btn { white-space: nowrap; flex: none; }
-.av-card .upcard-row p.fine { flex: 1 1 auto; }
-.av-card .upcard-row { flex-wrap: wrap; }
-.av-card .upcard-row p.fine { flex: 1 1 100%; min-width: 0; margin: 0 0 8px; }
+.av-card .upcard-row p.fine { flex: 1 1 auto; min-width: 0; margin: 0; color: var(--muted); font-size: 13.5px; line-height: 1.5; }
+.av-card #av-status { margin: 8px 0 0; color: var(--dim); font-size: 13px; }
+@media (max-width: 720px) {
+  .av-card { top: 54px; width: calc(100% - 16px); min-width: 0; max-width: none; max-height: calc(100% - 62px); padding: 14px 14px 12px; }
+  .av-card .upcard-row { flex-wrap: wrap; gap: 10px; }
+  .av-card .upcard-row p.fine { flex: 1 1 100%; margin: 0 0 4px; }
+  .av-card .upcard-row > span { flex: 1 1 100%; justify-content: flex-end; display: flex; }
+  .av-card .upcard-row > span .btn { flex: 1; }
+}
+/* the matte + "is this the person?" checkpoint: a sheet over the STAGE, so
+   the dock's beats stay visible above it. Nothing is rendered yet at that
+   point in a run, and the cut-outs have to be seen big to be judged. */
+.av-sheet {
+  position: absolute; inset: 0; left: 0; top: 0; transform: none;
+  width: auto; max-width: none; border: 0; border-radius: 0;
+  overflow-y: auto; gap: 12px; justify-content: flex-start;
+  padding: clamp(14px, 3vh, 30px) clamp(16px, 5vw, 64px);
+  background: rgba(10, 13, 13, .985); z-index: 6;
+}
+.av-sheet > * { width: min(1200px, 100%); margin: 0 auto; }
+.av-sheet .vid-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.av-sheet .vid-head b { font: 600 20px var(--ui); }
+.stage .av-sheet canvas { position: static; inset: auto; height: auto; }   /* the stage's own canvases are absolute */
+.av-sheet .prep-cut { height: min(320px, 42vh); }

@@ -16,7 +16,10 @@ mkdirSync(dst, { recursive: true });
 const FILES = ['glb.js', 'align-solver.js', 'skin-transfer.js', 'autofit-core.js', 'export-binding-core.js'];
 for (const f of FILES) copyFileSync(join(src, 'src', f), join(dst, f));
 copyFileSync(join(src, 'data', 'glb_avatar.glb'), join(dst, 'glb_avatar.glb'));
+// the walk cycle the finished avatar is previewed with (app/avatar/anim.js)
+const CLIPS = ['walking_anim.glb'];
+for (const f of CLIPS) copyFileSync(join(src, 'data', f), join(dst, f));
 let head = '';
 try { head = readFileSync(join(src, '..', '.git', 'HEAD'), 'utf8').trim(); } catch { /* no git */ }
-writeFileSync(join(dst, 'SYNC.md'), `Snapshot of client_git/splat-rigger/src (${FILES.join(', ')}) + data/glb_avatar.glb.\nDo not edit here — run node scripts/sync_rig.mjs after changing the rigger.\nsynced ${new Date().toISOString()} from ${head}\n`);
-console.log(`synced ${FILES.length} modules + glb_avatar.glb -> app/avatar/rig/`);
+writeFileSync(join(dst, 'SYNC.md'), `Snapshot of client_git/splat-rigger/src (${FILES.join(', ')}) + data/glb_avatar.glb + data/${CLIPS.join(', data/')}.\nDo not edit here — run node scripts/sync_rig.mjs after changing the rigger.\nsynced ${new Date().toISOString()} from ${head}\n`);
+console.log(`synced ${FILES.length} modules + glb_avatar.glb + ${CLIPS.length} clip(s) -> app/avatar/rig/`);

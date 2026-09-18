@@ -1,11 +1,14 @@
 // index.js — avatar mode, the app's one import. Lazy-loaded when the box on
-// the video review card is ticked; the app keeps two touch points:
+// the start-training card is ticked; the app keeps two touch points:
 //
-//   prepareCapture(frames, source, ui)  after the frames are captured, before
-//       training: cuts the person out (matte stage) and asks "is this the
+//   prepareCapture(frames, source, ui)  on Start training, before the session
+//       exists: cuts the person out (matte stage) and asks "is this the
 //       person?". Resolves the manifest to hang on the capture record, or
 //       null when the user says it is not an avatar (the run continues as a
-//       plain scene).
+//       plain scene). It runs HERE, not when the video is read, so the choice
+//       sits on the start-training card next to the other settings and no
+//       minutes of matting are spent before the run is actually wanted
+//       (the user, 2026-09-18).
 //   trainingOptions(manifest)            what the session needs for a
 //       masked, avatar-sized run.
 //   afterTraining(...)                   the remaining stages (landmarks,
@@ -14,7 +17,7 @@
 // Everything avatar-specific lives under app/avatar/; src/ stays generic.
 import { newManifest, setStage } from './manifest.js';
 import { solveTierOpts } from '../../src/sfm/sfm.js';
-import { cutoutsCard } from './ui/cutouts.js';
+import { cutoutsView } from './ui/cutouts.js';
 
 export { isAvatar, STAGES, STAGE_LABEL, nextStage, setStage } from './manifest.js';
 export { afterTraining } from './runner.js';
@@ -22,19 +25,19 @@ export { addPersonCrops } from './crops.js';
 export { faceSeedPoints, faceSeedGaussians } from './faceseed.js';
 export { headSeedGaussians } from './headseed.js';   // the whole head from the fitted body model, protected from relocation   // a dense seed on the face mesh, next to the sparse cloud   // native windows of the person as extra cameras, between solve and seed
 
-export async function prepareCapture(frames, source, { card, flash = () => {}, log = (m) => console.log('[avatar]', m) }) {
+export async function prepareCapture(frames, source, { card, flash = () => {}, log = (m) => console.log('[avatar]', m), progress = () => {} }) {
   const meter = (title, sub) => {
     card.innerHTML = `
-      <div class="vid-head"><b>${title}</b><span class="prep-sub" id="av-sub">${sub}</span></div>
-      <div class="prep-meter"><i id="av-bar" style="width:0%"></i></div>
-      <canvas class="prep-cut" id="av-cut" width="640" height="640"></canvas>`;
+      <div class="vid-head"><b>${title}</b><span class="prep-sub" id="avp-sub">${sub}</span></div>
+      <div class="prep-meter"><i id="avp-bar" style="width:0%"></i></div>
+      <canvas class="prep-cut" id="avp-cut" width="640" height="640"></canvas>`;
   };
   meter('Cutting the person out', 'loading the matting model …');
   // the frame just cut, shown while the matte runs (photo x matte over the panel colour);
   // one draw at a time — a slow decode never queues behind the next frame
   let drawing = false;
   const showCut = async (f) => {
-    const cv = card.querySelector('#av-cut'); if (!cv || drawing || !f || !f.mask) return;
+    const cv = card.querySelector('#avp-cut'); if (!cv || drawing || !f || !f.mask) return;
     drawing = true;
     try {
       const [bmp, mask] = await Promise.all([createImageBitmap(f.source), createImageBitmap(f.mask)]);
@@ -58,9 +61,10 @@ export async function prepareCapture(frames, source, { card, flash = () => {}, l
     res = await run(frames, {
       log,
       onProgress: (d, t, f) => {
-        const bar = card.querySelector('#av-bar'), sub = card.querySelector('#av-sub');
+        const bar = card.querySelector('#avp-bar'), sub = card.querySelector('#avp-sub');
         if (bar) bar.style.width = `${(d / t) * 100}%`;
         if (sub) sub.textContent = `${d} / ${t} frames`;
+        progress(d, t);   // the dock's own beat, at the top of the window
         showCut(f);
       },
     });
@@ -75,11 +79,12 @@ export async function prepareCapture(frames, source, { card, flash = () => {}, l
     for (const f of frames) delete f.mask;
     return null;
   }
-  const ok = await cutoutsCard(card, frames, res);
-  if (!ok) {
-    for (const f of frames) delete f.mask;
-    return null;
-  }
+  // The cut-outs used to be a gate: "Looks right / Not a person". The person
+  // was chosen one screen earlier, on the start-training card, and the user
+  // asked for no confirmations once a run has started (2026-09-18) — so the
+  // strip is SHOWN and the run goes straight on into the solve. A matte that
+  // finds nobody still bails out on its coverage, above.
+  cutoutsView(card, frames, res);
   return manifest;
 }
 

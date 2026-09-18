@@ -280,20 +280,25 @@ export async function run(ctx, manifest, hooks) {
     markers, floorY, landmarks: pts, report, fit,
     face: { points: good.map((k) => canon[k].map((v) => +v.toFixed(5))), ids: good },
     cropCams, headShiftCm,
-    note: `${Object.keys(markers).length} markers · ${cropCams.length} face views`,
+    // the dock's line is where this lands now that the joints card is gone
+    note: `${Object.keys(markers).length} markers · rig scale ${fit && fit.scale ? fit.scale.toFixed(2) : '?'} · ${cropCams.length} face views`,
   };
 }
 
-/** The checkpoint: markers drawn on three frames. */
-export async function review(ctx, manifest, hooks) {
-  const st = manifest.stages.landmarks; const body = hooks.body?.(); if (!body) return true;
+/** The markers drawn on three frames — shown while the run carries on, never
+ *  waited for (the user, 2026-09-18: don't ask whether it looks right, show
+ *  it). The picture stays on the card until a later stage has one of its own. */
+export async function preview(ctx, manifest, hooks) {
+  const st = manifest.stages.landmarks; if (!hooks.shots || !st || !st.markers) return;
   const { session, frames } = ctx; const byName = new Map(frames.map((f) => [f.name, f]));
   const cams = session.recon.cams.filter((c) => !c.crop); const picks = [0, cams.length >> 2, cams.length >> 1].map((i) => cams[i]);
   const strip = document.createElement('div'); strip.className = 'av-overlay';
   for (const c of picks) {
     const fr = session.frames[c.imgIdx]; const entry = byName.get(fr.name); if (!entry) continue;
-    const bmp = await createImageBitmap(entry.source); const h = 400, w = Math.round(bmp.width / bmp.height * h);
-    const cv = document.createElement('canvas'); cv.width = w; cv.height = h; cv.style.height = '200px'; cv.style.width = `${w / 2}px`;
+    // drawn at 2x, shown 240 px tall — the card is 880 px wide since 2026-09-18, so
+    // three frames fit side by side instead of scrolling inside 340 px
+    const bmp = await createImageBitmap(entry.source); const h = 480, w = Math.round(bmp.width / bmp.height * h);
+    const cv = document.createElement('canvas'); cv.width = w; cv.height = h; cv.style.height = '240px'; cv.style.width = `${w / 2}px`;
     const g = cv.getContext('2d'); g.drawImage(bmp, 0, 0, w, h); bmp.close();
     const p = P(c); const s = w / fr.fw;
     g.fillStyle = '#19e3c2'; g.strokeStyle = '#19e3c2'; g.lineWidth = 2;
@@ -304,13 +309,6 @@ export async function review(ctx, manifest, hooks) {
     }
     strip.appendChild(cv);
   }
-  return new Promise((resolve) => {
-    body.innerHTML = '';
-    body.appendChild(strip);
-    const row = document.createElement('div'); row.className = 'upcard-row';
-    row.innerHTML = `<p class="fine">Joints from the capture: rig scale ${st.fit.scale.toFixed(2)}, ${st.cropCams.length} frames show the face.</p><span style="display:flex;gap:8px"><button class="btn btn-outline" id="av-lm-no">Stop here</button><button class="btn btn-accent" id="av-lm-yes">Looks right</button></span>`;
-    body.appendChild(row);
-    row.querySelector('#av-lm-yes').onclick = () => { body.innerHTML = ''; resolve(true); };
-    row.querySelector('#av-lm-no').onclick = () => resolve(false);
-  });
+  // built off-screen and handed over in one piece: the card never blinks empty
+  hooks.shots(strip, `The joints on your frames — rig scale ${st.fit.scale.toFixed(2)}, ${st.cropCams.length} frames show the face`);
 }

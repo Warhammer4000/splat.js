@@ -72,6 +72,16 @@
 
     <p class="setdesc" id="set-desc" hidden></p>
 
+    <!-- the avatar route: decided HERE, on the start-training card, next to the
+         other settings — not minutes earlier when the video was read (the user,
+         2026-09-18). Ticking it cuts the person out of every frame first. -->
+    <label class="av-choice" id="av-choice" hidden title="Cuts the person out of every frame before training, keeps the room in the solve, isolates the person afterwards and rigs the result. Your own captures only.">
+      <input type="checkbox" id="set-avatar">
+      <span>This is a person — make an avatar
+        <small>An orbit at arm's length, arms slightly out. The person is cut out of every frame before training; afterwards the splat is isolated, fitted to a body model and can go on your arrival.space account.</small>
+      </span>
+    </label>
+
     <div class="startrow">
       <button class="btn btn-accent big btn-cta" id="btn-go">Start training</button>
       <select class="q-quick" id="q-quick" title="Training quality — Draft is quick and light, Showcase trains long at the largest splat budget. The gear holds every knob.">

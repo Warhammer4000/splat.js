@@ -34,6 +34,20 @@ export const STAGE_LABEL = {
   publish: 'Put on your account',
 };
 
+// the same stages as one short word each: the dock's beat row shows all nine
+// side by side (the long labels are the cards' titles and the beats' tooltips)
+export const STAGE_BEAT = {
+  matte: 'Cut out',
+  train: 'Train',
+  landmarks: 'Joints',
+  facepass: 'Face',
+  cut: 'Isolate',
+  facepolish: 'Polish',
+  bodyfit: 'Body',
+  bind: 'Bind',
+  publish: 'Account',
+};
+
 export function newManifest(source = {}) {
   const stages = {};
   for (const s of STAGES) stages[s] = { status: 'todo' };

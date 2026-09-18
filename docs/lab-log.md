@@ -4,6 +4,186 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-18d (the avatar walks, and nothing stands in front of it)
+
+Two asks. "The use as my avatar need to show the avatar in full the user needs
+to be able to inspect it so there should be no ui in front of it so show it on
+the top right below the other buttons visible in green." And: "please find a
+way that it actually walks, take the animation from the splat rigger in
+client_git." Plus, mid-run: "at the last stage you can remove the top bar with
+the finished steps."
+
+**The last card is a panel now** (`.av-act`, top right under the view
+controls): the size line, Download package, and Use as my avatar in the accent
+green. The picture card and the step bar both go when the publish stage opens,
+so the finished avatar stands alone on the stage with the controls above it.
+
+**And it walks.** The rigger's runtime skins the splat on the GPU inside
+PlayCanvas (`client_git/splat-rigger/src/splat-skin.js`: bone deltas in a data
+texture, a work-buffer modifier shader). Splat.js has no engine to hang that
+on, so the same maths runs on the CPU in `app/avatar/walk.js` and the posed
+splats are written into the trainer's parameter buffer between frames:
+
+- the clip is the rigger's own `walking_anim.glb` (Mixamo, 1.03 s, 53 rotation
+  tracks + one hips translation), synced into `app/avatar/rig/` by
+  `scripts/sync_rig.mjs` with the rest of the rig core;
+- `app/avatar/anim.js` parses and samples it (slerp on rotations, linear on the
+  hips) and does the forward kinematics — glb.js's own `computeNodeWorldMatrices`
+  poses rotations only, and the root translation has to go in as authored;
+- per bone `D = world(t) · invFit` (the inverse fit-pose matrices are in the
+  SBA1 binding), then `Bm = M⁻¹ · D · M` into splat space with
+  `M = S(1/s)·T(−p)·R·F` from the binding's own fit meta;
+- per splat `S = Σ w_k·Bm_k` from the binding's 4 indices and weights, centre
+  through `S`, and the gaussian's quaternion pre-multiplied by the
+  Gram-Schmidt-orthonormalised rotation of `S`. Scale, colour and opacity are
+  left alone, exactly as the reference shader leaves them.
+
+**The binding does not index the trainer's rows.** It is built from the PLY
+export, which drops dead splats and compacts the rest, so splat *k* of the
+binding is not row *k* of `bufParams`. Positions survive the export untouched,
+so they are the key: an exact-bits hash of the three floats. Tom: 80,114 of
+80,114 matched against 88,331 rows.
+
+**Which root convention** was settled by measurement, not by reading: a headless
+probe (`scratch/walk_probe.mjs`) skins the bound centres at four points of the
+cycle and reports how far the figure's own axis swings off the trained pose and
+how far its centroid drifts, in body lengths.
+
+| | axis swing | drift |
+|---|---|---|
+| no root, rest hips | 80.5° | 5.4% |
+| root, rest hips | 10.5° | 86.2% |
+| **root, clip hips** | **10.5°** | **2.4%** |
+| no root, clip hips | 80.5° | 80.1% |
+
+The 10.5° and the 2.4% are the walk's own lean and sway. The first row is the
+figure face down; the second is upright but a body-length away. `?walkroot=0`
+and `?walkhips=0` drop them for a clip authored the other way round.
+
+**Cost**: 6.1 ms of CPU a frame for 80,114 splats, plus a 5.7 MB
+`writeBuffer`. The view re-sorts every render anyway, so the depth order comes
+out right for nothing. A Walk toggle sits in the top-right controls; anything
+that READS the model (Compress, an export, the publish thumbnail) puts the
+trained pose back first, so nothing ships mid-stride.
+
+## 2026-09-18c (nothing interrupts an avatar run — and the pictures stay up)
+
+The user, on the checkpoints the stages still had: "Don't ask does this look
+right, it always did and there's no way to make it different, so the whole
+avatar process after start training screen should have no 'look right'
+interruption." Then, on what replaced them: "can you show the images along the
+processing also keep the last if the new step has no".
+
+He is right that they were not decisions. The joints card and the body-fit card
+drew an overlay, said a number and offered "Stop here / Looks right" — and
+"Stop here" led nowhere except back to the settings. The cut-outs gate asked
+"is this the person?" one screen after the person had been ticked on the start
+card.
+
+So the question is gone and the picture stays:
+
+- A stage with something to show exports `preview(ctx, manifest, hooks)` and
+  hands a finished node to `hooks.shots(node, caption)` — built off-screen, so
+  the card never blinks empty. `review()` and its buttons are gone from
+  landmarks.js and bodyfit.js.
+- The runner keeps ONE card under the dock. It is born with the first picture
+  and lives to the end of the run. A stage with no picture of its own (isolate,
+  polish, bind, publish) leaves the last one up, so the joints stay through the
+  isolating, the body model replaces them, and the finished card carries the
+  body model above Download package / Use as my avatar.
+- The cut-outs are shown, not asked: `cutoutsView()` paints the strip and the
+  run goes straight into the solve behind it. The sheet clears itself after 6 s
+  (`?cutouts=ms`, 0 = straight on).
+- The captions carry what the buttons' text used to say ("The joints on your
+  frames — rig scale 1.89, 33 frames show the face"), and the dock's line keeps
+  each stage's note; the landmarks note gained the rig scale.
+
+The one thing that still waits for a click is publish, and it must: the
+sign-in popup can only open inside a real click.
+
+**And the end of a run shows the avatar, not the room it came out of.** Three
+stages hand back a NEW model — Isolate cuts the person out, the face pass and
+the face polish sharpen him — and the app's viewer kept pointing at the model
+it had before, so a finished avatar run was still rendering the full scene
+(the user: "show the actual avatar splat not the full scene splat at the
+end"). The runner now reports a swap (`ctx.onSession(session, stage, result)`)
+and `adoptSession()` in app.js takes it: the viewer re-attaches, the splat
+count on the chip follows, and the cached PLY/SOG exports are dropped, so an
+export or a share of this run is the isolated person.
+
+Framing came with it. `cut.js` returns the survivors' own extent (mean centre,
+90th-percentile radius — a few strays must not pull the camera back out to
+where the room was), the intro flight stops (it was orbiting at arm's length
+inside a room that no longer exists) and the figure is framed at eye level,
+3.2x its radius back. The publish card drops the pictures when it opens, so
+the last thing on screen is the avatar with a download-or-use row above it:
+Tom, 88,522 of 170,608 splats, on black.
+
+`tests/e2e/avatar_mode.mjs` no longer waits for `#av-yes` or clicks the two
+"Looks right" buttons; it screenshots each new picture instead (`_shot1.png`,
+`_shot2.png`, …) and polls every 5 s.
+
+## 2026-09-18b (the avatar UI moves to the top, and the decision to the start card)
+
+Three things the user asked for after the first live avatar run: the last
+stages' card was "squeezed and hard to read", when it finished it sat "right
+in front of the face", and the avatar choice should come at Start training,
+not when the video is read — "we need to mask before training not after video
+frame read".
+
+**The card was doing two jobs.** `app/avatar/runner.js` painted one 340 px
+`.upcard`, centred in the VIEWPORT, holding a nine-item stage grid AND every
+stage's review: three photographs at 200 px in a sideways scroller, a
+paragraph and two buttons, all in 340 px. So it was both unreadable and
+parked over the middle of the model.
+
+Now the two jobs are split:
+
+- **Progress → the dock**, the bar above the stage where the camera solve's
+  beats live (`ctx.mountDock`, `.dock-av`/`.av-bar`): the nine stages as one
+  short word each (`STAGE_BEAT` in manifest.js), the active one in the title
+  style, the stage's message under it, one meter for the whole run. Nothing
+  covers the model while a stage works.
+- **A card only for a decision** (joints, body fit, publish), absolute in the
+  stage at `top: 58px` — under the done-state Train/Share row, above the
+  face — `width: fit-content` up to 880 px, and gone again as soon as the
+  stage is answered (publish's card stays: it holds the result and its link).
+  The review frames grew 200 → 240 px and now sit side by side.
+
+**The decision moved to the start-training card.** A checkbox (`#set-avatar`,
+`.av-choice`) above the Start row on the detail card, own captures only (the
+matte reads the frames themselves). `startPrep` does the work in this order:
+drop the mattes if the box is clear, thin the picks if `?avframes` says so,
+then — with the box ticked and no manifest yet — `avatarPrep()` runs the matte
+as the run's FIRST BEAT (`MATTE_BEAT`, so the top bar says "Cutting the person
+out" while it works), shows the cut-outs sheet (`.av-sheet`: a sheet over the
+stage, not the whole window, so the dock stays visible), and only then is the
+session created with `trainingOptions`. The masks ride on the frame entries
+into `session.load`, as before. A "no" at the checkpoint continues as a plain
+scene, and the mattes are written back into the stored capture so reopening it
+skips the stage.
+
+Why it matters beyond taste: the matte is ~30 s on Tom's 65 frames and minutes
+on a 4K orbit, and it used to be spent before anyone had said they wanted to
+train that clip. The Avatar settings group now follows the box, so the toggles
+are there to set BEFORE the run instead of after the choice was locked in.
+
+**Checked** (`tests/e2e/avatar_mode.mjs`, updated for the new order: the box
+on the start card, the cut-outs after Start training, the stages watched on
+`#avbar`):
+
+| | |
+|---|---|
+| avatar run, Tom 65 frames, 1500 iters | matte 29 s → cut-outs → solve 65/65 → all nine stages → package saved |
+| plain run of the same clip (`--noavatar`) | 65 cameras, **0.1 % median / 0.3 % max** against COLMAP — the solver path is untouched |
+| unit | 8/8 (sift skipped: optional deps) |
+
+A synthetic layout probe (`scratch/cardprobe.mjs`) confirms the card no longer
+overlaps the controls row (card 320..960 × 181..500, controls 1044..1265 ×
+135..167) and that the phone width (390 px) wraps the beats and stacks the
+buttons; the 47 px of body overflow at that width is the header's, and
+pre-dates this work.
+
 ## 2026-09-18 (the avatar branch is main, and live)
 
 `feature/avatar-mode` merged into `main` as 385f9a1 (no-ff; the one conflict

@@ -66,8 +66,11 @@ export async function run(ctx, manifest, hooks) {
 }
 
 /** The checkpoint: the fitted mesh over the face crop and over a body frame. */
-export async function review(ctx, manifest, hooks) {
-  const body = hooks.body?.(); const S = ctx.surface; if (!body || !S) return true;
+/** The fitted surface drawn over two face crops and one body frame — shown
+ *  while the run carries on, never waited for (2026-09-18). It replaces the
+ *  joints picture on the card and stays until the run ends. */
+export async function preview(ctx, manifest, hooks) {
+  const S = ctx.surface; if (!hooks.shots || !S) return;
   const lm = manifest.stages.landmarks; const { session, frames } = ctx; const byName = new Map(frames.map((f) => [f.name, f]));
   const strip = document.createElement('div'); strip.className = 'av-overlay';
   // triangles spanning more than ~13 cm of depth are skipped (a poor man's back-face
@@ -81,23 +84,16 @@ export async function review(ctx, manifest, hooks) {
     const P = S.vertices.map((v) => { const x = cam.R[0] * v[0] + cam.R[1] * v[1] + cam.R[2] * v[2] + cam.t[0], y = cam.R[3] * v[0] + cam.R[4] * v[1] + cam.R[5] * v[2] + cam.t[1], z = cam.R[6] * v[0] + cam.R[7] * v[1] + cam.R[8] * v[2] + cam.t[2]; return z > 0 ? [((cam.f * x / z + cam.cx) - (crop ? crop.x0 : 0)) * scale, (((cam.fy ?? cam.f) * y / z + cam.cy) - (crop ? crop.y0 : 0)) * scale, z] : null; });
     g.beginPath();
     for (const [a, b, c] of S.faces) { const pa = P[a], pb = P[b], pc = P[c]; if (!pa || !pb || !pc) continue; if (Math.abs(pa[2] - pb[2]) > depthCut || Math.abs(pa[2] - pc[2]) > depthCut) continue; g.moveTo(pa[0], pa[1]); g.lineTo(pb[0], pb[1]); g.lineTo(pc[0], pc[1]); g.lineTo(pa[0], pa[1]); }
-    g.stroke(); cv.style.height = '200px'; cv.style.width = `${cv.width / cv.height * 200}px`; strip.appendChild(cv);
+    g.stroke(); cv.style.height = '240px'; cv.style.width = `${cv.width / cv.height * 240}px`; strip.appendChild(cv);
   };
   const cams = (lm.cropCams || []).slice().sort((a, b) => b.facePx - a.facePx).slice(0, 2);
   for (const cam of cams) {
     const entry = byName.get(cam.name); if (!entry) continue;
     const bmp = await createImageBitmap(entry.source); const c = new OffscreenCanvas(cam.side, cam.side); c.getContext('2d').drawImage(bmp, cam.x0, cam.y0, cam.side, cam.side, 0, 0, cam.side, cam.side); bmp.close();
-    await draw(c, { ...cam }, 400 / cam.side, { x0: 0, y0: 0 });
+    await draw(c, { ...cam }, 480 / cam.side, { x0: 0, y0: 0 });
   }
   const bodyCams = session.recon.cams.filter((c) => !c.crop); const bc = bodyCams[bodyCams.length >> 2]; const fr = session.frames[bc.imgIdx]; const entry = byName.get(fr.name);
-  if (entry) { const bmp = await createImageBitmap(entry.source); const s = fr.fw / bmp.width; const c = new OffscreenCanvas(fr.fw, fr.fh); c.getContext('2d').drawImage(bmp, 0, 0, fr.fw, fr.fh); bmp.close(); await draw(c, bc, 400 / fr.fh, null); void s; }
-  return new Promise((resolve) => {
-    body.innerHTML = ''; body.appendChild(strip);
-    const row = document.createElement('div'); row.className = 'upcard-row';
-    const st = manifest.stages.bodyfit;
-    row.innerHTML = `<p class="fine">The body model on her: landmarks ${st.landmarkResidualCm} cm${st.head ? `, face ${st.head.meanMm.toFixed(1)} mm` : ''}. This surface gives the skin weights and the lighting normals.</p><span style="display:flex;gap:8px"><button class="btn btn-outline" id="av-bf-no">Stop here</button><button class="btn btn-accent" id="av-bf-yes">Looks right</button></span>`;
-    body.appendChild(row);
-    row.querySelector('#av-bf-yes').onclick = () => { body.innerHTML = ''; resolve(true); };
-    row.querySelector('#av-bf-no').onclick = () => resolve(false);
-  });
+  if (entry) { const bmp = await createImageBitmap(entry.source); const s = fr.fw / bmp.width; const c = new OffscreenCanvas(fr.fw, fr.fh); c.getContext('2d').drawImage(bmp, 0, 0, fr.fw, fr.fh); bmp.close(); await draw(c, bc, 480 / fr.fh, null); void s; }
+  const st = manifest.stages.bodyfit;
+  hooks.shots(strip, `The body model on the capture — landmarks ${st.landmarkResidualCm} cm${st.head ? `, face ${st.head.meanMm.toFixed(1)} mm` : ''}; this surface carries the skin weights and the lighting normals`);
 }

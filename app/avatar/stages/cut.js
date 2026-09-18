@@ -84,6 +84,20 @@ export async function run(ctx, manifest, hooks) {
     j++;
   }
   log(`cut: hull ${hull.dim.join('x')} voxels of ${hull.cell.toFixed(3)}, ${(hull.fill * 100).toFixed(1)}% solid${hull.capped ? `, ${hull.capped.toLocaleString()} voxels above the top` : ''}${hull.dilatePx ? `, matte dilated ${hull.dilatePx} px` : ''}${hullOpts.sigma || hullOpts.maxOut ? `, verdict ${hullOpts.sigma || 2} sigma / ${hullOpts.maxOut || 4} of 6` : ''}; ${kept.toLocaleString()} of ${n.toLocaleString()} splats are the person`);
+  // the isolated person's extent, so the viewer can frame HIM once it adopts
+  // this model (app.js adoptSession): the mean of the survivors' centres and
+  // the 90th-percentile distance from it — a few strays must not pull the
+  // camera back out to where the room was
+  let bounds = null;
+  if (kept > 32) {
+    let cx = 0, cy = 0, cz = 0;
+    for (let i = 0; i < kept; i++) { const b = i * STRIDE; cx += data2[b]; cy += data2[b + 1]; cz += data2[b + 2]; }
+    cx /= kept; cy /= kept; cz /= kept;
+    const d = new Float32Array(kept);
+    for (let i = 0; i < kept; i++) { const b = i * STRIDE; d[i] = Math.hypot(data2[b] - cx, data2[b + 1] - cy, data2[b + 2] - cz); }
+    d.sort();
+    bounds = { center: [cx, cy, cz], radius: d[Math.floor(kept * 0.9)] || d[kept - 1] || 1 };
+  }
   // 3. a fresh session on the same frames and cameras, seeded with the survivors
   hooks.progress?.(2, 4, 'loading the isolated model …');
   const iter = src.trainer.iter;
@@ -107,5 +121,5 @@ export async function run(ctx, manifest, hooks) {
   await ses.seedFrom({ data: data2, n: kept, sh: sh2, shK, dc: raw.dc }, { iter });
   hooks.progress?.(4, 4, 'isolated');
   ctx.session = ses; ctx.cutSession = ses; ctx.plyBlob = null; ctx.sogBlob = null;
-  return { splats: kept, of: n, hull: { dim: hull.dim, cell: hull.cell, fill: hull.fill }, note: `${kept.toLocaleString()} of ${n.toLocaleString()} splats` };
+  return { splats: kept, of: n, hull: { dim: hull.dim, cell: hull.cell, fill: hull.fill }, ...(bounds ? { bounds } : {}), note: `${kept.toLocaleString()} of ${n.toLocaleString()} splats` };
 }
