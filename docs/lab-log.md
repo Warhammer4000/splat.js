@@ -4,6 +4,39 @@ What we tried, what it did, what it cost. Newest first. PSNR numbers are
 held-out (eval8) unless noted; "noise band" on repeated truck 40k runs is
 about ±0.1 dB.
 
+## 2026-09-18 (the avatar branch is main, and live)
+
+`feature/avatar-mode` merged into `main` as 385f9a1 (no-ff; the one conflict
+was this file, resolved to the branch's copy, a superset). Main's two extra
+commits were both cherry-picks already on the branch (804a6f2 share sign-in,
+b20450f refine-patch dummies), so the merged tree equals the branch tip
+(`git diff` empty). The local branch is deleted; it never existed on origin.
+The `../splat-js-main` worktree (the port-8735 comparison server) is gone.
+
+Unit 8/8 (sift skipped: optional deps). The quality gates ran on this tree
+yesterday (09-17m): truck-ate, truckfull-ate 251/251, tom-ate 65/65, camping.
+
+**Deploy (local, untracked scripts):** `deploy_live.mjs` and `deploy_nightly.mjs`
+never uploaded `app/avatar/` or `app/models/` — the direct push lists its
+directories by name — and the avatar modules import `src` one and two levels
+deeper than `js/` (`'../../src/'`, `'../../../src/'`), so the root rewrite
+missed them: the avatar checkbox would have been on live with a 404 behind
+it. Both scripts now rewrite `avatar/` and `avatar/stages/` and push
+`avatar/` (js no-cache, the rig glb long-cached) and `models/` (26 MB,
+long-cached). Live verified by fetch: stamp `385f9a1 · 2026-09-18 08:56Z` on
+both the extensionless twin and `index.html`; `avatar/index.js` served as
+application/javascript with `'../src/sfm/sfm.js'`; `stages/cut.js` with
+`'../../src/index.js'`; the four models and the rig at their full sizes.
+The overlay is committed in client_git (0760649e4, merged over #103 as
+bf494222d) — identical to the dist by `diff -r`.
+
+**What a visitor gets now:** the "This is a person" checkbox on the video
+review card; with it, the avatar path with every specific off by default
+(a plain scene solve and train, then matte, isolate with the hard top and
+the generous verdict, body fit, bind, publish). The README does not mention
+the avatar path yet — it is a public claim only once it is written down
+(see readme-deploy-lockstep), so that is the next lockstep item, not this one.
+
 ## 2026-09-17n (the Isolate cut: a hard top, a generous verdict)
 
 The user on the last avatar export: hands, feet and the face chipped
